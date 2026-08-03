@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}ダッシュボード - 支払い管理{% endblock %}
+
+{% block content %}
+<section class="summary-cards">
+  <div class="card">
+    <div class="card-label">未払い件数</div>
+    <div class="card-value">{{ unpaid_count }}件</div>
+  </div>
+  <div class="card">
+    <div class="card-label">未払い合計金額</div>
+    <div class="card-value">¥{{ unpaid_total | money }}</div>
+  </div>
+  <div class="card card-warning">
+    <div class="card-label">期限超過</div>
+    <div class="card-value">{{ overdue_count }}件</div>
+  </div>
+</section>
+
+<section class="upload-section">
+  <h2>請求書PDFを取り込む</h2>
+  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+    <input type="file" name="pdfs" accept="application/pdf" multiple required>
+    <button type="submit">アップロードして自動登録</button>
+  </form>
+  <p class="hint">
+    金額・支払先・期限はPDFから自動抽出されます。抽出に失敗した項目や間違っている項目は、
+    一覧の「編集」から修正してください。
+  </p>
+</section>
+
+<section>
+  <h2>未払い一覧</h2>
+  {% if unpaid %}
+  <table class="invoice-table">
+    <thead>
+      <tr>
+        <th>支払先</th>
+        <th>金額</th>
+        <th>支払期限</th>
+        <th>発行日</th>
+        <th>状態</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in unpaid %}
+      {% set status = inv | due_status %}
+      <tr class="row-{{ status }}">
+        <td>{{ inv.payee or "(未入力)" }}</td>
+        <td>¥{{ inv.amount | money }}</td>
+        <td>
+          {{ inv.due_date or "(未入力)" }}
+          {% if status == "overdue" %}<span class="badge badge-danger">期限超過</span>{% endif %}
+          {% if status == "soon" %}<span class="badge badge-warning">まもなく</span>{% endif %}
+        </td>
+        <td>{{ inv.issue_date or "-" }}</td>
+        <td>未払い</td>
+        <td class="actions">
+          <a href="{{ url_for('edit', invoice_id=inv.id) }}">編集</a>
+          <a href="{{ url_for('uploaded_file', filename=inv.pdf_filename) }}" target="_blank">PDF</a>
+          <form action="{{ url_for('pay', invoice_id=inv.id) }}" method="post" class="inline-form">
+            <button type="submit">支払済みにする</button>
+          </form>
+          <form action="{{ url_for('delete', invoice_id=inv.id) }}" method="post" class="inline-form"
+                onsubmit="return confirm('この請求書を削除しますか？');">
+            <button type="submit" class="danger">削除</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">未払いの請求書はありません。</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>支払済み一覧</h2>
+  {% if paid %}
+  <table class="invoice-table">
+    <thead>
+      <tr>
+        <th>支払先</th>
+        <th>金額</th>
+        <th>支払日</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in paid %}
+      <tr>
+        <td>{{ inv.payee or "(未入力)" }}</td>
+        <td>¥{{ inv.amount | money }}</td>
+        <td>{{ inv.paid_date }}</td>
+        <td class="actions">
+          <a href="{{ url_for('edit', invoice_id=inv.id) }}">編集</a>
+          <a href="{{ url_for('uploaded_file', filename=inv.pdf_filename) }}" target="_blank">PDF</a>
+          <form action="{{ url_for('unpay', invoice_id=inv.id) }}" method="post" class="inline-form">
+            <button type="submit">未払いに戻す</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">支払済みの請求書はまだありません。</p>
+  {% endif %}
+</section>
+{% endblock %}

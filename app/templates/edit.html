@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}編集 - 支払い管理{% endblock %}
+
+{% block content %}
+<h2>請求書を編集</h2>
+
+<p><a href="{{ url_for('uploaded_file', filename=invoice.pdf_filename) }}" target="_blank">元のPDFを開く</a></p>
+
+<form action="{{ url_for('edit', invoice_id=invoice.id) }}" method="post" class="edit-form">
+  <label>
+    支払先
+    <input type="text" name="payee" value="{{ invoice.payee or '' }}">
+  </label>
+
+  <label>
+    金額(円)
+    <input type="text" name="amount" value="{{ invoice.amount if invoice.amount is not none else '' }}">
+  </label>
+
+  <label>
+    発行日(YYYY-MM-DD)
+    <input type="text" name="issue_date" value="{{ invoice.issue_date or '' }}" placeholder="2026-08-01">
+  </label>
+
+  <label>
+    支払期限(YYYY-MM-DD)
+    <input type="text" name="due_date" value="{{ invoice.due_date or '' }}" placeholder="2026-08-31">
+  </label>
+
+  <label>
+    メモ
+    <textarea name="memo" rows="3">{{ invoice.memo or '' }}</textarea>
+  </label>
+
+  <div class="form-actions">
+    <button type="submit">保存</button>
+    <a href="{{ url_for('index') }}">戻る</a>
+  </div>
+</form>
+
+<details class="raw-text">
+  <summary>抽出した元テキストを見る(参考)</summary>
+  <pre>{{ invoice.raw_text }}</pre>
+</details>
+{% endblock %}
