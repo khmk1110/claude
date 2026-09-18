@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>タスク管理</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+  <h1>タスク管理</h1>
+
+  <div class="summary">
+    <div class="summary-item overdue">期限切れ: {{ overdue_count }}</div>
+    <div class="summary-item due-soon">期限間近: {{ due_soon_count }}</div>
+  </div>
+
+  <form method="post" action="{{ url_for('create_task') }}" class="task-form">
+    <h2>新しいタスク</h2>
+    <input type="text" name="title" placeholder="タイトル" required>
+    <textarea name="description" placeholder="詳細(任意)" rows="2"></textarea>
+    <div class="form-row">
+      <input type="text" name="category" placeholder="カテゴリ(任意)">
+      <select name="priority">
+        {% for p in PRIORITIES %}
+        <option value="{{ p }}" {% if p == 'medium' %}selected{% endif %}>優先度: {{ PRIORITY_LABELS[p] }}</option>
+        {% endfor %}
+      </select>
+      <input type="date" name="due_date">
+      <button type="submit">追加</button>
+    </div>
+  </form>
+
+  <form method="get" action="{{ url_for('index') }}" class="filter-form">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">すべての状態</option>
+      {% for s in STATUSES %}
+      <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ STATUS_LABELS[s] }}</option>
+      {% endfor %}
+    </select>
+    <select name="category" onchange="this.form.submit()">
+      <option value="">すべてのカテゴリ</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if category_filter == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <select name="sort" onchange="this.form.submit()">
+      <option value="due_date" {% if sort == 'due_date' %}selected{% endif %}>期限順</option>
+      <option value="priority" {% if sort == 'priority' %}selected{% endif %}>優先度順</option>
+      <option value="created" {% if sort == 'created' %}selected{% endif %}>作成日順</option>
+    </select>
+  </form>
+
+  <ul class="task-list">
+    {% for task in tasks %}
+    <li class="task-item {{ task.urgency }} status-{{ task.status }}">
+      <div class="task-main">
+        <span class="badge priority-{{ task.priority }}">{{ PRIORITY_LABELS[task.priority] }}</span>
+        {% if task.category %}<span class="badge category">{{ task.category }}</span>{% endif %}
+        <span class="title">{{ task.title }}</span>
+        {% if task.due_date %}
+        <span class="due-date">
+          期限: {{ task.due_date }}
+          {% if task.urgency == 'overdue' %}(期限切れ){% elif task.urgency == 'due_soon' %}(まもなく){% endif %}
+        </span>
+        {% endif %}
+      </div>
+      {% if task.description %}<div class="task-desc">{{ task.description }}</div>{% endif %}
+      <div class="task-actions">
+        <form method="post" action="{{ url_for('update_status', task_id=task.id) }}" class="inline-form">
+          <input type="hidden" name="status_filter" value="{{ status_filter }}">
+          <input type="hidden" name="category_filter" value="{{ category_filter }}">
+          <input type="hidden" name="sort" value="{{ sort }}">
+          <select name="status" onchange="this.form.submit()">
+            {% for s in STATUSES %}
+            <option value="{{ s }}" {% if s == task.status %}selected{% endif %}>{{ STATUS_LABELS[s] }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <a href="{{ url_for('edit_task_form', task_id=task.id) }}" class="link-btn">編集</a>
+        <form method="post" action="{{ url_for('delete_task', task_id=task.id) }}" class="inline-form"
+              onsubmit="return confirm('このタスクを削除しますか?');">
+          <input type="hidden" name="status_filter" value="{{ status_filter }}">
+          <input type="hidden" name="category_filter" value="{{ category_filter }}">
+          <input type="hidden" name="sort" value="{{ sort }}">
+          <button type="submit" class="danger">削除</button>
+        </form>
+      </div>
+    </li>
+    {% else %}
+    <li class="empty">タスクはありません。</li>
+    {% endfor %}
+  </ul>
+</div>
+</body>
+</html>
