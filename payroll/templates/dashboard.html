@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block monthbar %}{% include "_monthbar.html" %}{% endblock %}
+{% block content %}
+<h1>ダッシュボード <small>{{ month_label(month) }}</small></h1>
+
+<section class="flow">
+  <a href="{{ url_for('main.monthly', month=month) }}" class="step {{ 'done' if rows }}"><b>1</b>今月分を作成</a>
+  <a href="{{ url_for('main.monthly', month=month) }}" class="step {{ 'done' if rows and not summary.errors }}"><b>2</b>数字を入力</a>
+  <span class="step done"><b>3</b>自動計算</span>
+  <a href="{{ url_for('main.monthly', month=month) }}" class="step {{ 'done' if rows and not summary.errors }}"><b>4</b>エラー確認</a>
+  <a href="{{ url_for('main.payments', month=month) }}" class="step {{ 'done' if rows and not summary.unchecked }}"><b>5</b>支払一覧確認</a>
+  <a href="{{ url_for('main.payments', month=month) }}" class="step {{ 'done' if closed }}"><b>6</b>締め</a>
+  <a href="{{ url_for('main.payslip_all', month=month) }}" class="step"><b>7</b>明細・PDF出力</a>
+</section>
+
+{% if not rows %}
+<div class="empty">
+  <p>{{ month_label(month) }}のデータはまだありません。</p>
+  <a class="btn primary" href="{{ url_for('main.monthly', month=month) }}">月次入力へ進む</a>
+</div>
+{% else %}
+<section class="cards">
+  <div class="card"><div class="k">対象人数</div><div class="v">{{ summary.people }}<small>名</small></div></div>
+  <div class="card big"><div class="k">支払総額</div><div class="v">{{ summary.payment_total|yen }}<small>円</small></div>
+    {% if summary.uncomputed %}<div class="note">※ 未計算 {{ summary.uncomputed }}名分を含みません</div>{% endif %}</div>
+  <div class="card"><div class="k">営業報酬合計</div><div class="v">{{ summary.sales_reward|yen }}<small>円</small></div></div>
+  <div class="card"><div class="k">交通費合計</div><div class="v">{{ summary.transport|yen }}<small>円</small></div></div>
+  <div class="card"><div class="k">立替金合計</div><div class="v">{{ summary.advance|yen }}<small>円</small></div></div>
+  <div class="card"><div class="k">立替・経費合計</div><div class="v">{{ summary.expense|yen }}<small>円</small></div></div>
+  <div class="card"><div class="k">その他・契約報酬合計</div><div class="v">{{ summary.other|yen }}<small>円</small></div></div>
+  <div class="card"><div class="k">ガソリン代合計（控除）</div><div class="v minus">{{ summary.gasoline|yen }}<small>円</small></div></div>
+</section>
+
+<section class="status">
+  <div class="{{ 'bad' if summary.errors else 'good' }}">エラー・入力漏れ：{{ summary.errors }}件</div>
+  <div class="{{ 'warn' if summary.warnings else 'good' }}">要確認：{{ summary.warnings }}件</div>
+  <div class="{{ 'warn' if summary.unchecked else 'good' }}">未確認（チェック前）：{{ summary.unchecked }}名</div>
+</section>
+
+{% if summary.errors or summary.warnings %}
+<h2>エラー・要確認の一覧</h2>
+<table class="grid">
+  <tr><th>氏名</th><th>内容</th></tr>
+  {% for row in rows if row.issues %}
+  <tr><td>{{ row.name }}</td><td>{% include "_issues.html" %}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>個人別履歴</h1>
+<form method="get" class="inline">
+  <label>氏名
+    <select name="member_id" onchange="this.form.submit()"><option value="">選択してください</option>
+      {% for m in members %}<option value="{{ m.id }}" {{ 'selected' if member and m.id == member.id }}>{{ m.name }}</option>{% endfor %}
+    </select></label>
+</form>
+{% if member %}
+<table class="grid">
+  <thead><tr><th>対象月</th><th>区分</th><th>出勤日数</th><th>前月件数</th><th>当月件数</th><th class="money">単価</th>
+    <th class="money">営業報酬</th><th class="money">交通費</th><th class="money">立替金</th><th class="money">立替・経費</th>
+    <th class="money">その他</th><th class="money">ガソリン</th><th class="money">支払総額</th><th>状態</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td><a href="{{ url_for('main.payslip', month=r.month, member_id=member.id) }}">{{ month_label(r.month) }}</a></td>
+    <td>{{ r.category_label }}</td><td>{{ r.work_days if r.work_days is not none else '—' }}</td>
+    <td>{{ r.prev_count if r.prev_count is not none else '—' }}</td><td>{{ r.acquisitions if r.acquisitions is not none else '—' }}</td>
+    <td class="money">{{ r.rate|yen or '—' }}</td><td class="money">{{ r.sales_reward|yen or '—' }}</td>
+    <td class="money">{{ r.totals.transport|yen }}</td><td class="money">{{ r.totals.advance|yen }}</td>
+    <td class="money">{{ r.totals.expense|yen }}</td><td class="money">{{ r.other_total|yen }}</td>
+    <td class="money minus">{{ r.totals.gasoline|yen }}</td><td class="money strong">{{ r.payment_total|yen or '—' }}</td>
+    <td>{{ '締め済' if r.closed else '入力中' }}{% if r.errors %} <span class="issue error">エラー{{ r.errors|length }}</span>{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="14" class="muted">履歴がありません</td></tr>{% endfor %}
+  </tbody>
+  {% if rows %}<tfoot><tr><th colspan="12">支払総額の累計（計算済みの月）</th>
+    <th class="money strong">{{ rows|map(attribute='payment_total')|reject('none')|sum|yen }}</th><th></th></tr></tfoot>{% endif %}
+</table>
+{% endif %}
+{% endblock %}

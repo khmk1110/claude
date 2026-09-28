@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>単価表 <small>個人事業主（システム固定・変更不可）</small></h1>
+<p class="hint">列＝<b>前月</b>獲得件数、行＝<b>当月</b>出勤日数。決定した単価に<b>当月</b>獲得件数を掛けて営業報酬を計算します。（単価表バージョン：{{ rates.RATE_TABLE_VERSION }}）</p>
+<table class="grid rates">
+  <thead><tr><th>当月出勤日数 ＼ 前月獲得件数</th>{% for b in rates.COUNT_BANDS %}<th class="money">{{ b[2] }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for d in rates.DAY_BANDS %}{% set i = loop.index0 %}
+  <tr><th>{{ d[2] }}</th>{% for v in rates.RATES[i] %}<td class="money">{{ v|yen }}</td>{% endfor %}</tr>
+  {% endfor %}
+  </tbody>
+</table>
+<h2>計算例</h2>
+<p>8月獲得 61件（前月）＋ 9月出勤 20日 → 「60～79件」×「19～21日」＝ 単価 6,750円<br>
+9月獲得 50件 × 6,750円 ＝ <b>9月の営業報酬 337,500円</b></p>
+{% endblock %}

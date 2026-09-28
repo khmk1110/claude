@@ -1,0 +1,13 @@
+<form class="monthbar no-print" method="get">
+  <a class="btn ghost" href="?month={{ prev_month }}{% if member_id %}&member_id={{ member_id }}{% endif %}">◀ 前月</a>
+  <label>対象月 <input type="month" name="month" value="{{ month }}" onchange="this.form.submit()"></label>
+  {% if member_id %}<input type="hidden" name="member_id" value="{{ member_id }}">{% endif %}
+  <a class="btn ghost" href="?month={{ next_month }}{% if member_id %}&member_id={{ member_id }}{% endif %}">翌月 ▶</a>
+  <strong class="month-title">{{ month_label(month) }}</strong>
+  {% if closed %}<span class="badge closed">締め済み（金額固定）</span>{% else %}<span class="badge open">入力中</span>{% endif %}
+  {% if known_months %}
+  <span class="known">保存済みの月：
+    {% for km in known_months[:12] %}<a href="?month={{ km }}" class="{{ 'on' if km==month }}">{{ month_label(km) }}</a>{% endfor %}
+  </span>
+  {% endif %}
+</form>

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block monthbar %}{% include "_monthbar.html" %}{% endblock %}
+{% block content %}
+<h1>① 月次入力 <small>{{ month_label(month) }}</small></h1>
+
+<div class="legend">
+  <span><i class="sw input"></i>入力する欄（白）</span>
+  <span><i class="sw auto"></i>自動計算（グレー・編集不可）</span>
+  <span class="hint">単価は「前月獲得件数 ＋ 当月出勤日数」で決定 → 営業報酬 ＝ <b>当月</b>獲得件数 × 単価</span>
+</div>
+
+{% if not rows %}
+<div class="empty">
+  <p>{{ month_label(month) }}の入力行がまだありません。</p>
+  {% if not members %}
+    <p>先に<a href="{{ url_for('main.members', month=month) }}">メンバー管理</a>でメンバーを登録してください。</p>
+  {% elif not closed %}
+  <form method="post" action="{{ url_for('main.monthly_create', month=month) }}">
+    <button class="btn primary big">【{{ month_label(month) }}分を作成】</button>
+  </form>
+  {% endif %}
+</div>
+{% else %}
+
+{% if not closed %}
+<form method="post" action="{{ url_for('main.monthly_create', month=month) }}" class="inline right">
+  <button class="btn ghost small" title="メンバーを追加した場合に押してください">新メンバー分の行を追加</button>
+</form>
+{% endif %}
+
+<h2>A. 出勤日数・獲得件数</h2>
+<form method="post" action="{{ url_for('main.monthly_save', month=month) }}" id="recform">
+<table class="grid input-table">
+  <thead>
+  <tr>
+    <th>氏名</th><th>区分</th>
+    <th class="in">当月出勤日数<br><small>0～{{ days_in_month }}日</small></th>
+    <th class="in">当月獲得件数<br><small>報酬計算用</small></th>
+    <th class="au">前月獲得件数<br><small>単価判定用</small></th>
+    <th class="au">単価</th>
+    <th class="au">営業報酬</th>
+    <th class="au">支払総額</th>
+    <th>状態</th>
+  </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+  <tr data-member="{{ row.member_id }}">
+    <td class="name">{{ row.name }}</td>
+    <td>{{ row.category_label }}</td>
+    <td class="in"><input type="number" inputmode="numeric" name="wd_{{ row.member_id }}" min="0" max="{{ days_in_month }}" step="1" value="{{ row.work_days if row.work_days is not none }}" {{ 'disabled' if closed }} class="num" data-f="work_days"></td>
+    <td class="in"><input type="number" inputmode="numeric" name="acq_{{ row.member_id }}" min="0" step="1" value="{{ row.acquisitions if row.acquisitions is not none }}" {{ 'disabled' if closed }} class="num" data-f="acquisitions"></td>
+    <td class="au">
+      {% if row.has_prev_record %}
+        <span data-o="prev_count">{{ row.prev_count if row.prev_count is not none else '—' }}</span>
+        <input type="hidden" name="prev_{{ row.member_id }}" value="">
+        <div class="src">{{ short_month_label(prev_month) }}の実績から自動</div>
+      {% else %}
+        <input type="number" inputmode="numeric" name="prev_{{ row.member_id }}" min="0" step="1" value="{{ row.prev_count_manual if row.prev_count_manual is not none }}" {{ 'disabled' if closed }} class="num manual" data-f="prev_manual" placeholder="手入力">
+        <div class="src warn">前月データなし（移行初月のみ手入力）</div>
+      {% endif %}
+    </td>
+    <td class="au money"><span data-o="rate">{{ row.rate|yen or '—' }}</span></td>
+    <td class="au money"><span data-o="sales_reward">{{ row.sales_reward|yen or '—' }}</span>
+      {% if row.sales_reward is not none %}<div class="src" data-o="formula">{{ row.acquisitions }}件 × {{ row.rate|yen }}円</div>{% endif %}</td>
+    <td class="au money strong"><span data-o="payment_total">{{ row.payment_total|yen or '—' }}</span></td>
+    <td class="issues-cell" data-o="issues">
+      {% if not row.issues %}<span class="ok">OK</span>{% endif %}
+      {% include "_issues.html" %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if not closed %}
+<div class="actions"><span id="dirty" class="dirty" hidden>未保存の変更があります</span><button class="btn primary">入力内容を保存</button></div>
+{% endif %}
+</form>
+
+<h2>B. 交通費・立替金・ガソリン代・その他報酬（内訳）</h2>
+{% if not closed %}
+<form method="post" action="{{ url_for('main.items_add', month=month) }}" class="item-form">
+  <label>対象者
+    <select name="member_id" required>
+      <option value="">選択</option>
+      {% for row in rows %}<option value="{{ row.member_id }}">{{ row.name }}</option>{% endfor %}
+    </select></label>
+  <label>項目
+    <select name="item_type" required id="item_type">
+      <option value="">選択</option>
+      {% for k, t in ITEM_TYPES.items() %}<option value="{{ k }}">{{ t.label }}{{ '（控除）' if t.sign < 0 }}</option>{% endfor %}
+    </select></label>
+  <label>対象月（何月分）<input type="month" name="target_month" value="{{ month }}" required></label>
+  <label>金額（円）<input type="number" inputmode="numeric" name="amount" min="1" step="1" required class="num"></label>
+  <label class="wide">内容<input type="text" name="description" maxlength="100" placeholder="例：ワースリビング分調整後 / サウナコンサル / プロパン"></label>
+  <button class="btn primary">追加</button>
+  <p class="hint" id="type_hint">交通費は<b>ワースリビングの交通費から35,000円を差し引いた後の金額</b>を入力してください（明細には控除は表示されません）。</p>
+</form>
+{% endif %}
+
+<table class="grid">
+  <thead><tr><th>対象者</th><th>項目</th><th>対象月</th><th class="money">金額</th><th>内容</th><th></th></tr></thead>
+  <tbody>
+  {% set ns = namespace(n=0) %}
+  {% for row in rows %}{% for it in row['items'] %}{% set ns.n = ns.n + 1 %}
+  <tr>
+    <td>{{ row.name }}</td>
+    <td>{{ ITEM_TYPES[it.item_type].label }}</td>
+    <td>{{ month_label(it.target_month) if it.target_month else '—' }}</td>
+    <td class="money {{ 'minus' if ITEM_TYPES[it.item_type].sign < 0 }}">{{ '－' if ITEM_TYPES[it.item_type].sign < 0 }}{{ it.amount|yen }}</td>
+    <td>{{ it.description }}</td>
+    <td>{% if not closed %}
+      <form method="post" action="{{ url_for('main.items_delete', item_id=it.id) }}" onsubmit="return confirm('この項目を削除しますか？')">
+        <input type="hidden" name="next" value="{{ url_for('main.monthly', month=month) }}">
+        <button class="btn ghost small">削除</button></form>{% endif %}</td>
+  </tr>
+  {% endfor %}{% endfor %}
+  {% if not ns.n %}<tr><td colspan="6" class="muted">まだ登録されていません</td></tr>{% endif %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const month = {{ month|tojson }};
+  const fmt = v => v === null || v === undefined ? '—' : Number(v).toLocaleString('ja-JP');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let dirty = false;
+  // 数字以外は入力できないようにする
+  document.querySelectorAll('input.num').forEach(el => {
+    el.addEventListener('keydown', e => { if (['e', 'E', '+', '-', '.'].includes(e.key)) e.preventDefault(); });
+  });
+  document.querySelectorAll('#recform tr[data-member]').forEach(tr => {
+    tr.querySelectorAll('input[data-f]').forEach(inp => inp.addEventListener('input', () => {
+      dirty = true;
+      document.getElementById('dirty').hidden = false;
+      tr.classList.add('changed');
+      const q = new URLSearchParams({ month, member_id: tr.dataset.member });
+      tr.querySelectorAll('input[data-f]').forEach(i => q.set(i.dataset.f, i.value));
+      fetch('{{ url_for("main.api_preview") }}?' + q).then(r => r.json()).then(d => {
+        const set = (k, v) => { const el = tr.querySelector('[data-o="' + k + '"]'); if (el) el.textContent = v; };
+        if (tr.querySelector('[data-o="prev_count"]')) set('prev_count', fmt(d.prev_count));
+        set('rate', fmt(d.rate)); set('sales_reward', fmt(d.sales_reward)); set('payment_total', fmt(d.payment_total));
+        const f = tr.querySelector('[data-o="formula"]'); if (f) f.textContent = '';
+        tr.querySelector('[data-o="issues"]').innerHTML =
+          '<div class="issue warning">未保存</div>' +
+          d.issues.map(m => '<div class="issue">' + esc(m) + '</div>').join('');
+      });
+    }));
+  });
+  const form = document.getElementById('recform');
+  if (form) form.addEventListener('submit', () => { dirty = false; });
+  window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  const typeSel = document.getElementById('item_type');
+  const hints = {
+    transport: '交通費は<b>ワースリビングの交通費から35,000円を差し引いた後の金額</b>を入力してください（明細には控除は表示されません）。',
+    gasoline: 'ガソリン代は支払額から<b>控除</b>されます。「対象月」に何月分のガソリン代かを必ず入力してください。複数月分は月ごとに1行ずつ追加します。',
+    expense: '立替・経費（会社負担）：食事代など。堀田さんは35,000円以内が目安です（超えると警告が出ます）。',
+    contract_reward: '契約報酬：営業報酬とは別の契約報酬（例：サウナコンサル 30,000円、プロパン等）。内容は必須です。',
+    advance: '立替金：本人が立て替えた金額を入力します。',
+    other_reward: 'その他報酬：上記以外の報酬。内容を入力してください。',
+  };
+  if (typeSel) typeSel.addEventListener('change', () => {
+    document.getElementById('type_hint').innerHTML = hints[typeSel.value] || hints.transport;
+  });
+})();
+</script>
+{% endblock %}

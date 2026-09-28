@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}報酬明細 {{ month_label(month) }}{% endblock %}
+{% block monthbar %}{% include "_monthbar.html" %}{% endblock %}
+{% block content %}
+<div class="no-print">
+  <h1>③ 個人別明細 <small>{{ month_label(month) }}</small></h1>
+  <form method="get" class="inline">
+    <input type="hidden" name="month" value="{{ month }}">
+    <label>氏名
+      <select name="member_id" onchange="this.form.submit()">
+        <option value="">選択してください</option>
+        {% for r in rows %}<option value="{{ r.member_id }}" {{ 'selected' if r.member_id == member_id }}>{{ r.name }}</option>{% endfor %}
+      </select></label>
+    <a class="btn ghost" href="{{ url_for('main.payslip_all', month=month) }}">全員分を表示</a>
+    {% if slips %}<button type="button" class="btn primary" onclick="window.print()">PDF出力（印刷）</button>
+    <span class="hint">印刷画面で「送信先：PDFに保存」を選ぶとPDFになります</span>{% endif %}
+  </form>
+  {% if not rows %}<p class="muted">{{ month_label(month) }}のデータがありません。</p>{% endif %}
+</div>
+
+{% for row in slips %}
+<article class="slip">
+  <header>
+    <h2>{{ '報酬明細書' if row.category == 'contractor' else '給与明細書' }}</h2>
+    <div class="slip-meta">
+      <div>対象月：<b>{{ month_label(month) }}</b></div>
+      <div>氏名：<b>{{ row.name }}</b> 様</div>
+    </div>
+  </header>
+  {% if row.errors or (row.payment_total is none) %}
+    <div class="issue error">この明細は未完成です（入力漏れ・要確認があります）。</div>
+    {% include "_issues.html" %}
+  {% endif %}
+  <table class="slip-table">
+    <tr class="sec"><th colspan="2">支給</th></tr>
+    {% if row.category == 'contractor' %}
+    <tr><td>営業報酬
+        <div class="src">{% if row.sales_reward is not none %}{{ row.acquisitions }}件 × {{ row.rate|yen }}円{% endif %}</div></td>
+        <td class="money">{{ row.sales_reward|yen or '—' }}円</td></tr>
+    {% endif %}
+    {% if row.car_allowance %}<tr><td>車手当</td><td class="money">{{ row.car_allowance|yen }}円</td></tr>{% endif %}
+    {% for it in row['items'] if ITEM_TYPES[it.item_type].sign > 0 %}
+    <tr><td>{{ it.description if it.item_type == 'contract_reward' else ITEM_TYPES[it.item_type].label }}
+        {# 内容（メモ）は社内用。明細には報酬名として必要なその他報酬のみ表示する #}
+        {% if it.item_type == 'other_reward' and it.description %}<div class="src">{{ it.description }}</div>{% endif %}
+        {% if it.target_month and it.target_month != month %}<div class="src">{{ short_month_label(it.target_month) }}分</div>{% endif %}</td>
+        <td class="money">{{ it.amount|yen }}円</td></tr>
+    {% endfor %}
+    {% set deductions = row['items']|selectattr('item_type', 'equalto', 'gasoline')|list %}
+    {% if deductions %}
+    <tr class="sec"><th colspan="2">控除</th></tr>
+    {% for it in deductions %}
+    <tr><td>ガソリン代<div class="src">{{ short_month_label(it.target_month) }}分</div></td>
+        <td class="money minus">－{{ it.amount|yen }}円</td></tr>
+    {% endfor %}
+    {% endif %}
+    <tr class="total"><th>支払総額</th><td class="money">{{ row.payment_total|yen or '—' }}{{ '円' if row.payment_total is not none }}</td></tr>
+  </table>
+  {% if row.category == 'contractor' and row.rate is not none %}
+  <p class="basis">単価決定根拠：前月獲得件数 {{ row.prev_count }}件 ／ 当月出勤日数 {{ row.work_days }}日 → 単価 {{ row.rate|yen }}円</p>
+  {% endif %}
+  <footer class="slip-foot">{{ '締め済み' if row.closed else '※未締め（数値が変わる可能性があります）' }}</footer>
+</article>
+{% endfor %}
+{% endblock %}

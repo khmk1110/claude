@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>変更履歴 <small>直近300件</small></h1>
+<table class="grid">
+  <thead><tr><th>日時</th><th>対象月</th><th>対象者</th><th>操作</th><th>内容</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+  <tr><td class="muted">{{ e.ts }}</td><td>{{ month_label(e.month) if e.month else '' }}</td><td>{{ e.member_name or '' }}</td><td>{{ e.action }}</td><td>{{ e.detail }}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">履歴はありません</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

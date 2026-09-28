@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block monthbar %}{% include "_monthbar.html" %}{% endblock %}
+{% block content %}
+<h1>② 支払一覧 <small>{{ month_label(month) }}</small></h1>
+{% if not rows %}
+<div class="empty"><p>データがありません。</p><a class="btn primary" href="{{ url_for('main.monthly', month=month) }}">月次入力へ</a></div>
+{% else %}
+<div class="toolbar no-print">
+  <a class="btn ghost" href="{{ url_for('main.export_payments_csv', month=month) }}">CSV出力</a>
+  <a class="btn ghost" href="{{ url_for('main.export_payments_xlsx', month=month) }}">Excel出力</a>
+  <a class="btn ghost" href="{{ url_for('main.payslip_all', month=month) }}">全員分の明細を表示・PDF出力</a>
+  <button class="btn ghost" onclick="window.print()">この一覧を印刷</button>
+</div>
+<table class="grid pay">
+  <thead><tr>
+    <th>氏名</th><th>区分</th><th class="money">営業報酬</th><th class="money">交通費</th><th class="money">立替金</th>
+    <th class="money">立替・経費</th><th class="money">その他</th><th class="money">ガソリン<br><small>（控除）</small></th>
+    <th class="money">支払総額</th><th>確認</th><th>エラー・要確認</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr class="{{ 'has-error' if row.errors }}">
+    <td class="name"><a href="{{ url_for('main.payslip', month=month, member_id=row.member_id) }}">{{ row.name }}</a></td>
+    <td>{{ row.category_label }}</td>
+    <td class="money">{{ row.sales_reward|yen or '—' }}{% if row.sales_reward is not none %}<div class="src">{{ row.acquisitions }}件×{{ row.rate|yen }}</div>{% endif %}</td>
+    <td class="money">{{ row.totals.transport|yen }}</td>
+    <td class="money">{{ row.totals.advance|yen }}</td>
+    <td class="money">{{ row.totals.expense|yen }}</td>
+    <td class="money">{{ row.other_total|yen }}</td>
+    <td class="money minus">{{ row.totals.gasoline|yen }}</td>
+    <td class="money strong">{{ row.payment_total|yen or '—' }}</td>
+    <td class="center">
+      {% if closed %}{{ '☑' if row.checked else '□' }}{% else %}
+      <form method="post" action="{{ url_for('main.payments_check', month=month) }}">
+        <input type="hidden" name="member_id" value="{{ row.member_id }}">
+        <input type="hidden" name="checked" value="{{ '0' if row.checked else '1' }}">
+        <button class="check {{ 'on' if row.checked }}" {{ 'disabled' if row.errors and not row.checked }} title="{{ 'エラーを解消してください' if row.errors else '確認済みにする' }}">{{ '☑ 確認済' if row.checked else '□' }}</button>
+      </form>{% endif %}
+    </td>
+    <td>{% include "_issues.html" %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+  <tfoot><tr>
+    <th colspan="2">合計（{{ summary.people }}名）</th>
+    <th class="money">{{ summary.sales_reward|yen }}</th><th class="money">{{ summary.transport|yen }}</th>
+    <th class="money">{{ summary.advance|yen }}</th><th class="money">{{ summary.expense|yen }}</th>
+    <th class="money">{{ summary.other|yen }}</th><th class="money minus">{{ summary.gasoline|yen }}</th>
+    <th class="money strong">{{ summary.payment_total|yen }}</th><th colspan="2">{% if summary.uncomputed %}※未計算{{ summary.uncomputed }}名を除く{% endif %}</th>
+  </tr></tfoot>
+</table>
+<p class="hint">支払総額 ＝ 営業報酬 ＋ 交通費 ＋ 立替金 ＋ 立替・経費 ＋ その他（その他報酬・契約報酬） － ガソリン代</p>
+
+<section class="close-box no-print">
+{% if closed %}
+  <p>この月は<b>締め済み</b>です。金額は締め時点の値で固定されています。</p>
+  <form method="post" action="{{ url_for('main.months_reopen', month=month) }}" onsubmit="return confirm('締めを解除すると再計算されます。よろしいですか？')">
+    <input type="text" name="reason" placeholder="締め解除の理由（必須）" required maxlength="200">
+    <button class="btn danger">締めを解除</button>
+  </form>
+{% else %}
+  <p>全員の「確認」にチェックし、エラーがなくなったら月を締めてください。締めると金額が固定され、前月データを後から修正してもこの月の金額は変わりません。</p>
+  <form method="post" action="{{ url_for('main.months_close', month=month) }}" onsubmit="return confirm('{{ month_label(month) }}を締めますか？')">
+    <button class="btn primary" {{ 'disabled' if summary.errors or summary.unchecked }}>{{ month_label(month) }}を締める</button>
+    {% if summary.errors or summary.unchecked %}<span class="muted">（エラー {{ summary.errors }}件 / 未確認 {{ summary.unchecked }}名）</span>{% endif %}
+  </form>
+{% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}給与・報酬管理{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar no-print">
+  <div class="brand">給与・報酬管理</div>
+  <nav>
+    {% set m = month or today_month %}
+    {% set ep = request.endpoint %}
+    <a href="{{ url_for('main.dashboard', month=m) }}" class="{{ 'on' if ep=='main.dashboard' }}">ダッシュボード</a>
+    <a href="{{ url_for('main.monthly', month=m) }}" class="{{ 'on' if ep=='main.monthly' }}">① 月次入力</a>
+    <a href="{{ url_for('main.payments', month=m) }}" class="{{ 'on' if ep=='main.payments' }}">② 支払一覧</a>
+    <a href="{{ url_for('main.payslip', month=m) }}" class="{{ 'on' if ep in ('main.payslip','main.payslip_all') }}">③ 個人別明細</a>
+    <a href="{{ url_for('main.items', month=m) }}" class="{{ 'on' if ep=='main.items' }}">支払項目管理</a>
+    <a href="{{ url_for('main.history', month=m) }}" class="{{ 'on' if ep=='main.history' }}">個人別履歴</a>
+    <a href="{{ url_for('main.members', month=m) }}" class="{{ 'on' if ep=='main.members' }}">メンバー管理</a>
+    <a href="{{ url_for('main.rate_table', month=m) }}" class="{{ 'on' if ep=='main.rate_table' }}">単価表</a>
+    <a href="{{ url_for('main.audit', month=m) }}" class="{{ 'on' if ep=='main.audit' }}">変更履歴</a>
+  </nav>
+</header>
+{% block monthbar %}{% endblock %}
+<main>
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}<div class="flash {{ cat }} no-print">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

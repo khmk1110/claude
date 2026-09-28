@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>メンバー管理</h1>
+<table class="grid">
+  <thead><tr><th>表示順</th><th>氏名</th><th>区分</th><th>自家用車（車手当）</th><th class="money">立替・経費の目安</th><th>メモ</th><th>状態</th><th></th></tr></thead>
+  <tbody>
+  {% for m in members %}
+  <tr class="{{ 'muted' if not m.active }}">
+    <td>{{ m.sort_order }}</td><td class="name">{{ m.name }}</td><td>{{ CATEGORIES[m.category] }}</td>
+    <td>{{ '使用（20,000円）' if m.uses_private_car else '—' }}</td>
+    <td class="money">{{ m.expense_cap|yen or '—' }}</td><td>{{ m.note }}</td>
+    <td>{{ '在籍' if m.active else '停止' }}</td>
+    <td><a class="btn ghost small" href="{{ url_for('main.members', edit=m.id) }}">編集</a>
+        <a class="btn ghost small" href="{{ url_for('main.history', member_id=m.id) }}">履歴</a></td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="muted">メンバーが登録されていません</td></tr>{% endfor %}
+  </tbody>
+</table>
+
+<h2>{{ 'メンバーを編集：' ~ edit.name if edit else 'メンバーを追加' }}</h2>
+<form method="post" class="member-form">
+  {% if edit %}<input type="hidden" name="id" value="{{ edit.id }}">{% endif %}
+  <label>氏名 <input type="text" name="name" required maxlength="40" value="{{ edit.name if edit }}"></label>
+  <label>区分
+    <select name="category" required id="cat">
+      {% for k, v in CATEGORIES.items() %}<option value="{{ k }}" {{ 'selected' if edit and edit.category == k }}>{{ v }}</option>{% endfor %}
+    </select></label>
+  <label id="car"><input type="checkbox" name="uses_private_car" value="1" {{ 'checked' if edit and edit.uses_private_car }}> 自家用車を使用（正社員のみ・車手当20,000円）</label>
+  <label>立替・経費の目安（円） <input type="number" name="expense_cap" min="0" step="1" value="{{ edit.expense_cap if edit and edit.expense_cap is not none }}" placeholder="例：堀田さん 35000"></label>
+  <label>表示順 <input type="number" name="sort_order" min="0" step="1" value="{{ edit.sort_order if edit else members|length + 1 }}"></label>
+  <label class="wide">メモ <input type="text" name="note" maxlength="200" value="{{ edit.note if edit }}"></label>
+  <label><input type="checkbox" name="active" value="1" {{ 'checked' if not edit or edit.active }}> 在籍（月次作成の対象にする）</label>
+  <div><button class="btn primary">保存</button>{% if edit %} <a class="btn ghost" href="{{ url_for('main.members') }}">キャンセル</a>{% endif %}</div>
+  <p class="hint">区分を変更しても、作成済みの過去月には影響しません（月次作成時点の区分で計算されます）。メンバーは削除せず「停止」にしてください。</p>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+const cat = document.getElementById('cat'), car = document.getElementById('car');
+function sync() { const emp = cat.value === 'employee'; car.style.display = emp ? '' : 'none'; if (!emp) car.querySelector('input').checked = false; }
+cat.addEventListener('change', sync); sync();
+</script>
+{% endblock %}

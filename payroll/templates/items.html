@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>支払項目管理 <small>交通費・立替・ガソリン・その他報酬の内訳</small></h1>
+<form method="get" class="inline filter">
+  <label>支払月 <input type="month" name="month" value="{{ f_month }}"></label>
+  <label>対象者
+    <select name="member_id"><option value="">全員</option>
+      {% for m in members %}<option value="{{ m.id }}" {{ 'selected' if m.id == f_member }}>{{ m.name }}</option>{% endfor %}
+    </select></label>
+  <label>項目
+    <select name="item_type"><option value="">すべて</option>
+      {% for k, t in ITEM_TYPES.items() %}<option value="{{ k }}" {{ 'selected' if k == f_type }}>{{ t.label }}</option>{% endfor %}
+    </select></label>
+  <button class="btn primary">検索</button>
+  <a class="btn ghost" href="{{ url_for('main.items') }}">条件クリア</a>
+  <a class="btn ghost" href="{{ url_for('main.export_items_csv', month=f_month, member_id=f_member, item_type=f_type) }}">CSV出力</a>
+</form>
+<p class="hint">追加は「① 月次入力」画面のB欄から行います。締め済みの月の項目は削除できません。</p>
+<table class="grid">
+  <thead><tr><th>支払月</th><th>対象者</th><th>項目</th><th>対象月（何月分）</th><th class="money">金額</th><th>内容</th><th>登録日時</th><th></th></tr></thead>
+  <tbody>
+  {% for it in items %}
+  <tr>
+    <td><a href="{{ url_for('main.monthly', month=it.month) }}">{{ month_label(it.month) }}</a></td>
+    <td>{{ it.member_name }}</td>
+    <td>{{ ITEM_TYPES[it.item_type].label }}</td>
+    <td>{{ month_label(it.target_month) if it.target_month else '—' }}</td>
+    <td class="money {{ 'minus' if ITEM_TYPES[it.item_type].sign < 0 }}">{{ it.amount|yen }}</td>
+    <td>{{ it.description }}</td>
+    <td class="muted">{{ it.created_at }}</td>
+    <td><form method="post" action="{{ url_for('main.items_delete', item_id=it.id) }}" onsubmit="return confirm('削除しますか？')">
+      <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn ghost small">削除</button></form></td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="muted">該当する項目はありません</td></tr>{% endfor %}
+  </tbody>
+  {% if items and f_type %}<tfoot><tr><th colspan="4">合計</th><th class="money">{{ total|yen }}</th><th colspan="3"></th></tr></tfoot>{% endif %}
+</table>
+{% endblock %}
