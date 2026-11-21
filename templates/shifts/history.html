@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}シフト変更履歴{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>シフト変更履歴　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+<table class="list">
+  <tr><th>変更日時</th><th>変更者</th><th>対象</th><th>変更前</th><th>変更後</th><th>理由</th></tr>
+  {% for l in logs %}
+  <tr><td>{{ l.at|date:"Y-m-d H:i" }}</td><td>{{ l.username|default:"-" }}</td><td>{{ l.target_repr }}</td>
+      <td>{{ l.before.work_type|default:"未定" }}</td><td>{{ l.after.work_type|default:"未定" }}</td><td>{{ l.reason }}</td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">この月の変更履歴はありません。</td></tr>{% endfor %}
+</table>
+{% endblock %}

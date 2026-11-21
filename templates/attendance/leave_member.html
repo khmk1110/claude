@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ member.name }}の有給{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>{{ member.name }}の有給</h1><a href="{% url 'attendance:leave_list' %}">← 有給一覧</a></div>
+<div class="grid">
+  <div class="card"><div class="muted">残日数</div><div class="big">{{ st.remaining.normalize }}日</div><div class="muted small">予定分を引くと {{ st.remaining_after_planned.normalize }}日</div></div>
+  <div class="card"><div class="muted">取得済み / 取得予定 / 申請中</div><div class="big">{{ st.taken.normalize }} / {{ st.planned.normalize }} / {{ st.requested.normalize }}</div></div>
+  <div class="card"><div class="muted">次回付与（法定）</div><div class="big">{% if st.next_grant %}{{ st.next_grant.0|date:"Y-m-d" }}{% else %}-{% endif %}</div><div class="muted small">{% if st.next_grant %}{{ st.next_grant.1 }}日{% elif not member.joined_on %}入社日が未登録です{% endif %}</div></div>
+  <div class="card"><div class="muted">年5日取得義務</div>
+    {% with o=st.obligation %}{% if o %}<div class="big {% if not o.achieved %}warn{% endif %}">{{ o.taken.normalize }} / 5日</div><div class="muted small">{{ o.start|date:"Y-m-d" }}〜{{ o.deadline|date:"Y-m-d" }}（予定 {{ o.planned.normalize }}日）</div>{% else %}<div class="muted">対象外</div>{% endif %}{% endwith %}</div>
+</div>
+{% if st.missing_statutory %}<p class="warn">付与日を過ぎた法定付与が{{ st.missing_statutory|length }}件未登録です（{% for g, d in st.missing_statutory %}{{ g|date:"Y-m-d" }} {{ d }}日{% if not forloop.last %}、{% endif %}{% endfor %}）。出勤率を確認のうえ「法定付与を作成」してください。</p>{% endif %}
+{% if st.shortage %}<p class="warn">残日数を超える取得が {{ st.shortage.normalize }}日あります。付与の登録漏れがないか確認してください。</p>{% endif %}
+
+<h2>付与</h2>
+<table class="list"><tr><th>付与日</th><th class="num">付与日数</th><th class="num">使用</th><th class="num">残り</th><th>取得期限</th><th>種類</th></tr>
+{% for g in st.grants %}<tr><td>{{ g.grant.granted_on|date:"Y-m-d" }}</td><td class="num">{{ g.grant.days.normalize }}</td><td class="num">{{ g.used.normalize }}</td><td class="num strong">{{ g.remaining.normalize }}</td><td>{{ g.grant.expires_on|date:"Y-m-d" }}{% if g.grant.expires_on < today %} <span class="muted">（時効）</span>{% endif %}</td><td>{{ g.grant.is_statutory|yesno:"法定,手動" }}</td></tr>
+{% empty %}<tr><td colspan="6" class="muted">付与がありません。</td></tr>{% endfor %}</table>
+<div class="toolbar">
+  <form method="post" action="{% url 'attendance:leave_action' member.pk %}" onsubmit="return confirm('入社日から今日までの法定付与のうち、未登録のものを作成します。')">{% csrf_token %}<input type="hidden" name="action" value="statutory"><button class="btn-light" type="submit">法定付与を作成</button></form>
+  <form method="post" action="{% url 'attendance:leave_action' member.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="action" value="grant">
+    付与日 <input type="date" name="granted_on" required style="width:auto"> 日数 <input name="days" required style="width:70px"> <input name="note" placeholder="メモ" style="width:140px"> <button class="btn-light" type="submit">手動で付与</button></form>
+</div>
+
+<h2>申請</h2>
+<form method="post" action="{% url 'attendance:leave_action' member.pk %}" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="request">
+  取得日 <input type="date" name="date" required style="width:auto">
+  <select name="days" style="width:auto"><option value="1">全日（1日）</option><option value="0.5">半日（0.5日）</option></select>
+  <input name="note" placeholder="メモ" style="width:160px"> <button class="btn-light" type="submit">申請を登録</button></form>
+<table class="list"><tr><th>取得日</th><th class="num">日数</th><th>状態</th><th>メモ</th><th></th></tr>
+{% for r in requests %}<tr><td>{{ r.date|date:"Y-m-d" }}</td><td class="num">{{ r.days.normalize }}</td><td>{{ r.get_status_display }}</td><td>{{ r.note }}</td>
+  <td>{% if r.status == "requested" %}<form method="post" action="{% url 'attendance:leave_action' member.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="request_id" value="{{ r.pk }}">
+    <button class="btn" name="action" value="approve" type="submit">承認（シフトに反映）</button> <button class="btn-light" name="action" value="reject" type="submit">却下</button></form>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="5" class="muted">申請はありません。</td></tr>{% endfor %}</table>
+
+<h2>取得履歴（シフト・勤怠から自動集計）</h2>
+<table class="list"><tr><th>日付</th><th class="num">日数</th><th>区分</th></tr>
+{% for d, n, label in st.history reversed %}<tr><td>{{ d|date:"Y-m-d" }}</td><td class="num">{{ n.normalize }}</td><td>{{ label }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">取得履歴はありません。</td></tr>{% endfor %}</table>
+
+<h2>手動修正</h2>
+<form method="post" action="{% url 'attendance:leave_action' member.pk %}" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="adjust">
+  基準日 <input type="date" name="date" required style="width:auto"> 増減 <input name="days" required placeholder="例: -1 / 2.5" style="width:90px"> <input name="reason" required placeholder="理由（必須）" style="width:200px"> <button class="btn-light" type="submit">登録</button></form>
+<table class="list"><tr><th>基準日</th><th class="num">増減</th><th>理由</th><th>登録者</th></tr>
+{% for a in adjustments %}<tr><td>{{ a.date|date:"Y-m-d" }}</td><td class="num">{{ a.days.normalize }}</td><td>{{ a.reason }}</td><td>{{ a.created_by|default:"-" }}</td></tr>{% empty %}<tr><td colspan="4" class="muted">手動修正はありません。</td></tr>{% endfor %}</table>
+{% endblock %}

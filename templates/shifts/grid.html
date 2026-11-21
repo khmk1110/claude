@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}シフト管理{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>シフト管理　{{ month|date:"Y年n月" }}</h1>
+  {% include "includes/monthnav.html" with extra_query=emp|yesno:"&type=,"|add:emp %}
+</div>
+
+<div class="toolbar">
+  <form method="get" style="display:inline">
+    <input type="hidden" name="month" value="{{ month_param }}">
+    <select name="type" onchange="this.form.submit()" style="width:auto">
+      <option value="">全員</option>
+      {% for v, l in emp_choices %}<option value="{{ v }}" {% if v == emp %}selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+  </form>
+  <a class="btn-light" href="{% url 'shifts:share' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}">画像を作成（LINE共有）</a>
+  <a class="btn-light" href="{% url 'shifts:history' %}?month={{ month_param }}">変更履歴</a>
+  <a class="btn-light" href="{% url 'members:order' %}">並び替え</a>
+  <form method="post" action="{% url 'shifts:copy_previous' %}" style="display:inline"
+        onsubmit="return confirm('前月のシフトを同じ日付にコピーします。入力済みの日は変更しません。よろしいですか？')">
+    {% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
+    <button class="btn-light" type="submit">前月のシフトをコピー</button>
+  </form>
+  <span id="save-status" class="muted right"></span>
+</div>
+
+<div class="palette" id="palette">
+  <span class="muted">選択したセルに：</span>
+  {% for wt in work_types %}
+    <button type="button" class="wt" data-code="{{ wt.code }}" data-label="{{ wt.short_label }}"
+            style="background:{{ wt.color }};color:{{ wt.text_color }}">{{ wt.short_label }} {{ wt.name }}</button>
+  {% endfor %}
+  <button type="button" class="wt" data-code="" data-label="" style="background:#fff;color:#374151;border:1px solid #d1d5db">未定に戻す</button>
+  <span class="muted" id="sel-count"></span>
+</div>
+<p class="muted small">セルをクリックで選択（Shift＋クリックで範囲・ドラッグで複数）。日付をクリックでその日の全員、名前をクリックでその人の全日を選択します。土日祝日も通常どおり入力できます。</p>
+
+<div class="table-scroll">
+<table class="shift" id="shift-table">
+  <thead><tr>
+    <th class="name">名前</th>
+    {% for d in days %}<th class="day {{ d.cls }}" data-col="{{ forloop.counter0 }}" title="{{ d.holiday }}">{{ d.date.day }}<br><small>{{ d.wd }}</small></th>{% endfor %}
+    <th class="num">予定日数</th><th class="num">基準</th><th class="num">差</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr data-member="{{ row.member.pk }}">
+      <th class="name" title="{{ row.member.get_employment_type_display }}">{{ row.member.display_label }}<br><small class="muted">{{ row.member.get_employment_type_display }}</small></th>
+      {% for d, wt in row.cells %}
+        <td class="cell {% if wt %}filled{% endif %}" data-date="{{ d.isoformat }}" data-col="{{ forloop.counter0 }}"
+            {% if wt %}style="background:{{ wt.color }};color:{{ wt.text_color }}"{% endif %}>{% if wt %}{{ wt.short_label }}{% endif %}</td>
+      {% endfor %}
+      <td class="num strong js-planned">{{ row.planned_days.normalize }}</td>
+      <td class="num">{{ row.standard.normalize|default:"-" }}</td>
+      <td class="num js-diff {% if row.diff is not None and row.diff < 0 %}warn{% endif %}">{% if row.diff is None %}-{% elif row.diff == 0 %}±0{% else %}{{ row.diff.normalize|stringformat:"+g" }}{% endif %}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="40" class="muted">対象のメンバーがいません。メンバーを登録してください。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<script>
+(() => {
+  const table = document.getElementById("shift-table");
+  const colors = {};
+  document.querySelectorAll(".wt").forEach(b => colors[b.dataset.code] = {bg: b.style.background, fg: b.style.color, label: b.dataset.label});
+  let anchor = null, dragging = false;
+  const status = document.getElementById("save-status");
+  const count = () => document.getElementById("sel-count").textContent =
+      (n => n ? `${n}セル選択中` : "")(table.querySelectorAll("td.sel").length);
+  const clear = () => table.querySelectorAll("td.sel").forEach(c => c.classList.remove("sel"));
+  function rangeSelect(a, b) {
+    const rows = [...table.tBodies[0].rows];
+    const r1 = rows.indexOf(a.parentElement), r2 = rows.indexOf(b.parentElement);
+    const c1 = +a.dataset.col, c2 = +b.dataset.col;
+    for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++)
+      rows[r].querySelectorAll("td.cell").forEach(td => {
+        const c = +td.dataset.col; if (c >= Math.min(c1, c2) && c <= Math.max(c1, c2)) td.classList.add("sel");
+      });
+  }
+  table.addEventListener("mousedown", e => {
+    const td = e.target.closest("td.cell");
+    if (td) {
+      e.preventDefault();
+      if (e.shiftKey && anchor) rangeSelect(anchor, td);
+      else { if (!(e.ctrlKey || e.metaKey)) clear(); td.classList.toggle("sel"); anchor = td; dragging = true; }
+      count(); return;
+    }
+    const th = e.target.closest("thead th.day");
+    if (th) { if (!(e.ctrlKey || e.metaKey)) clear();
+      table.querySelectorAll(`td.cell[data-col="${th.dataset.col}"]`).forEach(c => c.classList.add("sel")); count(); return; }
+    const nm = e.target.closest("tbody th.name");
+    if (nm) { if (!(e.ctrlKey || e.metaKey)) clear();
+      nm.parentElement.querySelectorAll("td.cell").forEach(c => c.classList.add("sel")); count(); }
+  });
+  table.addEventListener("mouseover", e => {
+    const td = e.target.closest("td.cell"); if (dragging && td && anchor) { rangeSelect(anchor, td); count(); }
+  });
+  document.addEventListener("mouseup", () => dragging = false);
+
+  function csrf() { return document.cookie.split("; ").find(c => c.startsWith("csrftoken="))?.split("=")[1]; }
+  document.getElementById("palette").addEventListener("click", async e => {
+    const btn = e.target.closest(".wt"); if (!btn) return;
+    const sel = [...table.querySelectorAll("td.sel")];
+    if (!sel.length) { alert("先にセルを選択してください。"); return; }
+    if (sel.length > 31 && !confirm(`${sel.length}セルをまとめて変更します。よろしいですか？`)) return;
+    const cells = sel.map(td => [td.parentElement.dataset.member, td.dataset.date]);
+    status.textContent = "保存中…";
+    try {
+      const res = await fetch("{% url 'shifts:api_set' %}", {method: "POST",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()},
+        body: JSON.stringify({cells, work_type: btn.dataset.code || null})});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "保存できませんでした。");
+      const c = colors[btn.dataset.code];
+      sel.forEach(td => {
+        td.textContent = c.label; td.style.background = btn.dataset.code ? c.bg : ""; td.style.color = btn.dataset.code ? c.fg : "";
+        td.classList.toggle("filled", !!btn.dataset.code); td.classList.remove("sel");
+      });
+      for (const [mid, r] of Object.entries(data.rows)) {
+        const tr = table.querySelector(`tr[data-member="${mid}"]`);
+        tr.querySelector(".js-planned").textContent = r.planned;
+        const diff = tr.querySelector(".js-diff"); diff.textContent = r.diff ?? "-"; diff.classList.toggle("warn", r.short);
+      }
+      status.textContent = `保存しました（${data.changed}件変更）`; count();
+    } catch (err) { status.textContent = ""; alert(err.message); }
+  });
+})();
+</script>
+{% endblock %}

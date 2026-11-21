@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ member.name }}の勤怠{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>{{ member.name }}　{{ month|date:"Y年n月" }}の勤怠</h1>{% include "includes/monthnav.html" %}</div>
+<div class="grid">
+  <div class="card"><div class="muted">実出勤日数</div><div class="big">{{ s.attendance_days.normalize }}日</div><div class="muted small">基準 {{ standard.normalize|default:"-" }}日</div></div>
+  <div class="card"><div class="muted">有給取得</div><div class="big">{{ s.paid_leave_days.normalize }}日</div></div>
+  <div class="card"><div class="muted">未確定</div><div class="big">{{ s.unconfirmed }}日</div></div>
+  <div class="card"><div class="muted">予定との差異</div><div class="big">{{ s.differences }}日</div></div>
+</div>
+{% if locked %}<p class="badge ok">この月は確定済みのため変更できません。</p>{% endif %}
+<form method="post" action="{% url 'attendance:member_update' member.pk %}" id="confirm-form">{% csrf_token %}
+  <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm">
+</form>
+<div class="table-scroll">
+<table class="list">
+  <tr><th><input type="checkbox" id="chk-all" {% if locked %}disabled{% endif %}></th><th>日付</th><th>予定（シフト）</th><th>実績</th><th>状態</th><th>欠勤</th><th>遅刻</th><th>早退</th><th>メモ・修正理由</th><th></th></tr>
+  {% for d in days %}
+  <tr class="{% if d.a and d.a.differs_from_plan %}rowattn{% endif %}">
+    <td>{% if d.a and d.a.status == "planned" %}<input type="checkbox" form="confirm-form" name="dates" value="{{ d.date.isoformat }}" class="chk" {% if locked %}disabled{% endif %}>{% endif %}</td>
+    <td class="{{ d.cls }}">{{ d.date|date:"n/j" }}（{{ d.wd }}）{% if d.holiday %}<br><small>{{ d.holiday }}</small>{% endif %}</td>
+    <td>{{ d.a.planned_work_type.name|default:"未定" }}</td>
+    <td><select name="actual" form="f{{ forloop.counter }}" {% if locked %}disabled{% endif %} style="width:auto">
+        <option value="">（なし）</option>
+        {% for wt in work_types %}<option value="{{ wt.code }}" {% if d.a.effective_work_type == wt %}selected{% endif %}>{{ wt.name }}</option>{% endfor %}
+      </select></td>
+    <td>{% if d.a %}<span class="badge {{ d.a.status }}">{{ d.a.get_status_display }}</span>{% endif %}</td>
+    <td><input type="checkbox" name="absence" form="f{{ forloop.counter }}" {% if d.a.is_absence %}checked{% endif %} {% if locked %}disabled{% endif %}></td>
+    <td><input type="checkbox" name="late" form="f{{ forloop.counter }}" {% if d.a.is_late %}checked{% endif %} {% if locked %}disabled{% endif %}></td>
+    <td><input type="checkbox" name="early" form="f{{ forloop.counter }}" {% if d.a.is_early_leave %}checked{% endif %} {% if locked %}disabled{% endif %}></td>
+    <td><input name="note" form="f{{ forloop.counter }}" value="{{ d.a.note }}" placeholder="メモ" {% if locked %}disabled{% endif %} style="max-width:140px"> <input name="reason" form="f{{ forloop.counter }}" placeholder="修正理由" {% if locked %}disabled{% endif %} style="max-width:140px"></td>
+    <td>{% if not locked %}<button class="btn-light" type="submit" form="f{{ forloop.counter }}">保存</button>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% for d in days %}<form method="post" action="{% url 'attendance:member_update' member.pk %}" id="f{{ forloop.counter }}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="date" value="{{ d.date.isoformat }}"></form>{% endfor %}
+{% if not locked %}<p><button class="btn" type="submit" form="confirm-form">チェックした日を予定どおり確定</button></p>{% endif %}
+<p><a href="{% url 'attendance:month' %}?month={{ month_param }}">← 勤怠一覧に戻る</a></p>
+<script>document.getElementById("chk-all")?.addEventListener("change", e => document.querySelectorAll(".chk").forEach(c => c.checked = e.target.checked));</script>
+{% endblock %}

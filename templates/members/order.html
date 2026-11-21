@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}並び替え{% endblock %}
+{% block content %}
+<h1>メンバーの並び替え</h1>
+<p class="muted">シフト表・勤怠・給与の一覧はこの順番で表示されます。▲▼で移動して「保存」を押してください。</p>
+<form method="post">{% csrf_token %}
+<ul id="order" class="orderlist">
+  {% for m in members %}<li><input type="hidden" name="member" value="{{ m.pk }}"><span class="strong">{{ m.name }}</span> <span class="muted">{{ m.get_employment_type_display }}</span>
+    <span class="right"><button type="button" class="btn-light up">▲</button> <button type="button" class="btn-light down">▼</button></span></li>{% endfor %}
+</ul>
+<button class="btn" type="submit">保存</button>
+</form>
+<script>
+document.getElementById("order").addEventListener("click", e => {
+  const li = e.target.closest("li"); if (!li) return;
+  if (e.target.classList.contains("up") && li.previousElementSibling) li.parentNode.insertBefore(li, li.previousElementSibling);
+  if (e.target.classList.contains("down") && li.nextElementSibling) li.parentNode.insertBefore(li.nextElementSibling, li);
+});
+</script>
+{% endblock %}

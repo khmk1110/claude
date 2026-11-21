@@ -1,0 +1,8 @@
+<div class="monthnav">
+  <a class="btn-light" href="?month={{ prev_param }}{{ extra_query }}">◀ 前月</a>
+  <form method="get" style="display:inline">
+    <input type="month" name="month" value="{{ month_param }}" onchange="this.form.submit()" style="width:auto">
+    {% if emp %}<input type="hidden" name="type" value="{{ emp }}">{% endif %}
+  </form>
+  <a class="btn-light" href="?month={{ next_param }}{{ extra_query }}">翌月 ▶</a>
+</div>

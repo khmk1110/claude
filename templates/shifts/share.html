@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}シフト画像{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>シフト画像　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+<div class="toolbar">
+  <a class="btn" href="{% url 'shifts:image' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}&download=1">PNGをダウンロード</a>
+  <button class="btn-light" type="button" id="copy-btn">画像をコピー</button>
+  <a class="btn-light" href="{% url 'shifts:grid' %}?month={{ month_param }}">シフト表に戻る</a>
+  <span id="copy-status" class="muted"></span>
+</div>
+<p class="muted small">コピーした画像は、LINE のトーク画面に貼り付けられます（Chrome・Edge・Safari に対応）。</p>
+<div class="card" style="overflow:auto"><img id="shift-img" src="{% url 'shifts:image' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}" alt="シフト表" style="max-width:100%;height:auto"></div>
+<script>
+document.getElementById("copy-btn").addEventListener("click", async () => {
+  const st = document.getElementById("copy-status");
+  try {
+    const src = document.getElementById("shift-img").src;
+    await navigator.clipboard.write([new ClipboardItem({"image/png": fetch(src).then(r => r.blob())})]);
+    st.textContent = "コピーしました。LINE に貼り付けてください。";
+  } catch (e) { st.textContent = "このブラウザでは画像のコピーができません。ダウンロードして送信してください。"; }
+});
+</script>
+{% endblock %}

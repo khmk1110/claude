@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}勤怠管理{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>勤怠管理　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+<div class="toolbar">
+  <form method="get" style="display:inline"><input type="hidden" name="month" value="{{ month_param }}">
+    <select name="type" onchange="this.form.submit()" style="width:auto"><option value="">全員</option>{% for v, l in emp_choices %}<option value="{{ v }}" {% if v == emp %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></form>
+  <a class="btn-light" href="{% url 'attendance:leave_list' %}">有給管理</a>
+  {% if lock %}
+    <span class="badge ok">月次確定済み（{{ lock.locked_at|date:"m/d H:i" }}）</span>
+    <form method="post" action="{% url 'attendance:lock' %}" style="display:inline" onsubmit="const r=prompt('確定を解除する理由を入力してください');if(!r)return false;this.reason.value=r;">
+      {% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="reason">
+      <button class="btn-light" type="submit">確定を解除</button></form>
+  {% else %}
+    <form method="post" action="{% url 'attendance:lock' %}" style="display:inline"
+          onsubmit="return confirm('{{ month|date:"Y年n月" }}の勤怠を確定します。未確定の日は予定どおりの実績として確定されます。よろしいですか？')">
+      {% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
+      <button class="btn" type="submit">この月の勤怠を確定</button></form>
+  {% endif %}
+</div>
+<p class="muted small">実出勤日数＝確定・修正済みの実績＋未確定日の予定。給与計算の「前月出勤日数」にはこの値が使われます。</p>
+<div class="table-scroll">
+<table class="list">
+  <tr><th>名前</th><th>区分</th><th class="num">予定日数</th><th class="num">実出勤日数</th><th class="num">有給</th><th class="num">基準</th><th class="num">基準との差</th><th class="num">未確定</th><th class="num">予定との差異</th><th class="num">欠勤/遅刻/早退</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="strong"><a href="{% url 'attendance:member' r.member.pk %}?month={{ month_param }}">{{ r.member.name }}</a></td>
+    <td>{{ r.member.get_employment_type_display }}</td>
+    <td class="num">{{ r.s.planned_days.normalize }}</td>
+    <td class="num strong">{{ r.s.attendance_days.normalize }}</td>
+    <td class="num">{{ r.s.paid_leave_days.normalize }}</td>
+    <td class="num">{{ r.standard.normalize|default:"-" }}</td>
+    <td class="num {% if r.diff is not None and r.diff < 0 %}warn{% endif %}">{% if r.diff is None %}-{% elif r.diff == 0 %}±0{% else %}{{ r.diff.normalize|stringformat:"+g" }}{% endif %}</td>
+    <td class="num {% if r.s.unconfirmed %}attn{% endif %}">{{ r.s.unconfirmed }}</td>
+    <td class="num {% if r.s.differences %}attn{% endif %}">{{ r.s.differences }}</td>
+    <td class="num">{{ r.s.absence }}/{{ r.s.late }}/{{ r.s.early_leave }}</td>
+  </tr>
+  {% empty %}<tr><td colspan="10" class="muted">対象のメンバーがいません。</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

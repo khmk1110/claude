@@ -1,11 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>ダッシュボード</h1>
-<p class="muted">各機能は STEP 3 以降で順に実装します。</p>
+<h1>ダッシュボード　{{ month|date:"Y年n月" }}</h1>
 <div class="grid">
-  <div class="card"><b>シフト管理</b><p class="muted">準備中</p></div>
-  <div class="card"><b>勤怠・有給管理</b><p class="muted">準備中</p></div>
-  <div class="card"><b>給与・報酬</b><p class="muted">{% if payroll_verified %}認証済み{% else %}金額を表示するには追加パスワードが必要です{% endif %}</p></div>
-  <div class="card"><b>資料・経費</b><p class="muted">{% if expenses_verified %}認証済み{% else %}金額を表示するには追加パスワードが必要です{% endif %}</p></div>
+  <div class="card"><div class="muted">対象メンバー</div><div class="big">{{ member_count }}人</div></div>
+  <div class="card"><div class="muted">シフト入力状況</div><div class="big">{{ shift_members_started }} / {{ member_count }}人</div><div class="muted small">入力済み {{ shift_filled }} / {{ shift_total }}セル</div></div>
+  <div class="card"><div class="muted">本日の出勤予定</div><div class="big">{{ today_work }}人</div></div>
+  <div class="card"><div class="muted">今月の出勤実績（確定分）</div><div class="big">{{ attendance_actual_total.normalize }}日</div></div>
+  <div class="card"><div class="muted">勤怠の確認が必要な人</div><div class="big {% if needs_check %}attn{% endif %}">{{ needs_check }}人</div><div class="muted small">過去日に未確定の勤怠あり</div></div>
+  <div class="card"><div class="muted">有給の承認待ち</div><div class="big {% if pending_leave %}attn{% endif %}">{{ pending_leave }}件</div></div>
+  <div class="card"><div class="muted">給与・報酬</div>{% if payroll_verified %}<div class="big">-</div><div class="muted small">STEP 4 で表示</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
+  <div class="card"><div class="muted">資料・経費</div>{% if expenses_verified %}<div class="big">-</div><div class="muted small">STEP 5 で表示</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
 </div>
+
+<h2>出勤基準に届いていない人（シフトの予定ベース）</h2>
+<table class="list"><tr><th>名前</th><th class="num">予定日数</th><th class="num">基準</th><th class="num">不足</th></tr>
+{% for m, planned, std, short in under %}<tr><td><a href="{% url 'shifts:grid' %}">{{ m.name }}</a></td><td class="num">{{ planned.normalize }}</td><td class="num">{{ std.normalize }}</td><td class="num warn">{{ short.normalize }}</td></tr>
+{% empty %}<tr><td colspan="4" class="muted">該当者はいません。</td></tr>{% endfor %}</table>
+
+<h2>有給の注意</h2>
+<table class="list"><tr><th>名前</th><th class="num">残日数</th><th>付与の登録</th><th>年5日取得義務</th><th>期限が近い残日数</th></tr>
+{% for m, st in leave_alerts %}<tr><td><a href="{% url 'attendance:leave_member' m.pk %}">{{ m.name }}</a></td><td class="num">{{ st.remaining.normalize }}</td>
+  <td>{% if st.missing_statutory %}<span class="warn">未登録 {{ st.missing_statutory|length }}件</span>{% else %}-{% endif %}</td>
+  <td>{% if st.obligation and not st.obligation.achieved %}<span class="warn">あと{{ st.obligation.shortfall.normalize }}日の予定が必要（期限 {{ st.obligation.deadline|date:"Y-m-d" }}）</span>{% else %}-{% endif %}</td>
+  <td>{% for e in st.expiring_soon %}{{ e.1.normalize }}日（{{ e.0|date:"Y-m-d" }}まで） {% empty %}-{% endfor %}</td></tr>
+{% empty %}<tr><td colspan="5" class="muted">注意が必要な人はいません。</td></tr>{% endfor %}</table>
 {% endblock %}
