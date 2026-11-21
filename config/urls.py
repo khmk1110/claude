@@ -3,6 +3,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
 from apps.accounts import views as account_views
+from apps.core import setup_views
 from apps.core import views as core_views
 
 admin.site.site_header = "社内管理システム"
@@ -15,6 +16,8 @@ urlpatterns = [
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("stepup/<str:scope>/", account_views.stepup_view, name="stepup"),
     path("stepup/<str:scope>/close/", account_views.stepup_close_view, name="stepup_close"),
+    path("settings/", setup_views.setup, name="setup"),
+    path("settings/backup/", setup_views.backup, name="backup"),
     path("settings/stepup-passwords/", account_views.stepup_password_change_view, name="stepup_password_change"),
     path("shifts/", include("apps.shifts.urls")),
     path("attendance/", include("apps.attendance.urls")),

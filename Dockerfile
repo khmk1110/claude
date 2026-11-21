@@ -16,4 +16,6 @@ RUN DEBUG=False SECRET_KEY=build-only DATABASE_URL=postgres://x:x@localhost/x py
 RUN useradd --create-home app && chown -R app /app
 USER app
 EXPOSE 8000
-CMD ["sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 180"]
+# 起動時に DB の更新と初期設定（未設定の場合のみ）を行う。無料プランのメモリに合わせて 1 プロセス・複数スレッド。
+# 画像PDFの読み取り（OCR）は処理能力の低いプランでは時間がかかるため、タイムアウトを長めにする。
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py bootstrap && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 300"]

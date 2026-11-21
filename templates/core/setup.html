@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}初期設定・バックアップ{% endblock %}
+{% block content %}
+<h1>初期設定・バックアップ（代表者のみ）</h1>
+
+<div class="card" style="margin-bottom:16px">
+  <b>バックアップをダウンロード</b>
+  <p class="small muted">全データ（シフト・勤怠・給与・経費・資料ファイル・操作履歴）を1つのファイルで保存します。<b>月に1回</b>保存し、パソコンなど安全な場所に保管してください。給与と経費の両方の追加パスワードを入力済みの場合のみ実行できます。</p>
+  {% if payroll_verified and expenses_verified %}
+  <form method="post" action="{% url 'backup' %}">{% csrf_token %}<button class="btn" type="submit">バックアップをダウンロード</button></form>
+  {% else %}
+  <p class="attn small">先に{% if not payroll_verified %}<a href="{% url 'payroll:index' %}">給与・報酬</a>{% endif %}{% if not payroll_verified and not expenses_verified %}と{% endif %}{% if not expenses_verified %}<a href="{% url 'expenses:index' %}">資料・経費</a>{% endif %}を開いて、追加パスワードを入力してください。</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <b>既存の給与計算ブックから取り込む（メンバー・単価表）</b>
+  <p class="small muted">「メンバーマスター」「単価表」シートを読み取ります。登録済みのメンバーは変更しません。同じ適用開始月の単価表がある場合は取り込みません。</p>
+  <form method="post" enctype="multipart/form-data" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="payroll">
+    <input type="file" name="file" accept=".xlsx" required style="width:auto">
+    <label class="small">単価表の適用開始月 <input type="month" name="effective_from" value="2026-01" style="width:auto" required></label>
+    <label class="small"><input type="checkbox" name="apply" value="1" style="width:auto"> 取り込む（チェックなしは確認のみ）</label>
+    <button class="btn-light" type="submit">実行</button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <b>既存のシフト表から取り込む</b>
+  <p class="small muted">「シフト入力」シートの年月・名前・入力方式・日付を読み取ります。姓だけの名前で同じ姓の人がいる場合は、メンバーの「別表記」を登録してから実行してください。</p>
+  <form method="post" enctype="multipart/form-data" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="shift">
+    <input type="file" name="file" accept=".xlsx" required style="width:auto">
+    <label class="small"><input type="checkbox" name="overwrite" value="1" style="width:auto"> 入力済みの月でも上書きする</label>
+    <label class="small"><input type="checkbox" name="apply" value="1" style="width:auto"> 取り込む（チェックなしは確認のみ）</label>
+    <button class="btn-light" type="submit">実行</button>
+  </form>
+</div>
+
+{% if can_restore %}
+<div class="card attnbox" style="margin-bottom:16px">
+  <b>バックアップから復元（データが空のときだけ表示）</b>
+  <p class="small">ダウンロードしたバックアップファイル（kanri-backup-….json.gz）から、全データを元に戻します。途中で失敗した場合は何も変更されません。</p>
+  <form method="post" enctype="multipart/form-data" class="toolbar" onsubmit="return confirm('バックアップから復元します。よろしいですか？')">{% csrf_token %}<input type="hidden" name="action" value="restore">
+    <input type="file" name="file" accept=".gz,.json" required style="width:auto"> <button class="btn" type="submit">復元する</button></form>
+</div>
+{% endif %}
+
+{% if output %}<h2>結果</h2><pre class="card small" style="white-space:pre-wrap;{% if ok is False %}border-color:#b91c1c{% endif %}">{{ output }}</pre>{% endif %}
+
+<p class="small"><a href="/admin/">管理画面</a>（カード対応表・チーム・給与項目・ユーザーの登録）　<a href="{% url 'stepup_password_change' %}">追加パスワードの変更</a></p>
+{% endblock %}

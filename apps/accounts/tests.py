@@ -160,3 +160,77 @@ class StepUpCoverageTests(TestCase):
         self.assertEqual(self.client.get("/payroll/").status_code, 200)
         self.client.post("/stepup/payroll/close/")
         self.assertEqual(self.client.get("/payroll/").status_code, 302)
+
+
+class BootstrapAndSetupTests(TestCase):
+    def test_bootstrap_creates_once_and_never_overwrites(self):
+        import os
+        from unittest import mock
+
+        from django.core.management import call_command
+
+        env = {"INITIAL_ADMIN_USERNAME": "owner", "INITIAL_ADMIN_PASSWORD": "first-pass-123",
+               "INITIAL_PAYROLL_PASSWORD": "pay-1", "INITIAL_EXPENSES_PASSWORD": "exp-1"}
+        with mock.patch.dict(os.environ, env):
+            call_command("bootstrap", stdout=open(os.devnull, "w"))
+        owner = User.objects.get(username="owner")
+        self.assertEqual(owner.role, User.Role.OWNER)
+        stepup.set_password("payroll", "changed")  # 画面で変更した後に再起動しても
+        with mock.patch.dict(os.environ, {**env, "INITIAL_ADMIN_USERNAME": "other"}):
+            call_command("bootstrap", stdout=open(os.devnull, "w"))
+        self.assertFalse(User.objects.filter(username="other").exists())
+        from django.contrib.auth.hashers import check_password
+
+        self.assertTrue(check_password("changed", StepUpPassword.objects.get(scope="payroll").password_hash))
+
+    def test_setup_and_backup_permissions(self):
+        staff = User.objects.create_user("staff", password="login-pass-123")
+        owner = User.objects.create_user("owner", password="login-pass-123", role=User.Role.OWNER)
+        stepup.set_password("payroll", PW)
+        stepup.set_password("expenses", "exp-pass")
+        self.client.force_login(staff)
+        self.assertEqual(self.client.get("/settings/").status_code, 403)
+        self.assertEqual(self.client.post("/settings/backup/").status_code, 403)
+        self.client.force_login(owner)
+        self.assertEqual(self.client.get("/settings/").status_code, 200)
+        res = self.client.post("/settings/backup/")  # 追加認証なし → ダウンロードさせない
+        self.assertEqual(res.status_code, 302)
+        self.client.post("/stepup/payroll/", {"password": PW})
+        self.assertEqual(self.client.post("/settings/backup/").status_code, 302)  # 経費の認証がまだ
+        self.client.post("/stepup/expenses/", {"password": "exp-pass"})
+        res = self.client.post("/settings/backup/")
+        self.assertEqual(res["Content-Type"], "application/gzip")
+        import gzip
+        import json
+
+        data = json.loads(gzip.decompress(res.content))
+        self.assertTrue(any(o["model"] == "accounts.stepuppassword" for o in data))
+        self.assertTrue(AuditLog.objects.filter(action="setup.backup").exists())
+
+
+class RestoreTests(TestCase):
+    def test_restore_rejected_when_data_exists_and_backup_roundtrip(self):
+        import gzip
+        import io as _io
+        import json
+
+        from django.core.management import call_command
+
+        from apps.core.management.commands.restore_backup import restore
+        from apps.members.models import Member
+
+        Member.objects.create(member_no="R1", name="復元 太郎", employment_type="contractor")
+        buf = _io.StringIO()
+        call_command("dumpdata", "members.member", stdout=buf)
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".json.gz", delete=False) as f:
+            f.write(gzip.compress(buf.getvalue().encode()))
+        from django.core.management import CommandError
+
+        with self.assertRaises(CommandError):  # データがある DB には復元しない
+            restore(f.name)
+        Member.objects.all().delete()
+        restore(f.name)
+        self.assertTrue(Member.objects.filter(name="復元 太郎").exists())
+        self.assertEqual(len(json.loads(buf.getvalue())), 1)

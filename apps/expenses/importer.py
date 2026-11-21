@@ -257,7 +257,7 @@ def _parse(sf: SourceFile, data: bytes):
         sf.document_kind = sf.document_kind_auto
     if parser == "transport_invoice":
         return parsers.parse_transport_invoice(pages, timezone.localdate()), profile
-    return parsers.parse_eneos_card_summary(data), profile
+    return parsers.parse_eneos_card_summary(data, pages), profile
 
 
 def dedupe_key(rec: ExpenseRecord, sf: SourceFile) -> str:

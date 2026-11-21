@@ -254,23 +254,36 @@ def _norm_card(token: str) -> str:
     return d.zfill(4)[-4:] if d else ""
 
 
-def parse_eneos_card_summary(data: bytes) -> ParsedDocument:
+def summary_page_order(pages: list[str]) -> list[int]:
+    """請求明細表（合計版）らしいページから順に並べる（文字情報は崩れていることが多いので緩く判定）。"""
+    def score(t):
+        n = re.sub(r"\s", "", nfkc(t))
+        return (all(ch in n for ch in "合計版") * 4 + ("R000" in n.upper()) * 2 + ("明細" in n), -len(n))
+    return sorted(range(len(pages)), key=lambda i: score(pages[i]), reverse=True)
+
+
+def parse_eneos_card_summary(data: bytes, pages: list[str] | None = None) -> ParsedDocument:
+    """カード別の合計を OCR で読む。処理を軽くするため、合計版らしいページから1ページずつ読む。"""
     from . import ocr
 
     doc = ParsedDocument("eneos_card_summary", used_ocr=True)
     if not ocr.ocr_available():
         doc.warnings.append("OCR（Tesseract）が使えないため読み取れません。カード別の金額を手入力してください。")
         return doc
-    images = ocr.render_pages(data, dpi=300)
+    if pages is None:
+        pages = ocr.pdf_text_pages(data)
     target = None
-    for img in images:
+    for idx in summary_page_order(pages) or [0]:
+        imgs = ocr.render_pages(data, dpi=300, first=idx + 1, last=idx + 1)
+        if not imgs:
+            continue
+        img = imgs[0]
         clean = ocr.remove_grid_lines(img)
         words = ocr.ocr_words(clean)
         text = " ".join(w.text for w in words)
-        if "合計版" in text or "カード" in text and "計" in text and "R0" in text.replace("O", "0"):
+        if "合計版" in text or ("カード" in text and "R0" in text.upper().replace("O", "0")):
             target = (img, clean, words, text)
-            if "合計版" in text:
-                break
+            break
     if target is None:
         doc.warnings.append("請求明細表（合計版）のページが見つかりませんでした。")
         return doc
