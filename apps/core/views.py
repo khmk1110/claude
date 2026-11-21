@@ -15,6 +15,16 @@ from apps.shifts.models import ShiftEntry
 from apps.shifts.services import members_for_month
 
 
+def healthz(request):
+    """死活監視用（ログイン不要。中身は返さない）。"""
+    from django.db import connection
+    from django.http import HttpResponse
+
+    with connection.cursor() as c:
+        c.execute("SELECT 1")
+    return HttpResponse("ok", content_type="text/plain")
+
+
 @login_required
 def dashboard(request):
     today = timezone.localdate()

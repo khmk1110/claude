@@ -26,6 +26,21 @@
   <p class="muted small">Excel（xlsx・xls）・CSV・PDF に対応。複数ファイルをまとめて選べます。反映する給与の月を空欄にすると、資料の月から自動で決めます（ガソリン：請求月の翌月、交通費：〇月分の2か月後）。</p>
 </div>
 
+<div class="card" style="margin:16px 0">
+  <b>LINEなどで届いた経費を入力</b>
+  <p class="muted small">1行に1人ずつ「氏名 金額（内容）」の形で貼り付けてください（例: 青木 600 交通費）。スクリーンショットを根拠として保存できます。取り込んだ後、内容を確認して承認します。</p>
+  <form method="post" action="{% url 'expenses:line_import' %}" enctype="multipart/form-data">{% csrf_token %}
+    <textarea name="text" rows="4" style="width:100%;max-width:640px" placeholder="青木 600&#10;井上 5,950"></textarea>
+    <div class="toolbar">
+      <select name="category" style="width:auto">{% for c in cats %}<option value="{{ c.pk }}" {% if c.code == "transport" %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+      <label class="small">反映する給与の月 <input type="month" name="target_month" value="{{ month_param }}" style="width:auto" required></label>
+      <input name="note" placeholder="内容（例: 交通費の追加分）" style="width:200px">
+      <input type="file" name="evidence" accept="image/*,application/pdf" style="width:auto">
+      <button class="btn-light" type="submit">取り込む</button>
+    </div>
+  </form>
+</div>
+
 <h2>資料</h2>
 <table class="list"><tr><th>取り込み日時</th><th>ファイル</th><th>種類</th><th>資料の月</th><th>反映月</th><th class="num">行数</th><th>状態</th></tr>
 {% for f in files %}<tr><td class="small">{{ f.uploaded_at|date:"Y-m-d H:i" }}</td><td><a href="{% url 'expenses:file' f.pk %}">{{ f.original_name }}</a>{% if f.used_ocr %} <span class="tag">OCR</span>{% endif %}</td>

@@ -107,3 +107,56 @@ class StepUpTests(TestCase):
     def test_open_redirect_rejected(self):
         res = self.client.post(reverse("stepup", args=["payroll"]), {"password": PW, "next": "https://evil.example/"})
         self.assertEqual(res["Location"], "/payroll/")
+
+
+class StepUpCoverageTests(TestCase):
+    """給与・経費の全 URL が、追加認証なしでは中身を返さないことを網羅的に確認する。"""
+
+    def setUp(self):
+        self.user = User.objects.create_superuser("admin", password="login-pass-123")
+        stepup.set_password("payroll", PW)
+        stepup.set_password("expenses", "exp-pass")
+        self.client.force_login(self.user)
+
+    def all_urls(self, module):
+        from django.urls import get_resolver
+        from django.urls.resolvers import URLPattern
+
+        urls = []
+        for p in get_resolver(module).url_patterns:
+            if isinstance(p, URLPattern):
+                route = str(p.pattern)
+                route = route.replace("<int:pk>", "1").replace("<int:page>", "1").replace("<str:fmt>", "csv")
+                urls.append(route)
+        return urls
+
+    def test_every_payroll_and_expense_url_is_gated(self):
+        for prefix, module in (("/payroll/", "apps.payroll.urls"), ("/expenses/", "apps.expenses.urls")):
+            for route in self.all_urls(module):
+                url = prefix + route
+                for method in ("get", "post"):
+                    res = getattr(self.client, method)(url)
+                    self.assertIn(res.status_code, (302, 403), f"{method.upper()} {url}")
+                    if res.status_code == 302:
+                        self.assertIn("/stepup/", res["Location"], url)
+
+    def test_admin_autocomplete_does_not_leak(self):
+        from apps.members.models import Member
+        from apps.payroll.models import PayrollStatement
+
+        m = Member.objects.create(member_no="X1", name="検索 太郎", employment_type="contractor")
+        PayrollStatement.objects.create(member=m, month="2026-10-01", employment_type="contractor", net_amount=123456)
+        # 給与データ（PayrollStatement）を検索対象にする経路は遮断される
+        res = self.client.get("/admin/autocomplete/", {"app_label": "expenses", "model_name": "expenserecord",
+                                                        "field_name": "reflected_statement", "term": ""})
+        self.assertNotEqual(res.status_code, 200)
+        # メンバー名（給与画面以外でも見られる情報）を返す経路でも、金額は含まれない
+        res = self.client.get("/admin/autocomplete/", {"app_label": "payroll", "model_name": "payrollstatement",
+                                                        "field_name": "member", "term": ""})
+        self.assertNotIn(b"123456", res.content)
+
+    def test_close_revokes(self):
+        self.client.post("/stepup/payroll/", {"password": PW})
+        self.assertEqual(self.client.get("/payroll/").status_code, 200)
+        self.client.post("/stepup/payroll/close/")
+        self.assertEqual(self.client.get("/payroll/").status_code, 302)

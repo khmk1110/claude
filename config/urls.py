@@ -10,9 +10,11 @@ admin.site.site_title = "社内管理システム"
 
 urlpatterns = [
     path("", core_views.dashboard, name="dashboard"),
+    path("healthz", core_views.healthz, name="healthz"),
     path("login/", auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("stepup/<str:scope>/", account_views.stepup_view, name="stepup"),
+    path("stepup/<str:scope>/close/", account_views.stepup_close_view, name="stepup_close"),
     path("settings/stepup-passwords/", account_views.stepup_password_change_view, name="stepup_password_change"),
     path("shifts/", include("apps.shifts.urls")),
     path("attendance/", include("apps.attendance.urls")),

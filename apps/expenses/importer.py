@@ -148,7 +148,12 @@ def process(sf: SourceFile, *, data: bytes | None = None, user=None) -> SourceFi
     sf.save()
     for w in doc.warnings:
         ExpenseIssue.objects.create(source_file=sf, code=Code.LOW_CONFIDENCE, message=w[:255])
-    category = _category_for(sf, profile)
+    _create_records(sf, doc, _category_for(sf, profile))
+    check_file(sf)
+    return sf
+
+
+def _create_records(sf: SourceFile, doc, category) -> None:
     for row in doc.rows:
         rec = ExpenseRecord(
             source_file=sf, row_number=row.row_number, raw=row.raw, auto_category=category,
@@ -160,8 +165,67 @@ def process(sf: SourceFile, *, data: bytes | None = None, user=None) -> SourceFi
         rec.dedupe_key = dedupe_key(rec, sf)
         rec.save()
         evaluate(rec, initial=True)
-    check_file(sf)
+
+
+LINE_ROW = re.compile(r"^(?P<name>[^\d\s,:：]+(?:[ \u3000][^\d\s,:：]+)?)[\s,:：]*(?P<rest>.*)$")
+
+
+def parse_line_text(text: str) -> tuple[list, list]:
+    """『青木 600』『井上 5,950円 交通費』のような文面を（氏名, 金額, 元の行）に分ける。"""
+    rows, bad = [], []
+    for raw in text.splitlines():
+        line = parsers.nfkc(raw)
+        if not line:
+            continue
+        m = LINE_ROW.match(line)
+        nums = re.findall(r"-?\d[\d,]*", m.group("rest")) if m else []
+        if not m or not nums:
+            bad.append(raw.strip())
+            continue
+        amount = parsers.parse_amount(nums[0])
+        rest = re.sub(r"-?\d[\d,]*\s*円?", "", m.group("rest"), count=1).strip()
+        rows.append((m.group("name"), amount, raw.strip(), rest))
+    return rows, bad
+
+
+@transaction.atomic
+def import_line_text(text: str, *, category: ExpenseCategory, target_month: date, user=None, evidence=None,
+                     note: str = "") -> SourceFile:
+    """LINE などで別途届いた経費の文面を取り込む（1行＝1人分）。"""
+    rows, bad = parse_line_text(text)
+    if not rows:
+        raise ValueError("「氏名 金額」の形で入力してください（例: 青木 600）。")
+    target_month = month_start(target_month)
+    now = timezone.now()
+    sha = hashlib.sha256(f"line|{text}|{now.isoformat()}".encode()).hexdigest()
+    sf = SourceFile(original_name=f"LINE等の経費 {category.name} {target_month:%Y年%m月}（{now:%m/%d %H:%M}）",
+                    sha256=sha, file_format=SourceFile.Format.MANUAL, document_kind=category.document_kind,
+                    document_kind_auto=category.document_kind, target_month=target_month, parser="line_text",
+                    status=SourceFile.Status.PARSED, uploaded_by=user, row_count=len(rows))
+    if evidence is not None:
+        sf.file.save(f"line_{sha[:16]}{os.path.splitext(evidence.name)[1].lower()}", evidence, save=False)
+    sf.save()
+    doc = parsers.ParsedDocument("line_text")
+    for n, (name, amount, raw, rest) in enumerate(rows, start=1):
+        doc.rows.append(parsers.ParsedRow(row_number=n, raw={"行": raw, "メモ": note}, name=name, amount=amount,
+                                          description=(rest or note or category.name)[:255]))
+    _create_records(sf, doc, category)
+    for b in bad:
+        ExpenseIssue.objects.create(source_file=sf, code=Code.LOW_CONFIDENCE, message=f"読み取れない行があります: {b}"[:255])
+    audit.log("expenses.import_line", target=sf, after={"rows": len(rows), "category": category.name}, user=user)
     return sf
+
+
+@transaction.atomic
+def confirm_amounts(sf: SourceFile, amounts: dict, *, user=None, reason: str = "元資料と照合") -> int:
+    """OCR などで読んだ行の金額を、元資料と見比べてまとめて確定する。"""
+    n = 0
+    for rec in sf.records.filter(pk__in=list(amounts)):
+        if rec.status in (R.EXCLUDED, R.REFLECTED):
+            continue
+        update_record(rec, user=user, reason=reason or "元資料と照合", amount=amounts[rec.pk])
+        n += 1
+    return n
 
 
 def _parse(sf: SourceFile, data: bytes):
@@ -225,8 +289,12 @@ def evaluate(rec: ExpenseRecord, *, initial: bool = False) -> ExpenseRecord:
         if rec.card_code:
             card = CardCode.objects.filter(code=rec.card_code).select_related("member").first()
             if card is None:
-                _issue(rec, Code.UNKNOWN_CARD, f"カード〔{rec.card_code}〕はカード対応表に登録されていません。")
-            elif card.ignored:
+                # 運用ルール: カード対応表にないカードは無視する（給与に反映しない）
+                rec.status = R.EXCLUDED
+                rec.note = f"カード〔{rec.card_code}〕はカード対応表にないため対象外です。"
+                rec.save()
+                return rec
+            if card.ignored:
                 rec.status = R.EXCLUDED
                 rec.note = f"カード〔{rec.card_code}〕は給与に反映しない設定です（{card.label or card.member or '対象外'}）。"
                 rec.save()
@@ -327,6 +395,7 @@ def _notify_payroll(rec: ExpenseRecord, note: str, user=None):
 @transaction.atomic
 def update_record(rec: ExpenseRecord, *, user=None, reason: str, member=None, category=None, used_on=None,
                   description=None, amount=None, target_month=None, save_alias: bool = False) -> ExpenseRecord:
+    rec = ExpenseRecord.objects.select_for_update().get(pk=rec.pk)
     _ensure_editable(rec)
     if not reason:
         raise ValueError("修正理由を入力してください。")
@@ -392,6 +461,7 @@ def approval_problems(rec: ExpenseRecord) -> list[str]:
 def approve(records, *, user=None) -> tuple[int, list[str]]:
     ok, skipped = 0, []
     for rec in records:
+        rec = ExpenseRecord.objects.select_for_update().get(pk=rec.pk)  # 常に最新の内容で判定する（古い値で上書きしない）
         problems = approval_problems(rec)
         if problems:
             skipped.append(f"{rec.row_number}行目: {'・'.join(problems)}")
@@ -406,6 +476,7 @@ def approve(records, *, user=None) -> tuple[int, list[str]]:
 
 @transaction.atomic
 def unapprove(rec: ExpenseRecord, *, user=None, reason: str) -> None:
+    rec = ExpenseRecord.objects.select_for_update().get(pk=rec.pk)
     _ensure_editable(rec)
     if rec.status != R.APPROVED:
         raise ValueError("承認済みのデータではありません。")
@@ -422,6 +493,7 @@ def exclude(records, *, user=None, reason: str) -> int:
         raise ValueError("対象外にする理由を入力してください。")
     n = 0
     for rec in records:
+        rec = ExpenseRecord.objects.select_for_update().get(pk=rec.pk)
         _ensure_editable(rec)
         was_approved = rec.status == R.APPROVED
         before = rec.get_status_display()

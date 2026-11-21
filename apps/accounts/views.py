@@ -58,3 +58,16 @@ def stepup_password_change_view(request):
             return redirect("stepup_password_change")
     history = StepUpPasswordHistory.objects.select_related("changed_by")[:30]
     return render(request, "accounts/stepup_password_change.html", {"form": form, "history": history})
+
+
+@login_required
+def stepup_close_view(request, scope):
+    """給与・経費の画面を閉じる（次に開くときはパスワードを再入力）。"""
+    if request.method != "POST" or scope not in StepUpScope.values:
+        raise Http404
+    stepup.revoke(request, scope)
+    from apps.core import audit
+
+    audit.log("stepup.close", target_type="stepup", target_id=scope, target_repr=StepUpScope(scope).label, request=request)
+    messages.success(request, f"{StepUpScope(scope).label}を閉じました。")
+    return redirect("dashboard")

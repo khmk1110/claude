@@ -113,6 +113,23 @@ def upload(request):
 
 
 @expenses_view
+@require_POST
+def line_import(request):
+    try:
+        cat = get_object_or_404(ExpenseCategory, pk=request.POST.get("category"))
+        target = _month(request.POST.get("target_month"))
+        if not target:
+            raise ValueError("反映する給与の月を選んでください。")
+        sf = importer.import_line_text(request.POST.get("text", ""), category=cat, target_month=target, user=request.user,
+                                       evidence=request.FILES.get("evidence"), note=request.POST.get("note", "").strip())
+    except ValueError as e:
+        messages.error(request, str(e))
+        return redirect(f"/expenses/?month={request.POST.get('target_month') or ''}")
+    messages.success(request, f"{sf.row_count}件を取り込みました。内容を確認して承認してください。")
+    return redirect("expenses:file", pk=sf.pk)
+
+
+@expenses_view
 def file_detail(request, pk):
     sf = get_object_or_404(SourceFile.objects.select_related("profile", "uploaded_by"), pk=pk)
     records = list(sf.records.select_related("member", "auto_member", "category", "auto_category", "reflected_statement")
@@ -128,8 +145,10 @@ def file_detail(request, pk):
                 pages = list(range(1, len(pdf.pages) + 1))
         except Exception:  # noqa: BLE001
             pages = []
+    to_confirm = [r for r in records if r.status not in (R.EXCLUDED, R.REFLECTED, R.APPROVED)
+                  and any(i.code == ExpenseIssue.Code.LOW_CONFIDENCE and not i.resolved for i in r.issues.all())]
     return render(request, "expenses/file.html", {
-        "sf": sf, "records": records, "total": total, "pages": pages,
+        "sf": sf, "records": records, "to_confirm": to_confirm, "total": total, "pages": pages,
         "file_issues": sf.issues.filter(resolved=False), "members": Member.objects.exclude(status=Member.Status.RETIRED),
         "cats": ExpenseCategory.objects.filter(is_active=True), "kinds": DocumentKind.choices,
         "fields": parsers.FIELDS,
@@ -158,6 +177,15 @@ def file_action(request, pk):
             importer.set_file_meta(sf, user=user, kind=p.get("kind") or None, target_month=_month(p.get("target_month")),
                                    source_total=_int(total) if total != "" else None)
             messages.success(request, "資料の情報を更新しました。")
+        elif action == "amounts":
+            amounts = {}
+            for key, val in p.items():
+                if key.startswith("amount_") and val.strip() != "":
+                    amounts[int(key.split("_", 1)[1])] = _int(val)
+            if not amounts:
+                raise ValueError("金額が入力されていません。")
+            n = importer.confirm_amounts(sf, amounts, user=user, reason=p.get("reason", "").strip() or "元資料と照合")
+            messages.success(request, f"{n}件の金額を確定しました。内容を確認して承認してください。")
         elif action == "reprocess":
             importer.process(sf, user=user)
             messages.success(request, "読み取りをやり直しました。")

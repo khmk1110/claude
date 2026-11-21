@@ -116,7 +116,7 @@ class ImporterTests(TestCase):
         csv3 = "日付,担当者,区間,金額\n2026/10/01,青木 一郎,渋谷-品川,500\n".encode("utf-8")
         self.assertEqual(importer.import_file(csv3, "交通費_新形式.csv").status, SourceFile.Status.NEEDS_MAPPING)
 
-    def test_card_assignment_unknown_card_and_total_mismatch(self):
+    def test_card_assignment_unknown_card_ignored_and_total_mismatch(self):
         CardCode.objects.create(code="0007", member=self.c)
         CardCode.objects.create(code="0001", ignored=True, label="正社員")
         csv = "カード番号,利用日,金額\n0566-007-4 S [ R0007 ],2026/09/02,80000\n0566-001-7 S [ R0001 ],2026/09/02,30000\n" \
@@ -127,11 +127,8 @@ class ImporterTests(TestCase):
         recs = {r.card_code: r for r in sf.records.all()}
         self.assertEqual((recs["0007"].auto_member, recs["0007"].status), (self.c, R.UNCHECKED))
         self.assertEqual(recs["0001"].status, R.EXCLUDED)
-        self.assertEqual(recs["0009"].status, R.PENDING)
-        self.assertTrue(recs["0009"].issues.filter(code="unknown_card").exists())
-        ok, skipped = importer.approve([recs["0009"]])
-        self.assertEqual(ok, 0)
-        self.assertIn("未解決の確認事項", skipped[0])
+        self.assertEqual(recs["0009"].status, R.EXCLUDED)  # 対応表にないカードは無視する
+        self.assertIn("対応表にない", recs["0009"].note)
         self.assertTrue(sf.issues.filter(code="total_mismatch", resolved=False).exists())  # 110,000 ≠ 130,000
 
     def test_duplicate_transaction_is_flagged_not_deleted(self):
@@ -213,3 +210,35 @@ class ExpenseViewTests(TestCase):
         rec.refresh_from_db()
         self.assertEqual(rec.status, R.APPROVED)
         self.assertContains(self.client.get("/expenses/?month=2026-10"), "10,000")
+
+
+@override_settings(MEDIA_ROOT=TMP_MEDIA)
+class LineAndOcrConfirmTests(TestCase):
+    def setUp(self):
+        self.a = Member.objects.create(member_no="I1", name="関口 一郎", employment_type="intern")
+        self.b = Member.objects.create(member_no="I2", name="甲斐 二郎", employment_type="intern")
+
+    def test_line_text_import(self):
+        sf = importer.import_line_text("関口 600\n甲斐 5,950円 追加分\nよくわからない行", category=ExpenseCategory.objects.get(code="transport"),
+                                       target_month=date(2026, 10, 1))
+        recs = {r.name_text: r for r in sf.records.all()}
+        self.assertEqual((recs["関口"].auto_member, recs["関口"].auto_amount), (self.a, 600))
+        self.assertEqual((recs["甲斐"].auto_member, recs["甲斐"].auto_amount, recs["甲斐"].auto_description), (self.b, 5950, "追加分"))
+        self.assertTrue(sf.issues.filter(message__contains="よくわからない行").exists())
+        self.assertEqual(importer.approve(list(sf.records.all()))[0], 2)
+
+    def test_confirm_amounts_resolves_low_confidence(self):
+        CardCode.objects.create(code="0003", member=self.a)
+        sf = SourceFile.objects.create(original_name="ocr.pdf", sha256="o" * 64, file_format="pdf", target_month=date(2026, 10, 1),
+                                       used_ocr=True)
+        rec = ExpenseRecord(source_file=sf, row_number=1, card_code="0003", auto_amount=None, confidence=0.3,
+                            auto_category=ExpenseCategory.objects.get(code="gasoline"), auto_target_month=date(2026, 10, 1))
+        rec.dedupe_key = "x"
+        rec.save()
+        importer.evaluate(rec, initial=True)
+        self.assertEqual(rec.status, R.PENDING)
+        importer.confirm_amounts(sf, {rec.pk: 28000})
+        self.assertFalse(rec.issues.filter(resolved=False).exists())
+        self.assertEqual(importer.approve([rec])[0], 1)  # 古いインスタンスを渡しても最新の金額で承認する（上書きしない）
+        rec.refresh_from_db()
+        self.assertEqual((rec.effective_amount, rec.status), (28000, R.APPROVED))

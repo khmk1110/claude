@@ -26,6 +26,21 @@
 </details>
 {% endif %}
 
+{% if to_confirm %}
+<div class="card attnbox">
+  <b>金額の確認（{{ to_confirm|length }}件）</b>
+  <p class="small">上のページ画像と見比べて、カードごとの金額を入力（候補が正しければそのまま）して「金額を確定」を押してください。</p>
+  <form method="post" action="{% url 'expenses:file_action' sf.pk %}">{% csrf_token %}<input type="hidden" name="action" value="amounts">
+    <table class="list" style="max-width:640px">
+      <tr><th>行</th><th>カード・表記</th><th>対象者</th><th class="num">金額</th></tr>
+      {% for r in to_confirm %}<tr><td>{{ r.row_number }}</td><td>{% if r.card_code %}〔{{ r.card_code }}〕{% endif %}{{ r.name_text }}</td><td>{{ r.effective_member|default:"未設定" }}</td>
+        <td class="num"><input name="amount_{{ r.pk }}" value="{{ r.effective_amount|default_if_none:'' }}" inputmode="numeric" style="width:120px;text-align:right" placeholder="金額"></td></tr>{% endfor %}
+    </table>
+    <button class="btn" type="submit">金額を確定</button>
+  </form>
+</div>
+{% endif %}
+
 <form method="post" action="{% url 'expenses:file_action' sf.pk %}" id="bulk">{% csrf_token %}<input type="hidden" name="reason"></form>
 <div class="toolbar">
   <button class="btn" form="bulk" name="action" value="approve">チェックした行を承認</button>

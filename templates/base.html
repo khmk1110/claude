@@ -74,9 +74,14 @@
       <a class="lock" href="{% url 'payroll:index' %}">給与・報酬</a>
       <a class="lock" href="{% url 'expenses:index' %}">資料・経費</a>
     </nav>
-    <form class="right" method="post" action="{% url 'logout' %}">{% csrf_token %}
+    <div class="right toolbar" style="margin:0">
+    {% if STEPUP_VERIFIED.payroll %}<form method="post" action="{% url 'stepup_close' 'payroll' %}">{% csrf_token %}<button class="btn-light" title="次に開くときはパスワードを再入力">給与を閉じる</button></form>{% endif %}
+    {% if STEPUP_VERIFIED.expenses %}<form method="post" action="{% url 'stepup_close' 'expenses' %}">{% csrf_token %}<button class="btn-light" title="次に開くときはパスワードを再入力">経費を閉じる</button></form>{% endif %}
+    {% if user.can_manage_stepup_passwords %}<a class="btn-light" href="{% url 'stepup_password_change' %}">追加パスワード</a>{% endif %}
+    <form method="post" action="{% url 'logout' %}">{% csrf_token %}
       <span class="muted">{{ user }}</span> <button type="submit">ログアウト</button>
     </form>
+    </div>
   </header>
   {% endif %}
   <main>

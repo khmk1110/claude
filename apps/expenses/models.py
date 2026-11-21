@@ -83,6 +83,7 @@ class SourceFile(models.Model):
         CSV = "csv", "CSV"
         GSHEET = "gsheet", "Googleスプレッドシート"
         PDF = "pdf", "PDF"
+        MANUAL = "manual", "手入力（LINEなど）"
 
     class Status(models.TextChoices):
         UPLOADED = "uploaded", "取り込み済み"

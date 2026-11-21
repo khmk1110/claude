@@ -39,3 +39,16 @@ class AuditLog(models.Model):
 
 class ImmutableAfterConfirmError(Exception):
     """確定済みデータを変更しようとした。"""
+
+
+class StoredFile(models.Model):
+    """アップロードされた資料・写真の保存先（DB）。DB のバックアップだけで資料も一緒に保全・復元できる。"""
+
+    name = models.CharField(max_length=255, unique=True)
+    content = models.BinaryField()
+    size = models.PositiveBigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "保存ファイル"
+        verbose_name_plural = "保存ファイル"
