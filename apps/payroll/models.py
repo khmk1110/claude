@@ -176,6 +176,24 @@ class SalesCount(models.Model):
         ]
 
 
+class SalesEvidence(models.Model):
+    """営業件数の根拠（写真・文面）。代表から届いた写真や LINE の文面を保存する。"""
+
+    month = models.DateField("対象年月", validators=[validate_month_start])
+    kind = models.CharField("種類", max_length=16, choices=SalesCount.Kind.choices)
+    file = models.FileField("写真・資料", upload_to="evidence/sales/%Y/%m/", blank=True)
+    text = models.TextField("文面", blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        verbose_name = "営業件数の根拠"
+        verbose_name_plural = "営業件数の根拠"
+        ordering = ["-uploaded_at"]
+
+
 class BaseSalary(models.Model):
     """正社員の基本給（改定履歴）。正社員は明細を作らず、基本給・前月出勤日数・獲得件数の参照のみ。"""
 
@@ -200,7 +218,12 @@ class BaseSalary(models.Model):
 class Team(models.Model):
     """リーダー手当・チーム達成ボーナスの計算に使うチーム。"""
 
+    class Kind(models.TextChoices):
+        SALES = "sales", "営業チーム（チーム達成ボーナス）"
+        INTERN = "intern", "インターンチーム（インターンリーダー手当）"
+
     name = models.CharField("チーム名", max_length=100)
+    kind = models.CharField("種類", max_length=16, choices=Kind.choices, default=Kind.SALES)
     leader = models.ForeignKey(Member, on_delete=models.PROTECT, related_name="led_teams", verbose_name="リーダー")
     is_active = models.BooleanField("使用中", default=True)
     note = models.CharField("メモ", max_length=255, blank=True)
@@ -274,6 +297,10 @@ class PayrollItemDefinition(models.Model):
     scope = models.CharField("適用範囲", max_length=16, choices=Scope.choices, default=Scope.ALL)
     employment_types = models.JSONField("対象の雇用区分", default=list, blank=True)
     members = models.ManyToManyField(Member, blank=True, related_name="+", verbose_name="対象者（個人専用）")
+    excluded_members = models.ManyToManyField(
+        Member, blank=True, related_name="+", verbose_name="対象外にする人",
+        help_text="例: 商材別報酬で計算する人は通常の営業報酬の対象外にする",
+    )
     first_payroll_only = models.BooleanField("初回の給与のみ", default=False)
     effective_from = models.DateField("適用開始月", null=True, blank=True, validators=[validate_month_start])
     effective_to = models.DateField("適用終了月", null=True, blank=True, validators=[validate_month_start])
@@ -294,6 +321,8 @@ class PayrollItemDefinition(models.Model):
 
     def applies_to(self, member: Member, month) -> bool:
         if not self.is_active:
+            return False
+        if self.excluded_members.filter(pk=member.pk).exists():
             return False
         if self.effective_from and month < self.effective_from:
             return False
@@ -355,6 +384,7 @@ class PayrollStatement(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     snapshot = models.JSONField("確定時のスナップショット", null=True, blank=True)
+    calc_messages = models.JSONField("計算時のエラー・注意", default=list, blank=True)
     needs_review = models.BooleanField("確定後に元データの変更あり", default=False)
     review_note = models.TextField("変更内容", blank=True)
     note = models.TextField("メモ", blank=True)
@@ -372,6 +402,10 @@ class PayrollStatement(models.Model):
     @property
     def is_confirmed(self) -> bool:
         return self.status == self.Status.CONFIRMED
+
+    @property
+    def blocking_errors(self) -> list:
+        return [m for m in (self.calc_messages or []) if m.get("level") == "error"]
 
     # 確定済みの金額・スナップショットは変更不可。状態の変更（差し戻し）と needs_review の更新のみ許可。
     PROTECTED_FIELDS = ("earnings_total", "deductions_total", "net_amount", "snapshot", "member_id", "month")
@@ -419,6 +453,7 @@ class PayrollInput(_StatementChild):
         PREV_ACQUIRED_COUNT = "prev_acquired_count", "前月獲得件数"
         CURRENT_ACQUIRED_COUNT = "current_acquired_count", "当月獲得件数"
         CONFIRMED_COUNT = "confirmed_count", "当月入金確定件数"
+        CURRENT_ATTENDANCE_DAYS = "current_attendance_days", "当月出勤日数"
         UNIT_PRICE = "unit_price", "インセンティブ単価"
 
     statement = models.ForeignKey(PayrollStatement, on_delete=models.CASCADE, related_name="inputs")
@@ -454,8 +489,11 @@ class PayrollLine(_StatementChild):
         PayrollItemDefinition, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     code = models.CharField("項目コード", max_length=50, blank=True)
+    sub_key = models.CharField("内訳キー", max_length=50, blank=True)
     name = models.CharField("項目名", max_length=100)
     kind = models.CharField("支給・控除", max_length=16, choices=PayrollItemDefinition.Kind.choices)
+    source_refs = models.JSONField("元データ（経費明細ID など）", default=list, blank=True)
+    always_show = models.BooleanField("0円でも明細に表示", default=False)
     quantity = models.DecimalField("数量", max_digits=12, decimal_places=1, null=True, blank=True)
     unit_price = models.IntegerField("単価", null=True, blank=True)
     auto_amount = models.IntegerField("自動計算額", null=True, blank=True)

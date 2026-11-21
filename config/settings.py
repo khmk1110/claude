@@ -131,6 +131,11 @@ STEPUP_PROTECTED_PREFIXES = {
 
 COMPANY_NAME = env("COMPANY_NAME", default="（会社名を COMPANY_NAME に設定）")
 
+# 明細書の発行者欄（実際の値は環境変数で設定。リポジトリには書かない）
+ISSUER_REPRESENTATIVE = env("ISSUER_REPRESENTATIVE", default="")
+ISSUER_ADDRESS = env("ISSUER_ADDRESS", default="")
+ISSUER_TEL = env("ISSUER_TEL", default="")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

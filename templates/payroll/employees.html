@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}正社員{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>正社員　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+{% include "payroll/_nav.html" %}
+<p class="muted small">正社員は明細を作りません。給与計算に必要な前月出勤日数・前月獲得件数・基本給を確認できます。</p>
+<div class="table-scroll"><table class="list">
+  <tr><th>氏名</th><th>入社日</th><th class="num">前月（{{ prev|date:"n月" }}）出勤日数</th><th class="num">前月獲得件数</th><th class="num">基本給</th><th>基本給の登録・改定</th></tr>
+  {% for r in rows %}
+  <tr><td class="strong">{{ r.member.name }}{% if r.third_month %}<br><span class="attn small">入社3か月目：基本給の改定を確認してください</span>{% endif %}</td>
+    <td>{{ r.member.joined_on|date:"Y-m-d"|default:"-" }}</td>
+    <td class="num" title="{{ r.prev_src }}">{% if r.prev_days is not None %}{{ r.prev_days.normalize }}{% else %}<span class="muted">勤怠なし</span>{% endif %}</td>
+    <td class="num">{{ r.prev_acq|default_if_none:"-" }}</td>
+    <td class="num strong">{% if r.base %}{{ r.base.amount|intcomma }}円<br><span class="muted small">{{ r.base.effective_from|date:"Y年n月" }}〜</span>{% else %}<span class="warn">未登録</span>{% endif %}</td>
+    <td><form method="post" class="inline">{% csrf_token %}<input type="hidden" name="member_id" value="{{ r.member.pk }}"><input type="hidden" name="month" value="{{ month_param }}">
+      <input type="month" name="effective_from" value="{{ month_param }}" style="width:auto"> <input name="amount" placeholder="金額" style="width:100px"> <input name="note" placeholder="メモ" style="width:110px">
+      <button class="btn-light" type="submit">登録</button></form></td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">対象の正社員がいません。</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

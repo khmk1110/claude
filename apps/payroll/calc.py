@@ -1,0 +1,562 @@
+"""給与・報酬の計算エンジン。
+
+- 自動取得値（勤怠・営業件数・単価表・承認済み経費）と手動修正値は別々に保持する。
+- 再計算しても手動修正値・当月のみの項目は残す。
+- 確定済みの給与には一切触れない（ImmutableAfterConfirmError）。
+- エラー（level=error）が残っている間は確定できない。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
+
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
+
+from apps.attendance import services as attendance
+from apps.core import audit
+from apps.core.models import ImmutableAfterConfirmError
+from apps.core.months import month_end, month_start, prev_month
+from apps.members.models import EmploymentType, Member
+
+from .models import (
+    PayrollInput,
+    PayrollItemDefinition,
+    PayrollLine,
+    PayrollMonth,
+    PayrollStatement,
+    RateTable,
+    SalesCount,
+    Team,
+)
+
+Key = PayrollInput.Key
+Method = PayrollItemDefinition.Method
+PAYROLL_TYPES = (EmploymentType.CONTRACTOR, EmploymentType.INTERN)  # 正社員は明細を作らない
+
+
+def yen(n) -> str:
+    return f"{int(n):,}円"
+
+
+def num(v) -> str:
+    if v is None:
+        return "-"
+    d = Decimal(v)
+    return f"{d.normalize():f}" if d != d.to_integral() else f"{int(d):,}"
+
+
+# ---------------------------------------------------------------------------
+# 営業件数の取得
+# ---------------------------------------------------------------------------
+def sales_total(member, month, kind) -> int | None:
+    """件数の合計。商材を指定しない行があればそれを、なければ商材別の合計を使う。未入力なら None。"""
+    rows = list(SalesCount.objects.filter(member=member, month=month, kind=kind))
+    if not rows:
+        return None
+    total_rows = [r for r in rows if r.product_id is None]
+    if total_rows:
+        return total_rows[0].count
+    return sum(r.count for r in rows)
+
+
+def product_count(member, month, product_code) -> int | None:
+    row = SalesCount.objects.filter(
+        member=member, month=month, kind=SalesCount.Kind.CONFIRMED, product__code=product_code
+    ).first()
+    return row.count if row else None
+
+
+# ---------------------------------------------------------------------------
+# 計算の文脈
+# ---------------------------------------------------------------------------
+@dataclass
+class LineSpec:
+    item: PayrollItemDefinition | None
+    name: str
+    kind: str
+    auto_amount: int | None
+    quantity: Decimal | None = None
+    unit_price: int | None = None
+    detail: str = ""
+    sub_key: str = ""
+    source_refs: list = field(default_factory=list)
+    always_show: bool = False
+    show_on_slip: bool = True
+    display_order: int = 0
+
+
+@dataclass
+class Ctx:
+    statement: PayrollStatement
+    member: Member
+    month: date
+    inputs: dict
+    rate_table: RateTable | None
+    messages: list = field(default_factory=list)
+
+    def value(self, key):
+        inp = self.inputs.get(key)
+        return inp.value if inp else None
+
+    def error(self, text, item=""):
+        self.messages.append({"level": "error", "text": text, "item": item})
+
+    def warn(self, text, item=""):
+        self.messages.append({"level": "warning", "text": text, "item": item})
+
+
+# ---------------------------------------------------------------------------
+# 元データ（PayrollInput）の自動取得
+# ---------------------------------------------------------------------------
+def refresh_inputs(st: PayrollStatement) -> dict:
+    member, month = st.member, st.month
+    pm = prev_month(month)
+    prev_days, prev_src = attendance.actual_attendance_days(member, pm)
+    cur_days, cur_src = attendance.actual_attendance_days(member, month)
+    auto = {
+        Key.PREV_ATTENDANCE_DAYS: (prev_days, prev_src),
+        Key.PREV_ACQUIRED_COUNT: (sales_total(member, pm, SalesCount.Kind.ACQUIRED), f"営業件数（獲得）{pm:%Y年%m月}"),
+        Key.CURRENT_ACQUIRED_COUNT: (sales_total(member, month, SalesCount.Kind.ACQUIRED), f"営業件数（獲得）{month:%Y年%m月}"),
+        Key.CONFIRMED_COUNT: (sales_total(member, month, SalesCount.Kind.CONFIRMED), f"入金確定件数 {month:%Y年%m月}"),
+        Key.CURRENT_ATTENDANCE_DAYS: (cur_days, cur_src),
+    }
+    inputs = {i.key: i for i in st.inputs.all()}
+    for key, (val, src) in auto.items():
+        inp = inputs.get(key) or PayrollInput(statement=st, key=key)
+        inp.auto_value = val
+        inp.auto_source = src if val is not None else "データなし（手入力してください）"
+        inp.save()
+        inputs[key] = inp
+
+    # 単価は、前月出勤日数・前月獲得件数（修正値があればそれ）から判定
+    table = RateTable.for_month(st.employment_type, month)
+    days, count = inputs[Key.PREV_ATTENDANCE_DAYS].value, inputs[Key.PREV_ACQUIRED_COUNT].value
+    unit = inputs.get(Key.UNIT_PRICE) or PayrollInput(statement=st, key=Key.UNIT_PRICE)
+    if table and days is not None and count is not None:
+        unit.auto_value = table.lookup(days, count)
+        unit.auto_source = (
+            f"単価表「{table.name}」前月出勤 {num(days)}日（切り捨て {RateTable.floor_days(days)}日）× 前月獲得 {num(count)}件"
+        )
+    else:
+        unit.auto_value = None
+        unit.auto_source = "単価表が未登録" if table is None else "前月出勤日数・前月獲得件数が必要"
+    unit.save()
+    inputs[Key.UNIT_PRICE] = unit
+    return inputs
+
+
+# ---------------------------------------------------------------------------
+# 計算方法ごとの処理
+# ---------------------------------------------------------------------------
+def _unit_price(ctx: Ctx, item) -> int | None:
+    v = ctx.value(Key.UNIT_PRICE)
+    if v is None:
+        if ctx.rate_table is None:
+            ctx.error(f"{ctx.statement.get_employment_type_display()}の単価表が登録されていません。", item.code)
+        else:
+            ctx.error("前月出勤日数と前月獲得件数を入力してください（単価を判定できません）。", item.code)
+        return None
+    return int(v)
+
+
+def h_sales_commission(ctx: Ctx, item) -> list[LineSpec]:
+    unit = _unit_price(ctx, item)
+    count = ctx.value(Key.CONFIRMED_COUNT)
+    if count is None:
+        ctx.error("当月の入金確定件数を入力してください。", item.code)
+    if unit is None or count is None:
+        return [LineSpec(item, item.name, item.kind, None)]
+    count = int(count)
+    return [LineSpec(item, item.name, item.kind, count * unit, Decimal(count), unit, f"{count}件 × {yen(unit)}")]
+
+
+def h_product_commission(ctx: Ctx, item) -> list[LineSpec]:
+    code = item.params.get("product")
+    count = product_count(ctx.member, ctx.month, code)
+    if count is None:
+        return []  # その月に件数の入力がない商材は行を作らない
+    if item.params.get("unit_price") == "auto":
+        unit = _unit_price(ctx, item)
+    else:
+        unit = item.default_amount
+        if unit is None:
+            ctx.error(f"「{item.name}」の単価が設定されていません。", item.code)
+    if unit is None:
+        return [LineSpec(item, item.name, item.kind, None, Decimal(count), None, f"{count}件")]
+    return [LineSpec(item, item.name, item.kind, count * unit, Decimal(count), unit, f"{count}件 × {yen(unit)}")]
+
+
+def h_fixed(ctx: Ctx, item) -> list[LineSpec]:
+    if item.first_payroll_only and not _is_first_payroll(ctx, item):
+        return []
+    return [LineSpec(item, item.name, item.kind, item.default_amount or 0, detail=item.slip_label)]
+
+
+def h_manual(ctx: Ctx, item) -> list[LineSpec]:
+    return [LineSpec(item, item.name, item.kind, item.default_amount or 0, detail=item.slip_label)]
+
+
+def h_unit_x_qty(ctx: Ctx, item) -> list[LineSpec]:
+    return [LineSpec(item, item.name, item.kind, 0, detail=item.slip_label)]
+
+
+def h_expense_sum(ctx: Ctx, item) -> list[LineSpec]:
+    from apps.expenses.models import ExpenseRecord
+
+    category = item.params.get("category")
+    qs = ExpenseRecord.objects.filter(
+        Q(status=ExpenseRecord.Status.APPROVED) | Q(status=ExpenseRecord.Status.REFLECTED, reflected_statement=ctx.statement)
+    ).select_related("source_file", "member", "auto_member", "category", "auto_category")
+    refs, total = [], 0
+    for r in qs:
+        m, c = r.effective_member, r.effective_category
+        if m and m.pk == ctx.member.pk and c and c.code == category and r.effective_target_month == ctx.month:
+            refs.append(r.pk)
+            total += r.effective_amount or 0
+    subtract = int(item.params.get("subtract") or 0)
+    if subtract:
+        amount = max(total - subtract, 0)
+        if total and total < subtract:
+            ctx.warn(f"{item.name}: 合計 {yen(total)} が差し引く額 {yen(subtract)} より少ないため 0円にしました。", item.code)
+        if not refs:
+            ctx.warn(f"{item.name}: 承認済みのデータがありません（資料の取り込み・承認、または手入力が必要です）。", item.code)
+        detail = f"{yen(total)} − {yen(subtract)}" if refs else ""
+    else:
+        amount, detail = total, (f"{len(refs)}件" if refs else "")
+    return [LineSpec(item, item.name, item.kind, amount, detail=detail, source_refs=refs)]
+
+
+def h_team_bonus(ctx: Ctx, item) -> list[LineSpec]:
+    teams = Team.objects.filter(leader=ctx.member, kind=Team.Kind.SALES, is_active=True)
+    out = []
+    for team in teams:
+        members = list(team.members_for(ctx.month).exclude(pk=ctx.member.pk))
+        if not members:
+            continue
+        counted = members + ([ctx.member] if item.params.get("include_leader_in_average", True) else [])
+        counts, missing = [], []
+        for m in counted:
+            c = ctx.value(Key.CONFIRMED_COUNT) if m.pk == ctx.member.pk else sales_total(m, ctx.month, SalesCount.Kind.CONFIRMED)
+            (missing.append(m.name) if c is None else counts.append(int(c)))
+        sub = f"team{team.pk}"
+        if missing:
+            ctx.error(f"チーム「{team.name}」: {', '.join(missing)} の入金確定件数が未入力です。", item.code)
+            out.append(LineSpec(item, item.name, item.kind, None, sub_key=sub))
+            continue
+        avg = Decimal(sum(counts)) / len(counts)
+        avg_txt = f"{avg.quantize(Decimal('0.1'))}"
+        manual_from = item.params.get("manual_from")
+        if manual_from is not None and avg >= manual_from:
+            ctx.error(f"チーム「{team.name}」の平均が{avg_txt}件（{manual_from}件以上は別途協議）。金額を手入力してください。", item.code)
+            out.append(LineSpec(item, item.name, item.kind, None, Decimal(len(members)), None, f"平均{avg_txt}件（別途協議）", sub))
+            continue
+        per = 0
+        for threshold, amount in sorted(item.params.get("tiers", [])):
+            if avg >= threshold:
+                per = amount
+        detail = f"チーム平均{avg_txt}件 → {yen(per)} × {len(members)}名" if per else f"チーム平均{avg_txt}件（基準未達）"
+        out.append(LineSpec(item, item.name, item.kind, per * len(members), Decimal(len(members)), per, detail, sub))
+    return out
+
+
+def h_intern_leader(ctx: Ctx, item) -> list[LineSpec]:
+    out = []
+    for team in Team.objects.filter(leader=ctx.member, kind=Team.Kind.INTERN, is_active=True):
+        members = list(team.members_for(ctx.month))
+        if not item.params.get("include_leader"):
+            members = [m for m in members if m.pk != ctx.member.pk]
+        sub = f"team{team.pk}"
+        key = Key.CURRENT_ATTENDANCE_DAYS if item.params.get("attendance_month", "current") == "current" else Key.PREV_ATTENDANCE_DAYS
+        days = ctx.value(key)
+        need = Decimal(str(item.params.get("min_attendance_days", 0)))
+        if days is None:
+            ctx.error("インターンリーダー手当: 出勤日数がわかりません（勤怠を入力するか手入力してください）。", item.code)
+            out.append(LineSpec(item, item.name, item.kind, None, sub_key=sub))
+            continue
+        if Decimal(days) < need:
+            out.append(LineSpec(item, item.name, item.kind, 0, detail=f"出勤{num(days)}日（{num(need)}日以上が条件）のため対象外", sub_key=sub))
+            continue
+        total, missing = 0, []
+        for m in members:
+            c = sales_total(m, ctx.month, SalesCount.Kind.CONFIRMED)
+            (missing.append(m.name) if c is None else None)
+            total += c or 0
+        if missing:
+            ctx.warn(f"インターンリーダー手当: {', '.join(missing)} の入金確定件数が未入力のため0件として計算しました。", item.code)
+        rate = int(item.params.get("rate", 0))
+        out.append(LineSpec(item, item.name, item.kind, total * rate, Decimal(total), rate, f"チーム{total}件 × {yen(rate)}", sub))
+    return out
+
+
+HANDLERS = {
+    Method.SALES_COMMISSION: h_sales_commission,
+    Method.PRODUCT_COMMISSION: h_product_commission,
+    Method.FIXED: h_fixed,
+    Method.MANUAL: h_manual,
+    Method.UNIT_X_QTY: h_unit_x_qty,
+    Method.EXPENSE_SUM: h_expense_sum,
+    Method.TEAM_BONUS: h_team_bonus,
+    Method.INTERN_LEADER: h_intern_leader,
+}
+
+
+def _is_first_payroll(ctx: Ctx, item) -> bool:
+    """初回の給与か。過去に確定した給与がなく、入社（契約開始）が当月または前月の場合。"""
+    if PayrollStatement.objects.filter(
+        member=ctx.member, month__lt=ctx.month, status=PayrollStatement.Status.CONFIRMED
+    ).exists():
+        return False
+    joined = ctx.member.joined_on
+    if joined is None:
+        ctx.warn(f"「{item.name}」: 入社日（契約開始日）が未登録のため、初回かどうか判定できません。必要なら手入力してください。", item.code)
+        return False
+    return prev_month(ctx.month) <= month_start(joined) <= ctx.month
+
+
+# ---------------------------------------------------------------------------
+# 公開関数
+# ---------------------------------------------------------------------------
+def _guard(st: PayrollStatement):
+    if PayrollStatement.objects.filter(pk=st.pk, status=PayrollStatement.Status.CONFIRMED).exists():
+        raise ImmutableAfterConfirmError("確定済みの給与は再計算できません。")
+
+
+def ensure_month(month: date) -> PayrollMonth:
+    pm, _ = PayrollMonth.objects.get_or_create(month=month, defaults={"payment_date": month_end(month)})
+    return pm
+
+
+@transaction.atomic
+def prepare_month(month: date, *, user=None) -> int:
+    """その月の計算対象（個人事業主・インターン）の給与データを作成する。"""
+    from apps.shifts.services import members_for_month
+
+    month = month_start(month)
+    ensure_month(month)
+    n = 0
+    for m in members_for_month(month).filter(employment_type__in=PAYROLL_TYPES):
+        _, created = PayrollStatement.objects.get_or_create(member=m, month=month, defaults={"employment_type": m.employment_type})
+        n += created
+    if n:
+        audit.log("payroll.prepare_month", target_type="payroll_month", target_id=month.isoformat(),
+                  target_repr=f"{month:%Y年%m月}", after={"created": n}, user=user)
+    return n
+
+
+def recompute_totals(st: PayrollStatement) -> None:
+    earn = ded = 0
+    for line in st.lines.all():
+        if line.kind == PayrollItemDefinition.Kind.EARNING:
+            earn += line.amount
+        else:
+            ded += line.amount
+    st.earnings_total, st.deductions_total, st.net_amount = earn, ded, earn - ded
+
+
+@transaction.atomic
+def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollStatement:
+    _guard(st)
+    st = PayrollStatement.objects.select_for_update().get(pk=st.pk)
+    member, month = st.member, st.month
+    if st.employment_type != member.employment_type:
+        st.employment_type = member.employment_type
+    inputs = refresh_inputs(st)
+    ctx = Ctx(st, member, month, inputs, RateTable.for_month(st.employment_type, month))
+
+    specs: list[LineSpec] = []
+    items = PayrollItemDefinition.objects.filter(is_active=True).prefetch_related("members", "excluded_members")
+    for item in items:
+        if not item.applies_to(member, month):
+            continue
+        for spec in HANDLERS[item.method](ctx, item):
+            spec.always_show = bool(item.params.get("always_show"))
+            spec.show_on_slip = item.show_on_slip
+            spec.display_order = item.display_order
+            specs.append(spec)
+
+    existing = {(l.item_id, l.sub_key): l for l in st.lines.filter(is_adhoc=False)}
+    keep_ids = set()
+    for spec in specs:
+        key = (spec.item.pk if spec.item else None, spec.sub_key)
+        line = existing.get(key) or PayrollLine(statement=st, item=spec.item, sub_key=spec.sub_key)
+        line.code = spec.item.code if spec.item else ""
+        line.name, line.kind = spec.name, spec.kind
+        line.auto_amount, line.quantity, line.unit_price = spec.auto_amount, spec.quantity, spec.unit_price
+        line.detail, line.source_refs = spec.detail, spec.source_refs
+        line.always_show, line.show_on_slip, line.display_order = spec.always_show, spec.show_on_slip, spec.display_order
+        line.save()  # 手動修正値（override_amount）はそのまま残す
+        keep_ids.add(line.pk)
+        if line.auto_amount is None and line.override_amount is not None:
+            # 自動計算できない行でも手入力されていればエラーを解除
+            ctx.messages = [m for m in ctx.messages if not (m["level"] == "error" and m.get("item") == line.code)]
+    for line in existing.values():
+        if line.pk not in keep_ids:
+            line.delete()
+
+    recompute_totals(st)
+    st.calc_messages = ctx.messages
+    st.status = PayrollStatement.Status.IN_PROGRESS if st.blocking_errors else PayrollStatement.Status.CALCULATED
+    st.calculated_at = timezone.now()
+    st.save()
+    if log:
+        audit.log("payroll.calculate", target=st, after={"earnings": st.earnings_total, "deductions": st.deductions_total,
+                                                          "net": st.net_amount, "errors": len(st.blocking_errors)}, user=user)
+    return st
+
+
+@transaction.atomic
+def set_input_override(st: PayrollStatement, key: str, value, *, reason: str, user=None) -> PayrollStatement:
+    _guard(st)
+    if value is not None and not reason:
+        raise ValueError("修正理由を入力してください。")
+    inp, _ = PayrollInput.objects.get_or_create(statement=st, key=key)
+    before = {"auto": inp.auto_value, "override": inp.override_value}
+    inp.override_value = None if value is None else Decimal(str(value))
+    inp.override_reason = reason if value is not None else ""
+    inp.updated_by = user
+    inp.save()
+    audit.log("payroll.input_override", target=st, before=before,
+              after={"key": PayrollInput.Key(key).label, "override": inp.override_value}, reason=reason, user=user)
+    return calculate(st, user=user, log=False)
+
+
+@transaction.atomic
+def set_line_override(line: PayrollLine, amount, *, reason: str, user=None) -> PayrollStatement:
+    st = line.statement
+    _guard(st)
+    if amount is not None and not reason:
+        raise ValueError("修正理由を入力してください。")
+    before = {"name": line.name, "auto": line.auto_amount, "override": line.override_amount}
+    line.override_amount = None if amount is None else int(amount)
+    line.override_reason = reason if amount is not None else ""
+    line.updated_by = user
+    line.save()
+    audit.log("payroll.line_override", target=st, before=before,
+              after={"name": line.name, "override": line.override_amount}, reason=reason, user=user)
+    return calculate(st, user=user, log=False)
+
+
+@transaction.atomic
+def add_adhoc_line(st: PayrollStatement, *, name: str, kind: str, amount: int, detail: str = "", reason: str = "", user=None):
+    _guard(st)
+    if not name or kind not in PayrollItemDefinition.Kind.values:
+        raise ValueError("項目名と支給・控除を指定してください。")
+    line = PayrollLine.objects.create(statement=st, name=name, kind=kind, auto_amount=None, override_amount=int(amount),
+                                      override_reason=reason, detail=detail, is_adhoc=True, display_order=90, updated_by=user)
+    audit.log("payroll.adhoc_add", target=st, after={"name": name, "kind": kind, "amount": int(amount)}, reason=reason, user=user)
+    recompute_totals(st)
+    st.save()
+    return line
+
+
+@transaction.atomic
+def remove_adhoc_line(line: PayrollLine, *, user=None, reason: str = ""):
+    st = line.statement
+    _guard(st)
+    if not line.is_adhoc:
+        raise ValueError("当月のみの項目だけ削除できます。")
+    audit.log("payroll.adhoc_remove", target=st, before={"name": line.name, "amount": line.amount}, reason=reason, user=user)
+    line.delete()
+    recompute_totals(st)
+    st.save()
+
+
+def build_snapshot(st: PayrollStatement) -> dict:
+    """明細PDF・過去分の再出力に必要な情報をすべて含める（後から設定が変わっても同じ明細を出せるように）。"""
+    pm = ensure_month(st.month)
+    table = RateTable.for_month(st.employment_type, st.month)
+    return {
+        "version": 1,
+        "member": {"id": st.member_id, "name": st.member.name, "member_no": st.member.member_no,
+                   "employment_type": st.employment_type, "employment_type_label": st.get_employment_type_display()},
+        "month": st.month.isoformat(),
+        "payment_date": pm.payment_date.isoformat(),
+        "issuer": {
+            "company": settings.COMPANY_NAME,
+            "representative": getattr(settings, "ISSUER_REPRESENTATIVE", ""),
+            "address": getattr(settings, "ISSUER_ADDRESS", ""),
+            "tel": getattr(settings, "ISSUER_TEL", ""),
+        },
+        "inputs": [
+            {"key": i.key, "label": i.get_key_display(), "auto": None if i.auto_value is None else str(i.auto_value),
+             "override": None if i.override_value is None else str(i.override_value),
+             "value": None if i.value is None else str(i.value), "source": i.auto_source, "reason": i.override_reason}
+            for i in st.inputs.all()
+        ],
+        "lines": [
+            {"code": l.code, "name": l.name, "kind": l.kind, "quantity": None if l.quantity is None else str(l.quantity),
+             "unit_price": l.unit_price, "auto_amount": l.auto_amount, "override_amount": l.override_amount,
+             "amount": l.amount, "detail": l.detail, "override_reason": l.override_reason, "is_adhoc": l.is_adhoc,
+             "show_on_slip": l.show_on_slip, "always_show": l.always_show, "source_refs": l.source_refs}
+            for l in st.lines.all()
+        ],
+        "rate_table": table.as_snapshot() if table else None,
+        "totals": {"earnings": st.earnings_total, "deductions": st.deductions_total, "net": st.net_amount},
+        "messages": st.calc_messages,
+    }
+
+
+@transaction.atomic
+def confirm(st: PayrollStatement, *, user=None) -> PayrollStatement:
+    from apps.expenses.models import ExpenseRecord
+
+    _guard(st)
+    st = PayrollStatement.objects.select_for_update().get(pk=st.pk)
+    if st.status not in (PayrollStatement.Status.CALCULATED, PayrollStatement.Status.REVIEW):
+        raise ValueError("計算済み（または確認待ち）の給与だけ確定できます。先に計算してください。")
+    if st.blocking_errors:
+        raise ValueError("エラーが残っているため確定できません。")
+    recompute_totals(st)
+    # 承認済み経費を「給与反映済み」にする（同じ経費を二重に反映しない）
+    ref_ids = [rid for l in st.lines.all() for rid in (l.source_refs or [])]
+    if ref_ids:
+        updated = ExpenseRecord.objects.filter(pk__in=ref_ids, status=ExpenseRecord.Status.APPROVED).update(
+            status=ExpenseRecord.Status.REFLECTED, reflected_statement=st, reflected_at=timezone.now()
+        )
+        already = ExpenseRecord.objects.filter(pk__in=ref_ids, status=ExpenseRecord.Status.REFLECTED,
+                                               reflected_statement=st).count()
+        if already != len(set(ref_ids)):
+            raise ValueError("計算後に経費データの状態が変わりました。再計算してから確定してください。")
+    st.snapshot = build_snapshot(st)
+    st.status = PayrollStatement.Status.CONFIRMED
+    st.confirmed_at = timezone.now()
+    st.confirmed_by = user
+    st.needs_review = False
+    st.save()
+    audit.log("payroll.confirm", target=st, after=st.snapshot["totals"], user=user)
+    return st
+
+
+@transaction.atomic
+def reopen(st: PayrollStatement, *, user=None, reason: str) -> PayrollStatement:
+    """確定の取り消し（理由必須）。確定時のスナップショットは監査ログに残す。"""
+    from apps.expenses.models import ExpenseRecord
+
+    if not reason:
+        raise ValueError("確定を取り消す理由を入力してください。")
+    st = PayrollStatement.objects.select_for_update().get(pk=st.pk)
+    if not st.is_confirmed:
+        raise ValueError("確定済みではありません。")
+    audit.log("payroll.reopen", target=st, before=st.snapshot, reason=reason, user=user)
+    st.status = PayrollStatement.Status.REVIEW
+    st.save()  # 状態だけ変更（DB トリガーも許可）
+    PayrollStatement.objects.filter(pk=st.pk).update(snapshot=None, confirmed_at=None, confirmed_by=None)
+    ExpenseRecord.objects.filter(reflected_statement=st, status=ExpenseRecord.Status.REFLECTED).update(
+        status=ExpenseRecord.Status.APPROVED, reflected_statement=None, reflected_at=None
+    )
+    st.refresh_from_db()
+    return st
+
+
+def mark_review(st: PayrollStatement, *, user=None) -> None:
+    _guard(st)
+    if st.status != PayrollStatement.Status.CALCULATED:
+        raise ValueError("計算済みの給与だけ確認待ちにできます。")
+    st.status = PayrollStatement.Status.REVIEW
+    st.save(update_fields=["status", "updated_at"])
+    audit.log("payroll.mark_review", target=st, user=user)

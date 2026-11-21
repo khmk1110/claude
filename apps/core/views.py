@@ -45,7 +45,20 @@ def dashboard(request):
         o = st.obligation
         if (o and not o.get("achieved") and o.get("shortfall") > 0) or st.expiring_soon or st.missing_statutory:
             leave_alerts.append((m, st))
+    payroll = None
+    if stepup.is_verified(request, "payroll", touch=False):
+        from apps.payroll.models import PayrollStatement
+
+        sts = list(PayrollStatement.objects.filter(month=month))
+        payroll = {
+            "count": len(sts),
+            "unconfirmed": sum(1 for s in sts if s.status != PayrollStatement.Status.CONFIRMED),
+            "errors": sum(1 for s in sts if s.status == PayrollStatement.Status.IN_PROGRESS),
+            "net": sum(s.net_amount or 0 for s in sts),
+            "needs_review": sum(1 for s in sts if s.needs_review),
+        }
     ctx = {
+        "payroll": payroll,
         "month": month,
         "member_count": len(members),
         "shift_filled": filled,

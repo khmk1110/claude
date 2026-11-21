@@ -1,2 +1,53 @@
 {% extends "base.html" %}
-{% block content %}<h1>給与・報酬管理</h1><p class="muted">STEP 4 で実装します。</p>{% endblock %}
+{% load humanize %}
+{% block title %}給与・報酬管理{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>給与・報酬管理　{{ month|date:"Y年n月" }}分</h1>{% include "includes/monthnav.html" %}</div>
+{% include "payroll/_nav.html" %}
+
+<div class="grid">
+  <div class="card"><div class="muted">差引支給額の合計</div><div class="big">{{ total_net|intcomma }}円</div></div>
+  <div class="card"><div class="muted">未確定</div><div class="big {% if unconfirmed %}attn{% endif %}">{{ unconfirmed }}人</div>
+    <div class="muted small">未計算 {{ counts.not_calculated }} / 入力途中 {{ counts.in_progress }} / 計算済み {{ counts.calculated }} / 確認待ち {{ counts.review }} / 確定 {{ counts.confirmed }}</div></div>
+  <div class="card"><div class="muted">支払日</div>
+    {% if payment_date %}<form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="payment_date">
+      <input type="date" name="payment_date" value="{{ payment_date|date:'Y-m-d' }}" style="width:auto"> <button class="btn-light" type="submit">変更</button></form>{% else %}<div class="muted">給与データ作成後に設定</div>{% endif %}</div>
+</div>
+
+<div class="toolbar">
+  {% if pending_members %}
+  <form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="prepare">
+    <button class="btn" type="submit">給与データを作成（{{ pending_members }}人）</button></form>
+  {% endif %}
+  {% if rows %}
+  <form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('確定済みを除く全員を計算します。手動で修正した値はそのまま残ります。よろしいですか？')">{% csrf_token %}
+    <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="calculate_all"><button class="btn" type="submit">全員を計算</button></form>
+  <a class="btn-light" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDF（確定分を一括）</a>
+  <a class="btn-light" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}&all=1" target="_blank">確認用PDF（未確定を含む）</a>
+  <a class="btn-light" href="{% url 'payroll:export' 'csv' %}?month={{ month_param }}">CSV</a>
+  <a class="btn-light" href="{% url 'payroll:export' 'xlsx' %}?month={{ month_param }}">Excel</a>
+  {% endif %}
+</div>
+
+<div class="table-scroll">
+<table class="list">
+  <tr><th>氏名</th><th>区分</th><th class="num">前月出勤</th><th class="num">前月獲得</th><th class="num">当月獲得</th><th class="num">入金確定</th><th class="num">単価</th>
+      <th class="num">支給合計</th><th class="num">控除合計</th><th class="num">差引支給額</th><th>計算状況</th></tr>
+  {% for r in rows %}
+  <tr class="{% if r.st.needs_review %}rowattn{% endif %}">
+    <td class="strong"><a href="{% url 'payroll:detail' r.st.pk %}">{{ r.st.member.name }}</a>{% if r.overridden %} <span class="tag" title="手動修正あり">修正</span>{% endif %}</td>
+    <td>{{ r.st.get_employment_type_display }}</td>
+    <td class="num">{{ r.in.prev_attendance_days.normalize|default:"-" }}</td>
+    <td class="num">{{ r.in.prev_acquired_count.normalize|default:"-" }}</td>
+    <td class="num">{{ r.in.current_acquired_count.normalize|default:"-" }}</td>
+    <td class="num">{{ r.in.confirmed_count.normalize|default:"-" }}</td>
+    <td class="num">{% if r.in.unit_price is not None %}{{ r.in.unit_price|floatformat:0|intcomma }}{% else %}-{% endif %}</td>
+    <td class="num">{{ r.st.earnings_total|default_if_none:"-"|intcomma }}</td>
+    <td class="num">{{ r.st.deductions_total|default_if_none:"-"|intcomma }}</td>
+    <td class="num strong">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td>
+    <td><span class="badge st-{{ r.st.status }}">{{ r.st.get_status_display }}</span>{% if r.st.needs_review %}<br><span class="warn small">確定後に元データ変更あり</span>{% endif %}</td>
+  </tr>
+  {% empty %}<tr><td colspan="11" class="muted">この月の給与データはまだありません。「給与データを作成」を押してください。</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

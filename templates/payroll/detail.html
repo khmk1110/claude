@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load humanize kanri %}
+{% block title %}{{ st.member.name }} {{ st.month|date:"Y年n月" }}分{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>{{ st.member.name }}　{{ st.month|date:"Y年n月" }}分 <span class="badge st-{{ st.status }}">{{ st.get_status_display }}</span></h1>
+  <div>{% if prev_st %}<a class="btn-light" href="{% url 'payroll:detail' prev_st.pk %}">◀ {{ prev_st.month|date:"Y年n月" }}</a>{% endif %}
+       <a class="btn-light" href="{% url 'payroll:index' %}?month={{ st.month|date:'Y-m' }}">一覧</a>
+       {% if next_st %}<a class="btn-light" href="{% url 'payroll:detail' next_st.pk %}">{{ next_st.month|date:"Y年n月" }} ▶</a>{% endif %}</div>
+</div>
+<p class="muted">{{ st.get_employment_type_display }}{% if st.member.is_agency %}（代理店）{% endif %}　メンバー番号 {{ st.member.member_no }}{% if st.calculated_at %}　最終計算 {{ st.calculated_at|date:"Y-m-d H:i" }}{% endif %}{% if st.confirmed_at %}　確定 {{ st.confirmed_at|date:"Y-m-d H:i" }}（{{ st.confirmed_by|default:"-" }}）{% endif %}</p>
+
+{% if st.needs_review %}<div class="card attnbox"><b>確定後に元データが変更されています。</b>金額は自動では変わりません。必要なら確定を取り消して再計算してください。<pre class="small">{{ st.review_note }}</pre></div>{% endif %}
+{% for m in st.calc_messages %}<p class="{% if m.level == 'error' %}warn{% else %}attn{% endif %}">{% if m.level == 'error' %}要入力：{% else %}注意：{% endif %}{{ m.text }}</p>{% endfor %}
+
+<div class="grid">
+  <div class="card"><div class="muted">支給合計</div><div class="big">{{ st.earnings_total|default_if_none:"-"|intcomma }}円</div></div>
+  <div class="card"><div class="muted">控除合計</div><div class="big">{{ st.deductions_total|default_if_none:"-"|intcomma }}円</div></div>
+  <div class="card"><div class="muted">差引支給額</div><div class="big">{{ st.net_amount|default_if_none:"-"|intcomma }}円</div></div>
+</div>
+
+<div class="toolbar">
+  {% if not st.is_confirmed %}
+    <form method="post" action="{% url 'payroll:detail_action' st.pk %}">{% csrf_token %}<button class="btn" name="action" value="calculate">再計算</button></form>
+    {% if st.status == "calculated" %}<form method="post" action="{% url 'payroll:detail_action' st.pk %}">{% csrf_token %}<button class="btn-light" name="action" value="review">確認待ちにする</button></form>{% endif %}
+    {% if st.status == "calculated" or st.status == "review" %}
+    <form method="post" action="{% url 'payroll:detail_action' st.pk %}" onsubmit="return confirm('この内容で確定します。確定後は金額を変更できません。よろしいですか？')">{% csrf_token %}<button class="btn" name="action" value="confirm" style="background:#15803d">確定する</button></form>
+    {% endif %}
+  {% else %}
+    <form method="post" action="{% url 'payroll:detail_action' st.pk %}" onsubmit="const r=prompt('確定を取り消す理由を入力してください');if(!r)return false;this.reason.value=r;">{% csrf_token %}<input type="hidden" name="reason"><button class="btn-light" name="action" value="reopen">確定を取り消す</button></form>
+  {% endif %}
+  <a class="btn-light" href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">明細PDF{% if not st.is_confirmed %}（確認用）{% endif %}</a>
+</div>
+
+<h2>計算の元データ</h2>
+<p class="muted small">自動取得値は勤怠・営業件数・単価表から取得しています。修正しても元のシフト・勤怠・営業件数は変わりません。</p>
+<div class="table-scroll"><table class="list">
+  <tr><th>項目</th><th class="num">自動取得値</th><th>取得元</th><th class="num">修正後</th><th>修正理由</th>{% if not st.is_confirmed %}<th>修正</th>{% endif %}</tr>
+  {% for key, label, inp in input_rows %}
+  <tr><td class="strong">{{ label }}</td>
+    <td class="num">{% if inp.auto_value is not None %}{{ inp.auto_value.normalize|intcomma }}{% else %}-{% endif %}</td>
+    <td class="small muted">{{ inp.auto_source }}</td>
+    <td class="num strong">{% if inp.override_value is not None %}{{ inp.override_value.normalize|intcomma }}{% endif %}</td>
+    <td class="small">{{ inp.override_reason }}</td>
+    {% if not st.is_confirmed %}<td>
+      <form method="post" action="{% url 'payroll:detail_action' st.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="key" value="{{ key }}">
+        <input name="value" placeholder="値" style="width:80px"> <input name="reason" placeholder="理由（必須）" style="width:150px">
+        <button class="btn-light" name="action" value="input">修正</button>
+        {% if inp.override_value is not None %}<button class="btn-light" name="action" value="input_clear">自動値に戻す</button>{% endif %}</form></td>{% endif %}
+  </tr>{% endfor %}
+</table></div>
+
+<h2>支給・控除</h2>
+<div class="table-scroll"><table class="list">
+  <tr><th>区分</th><th>項目</th><th>内訳</th><th class="num">自動計算額</th><th class="num">修正後</th><th class="num">金額</th><th>修正理由</th>{% if not st.is_confirmed %}<th>修正</th>{% endif %}</tr>
+  {% for l in lines %}
+  <tr><td>{{ l.get_kind_display }}</td><td class="strong">{{ l.name }}{% if l.is_adhoc %} <span class="tag">当月のみ</span>{% endif %}</td><td class="small">{{ l.detail }}</td>
+    <td class="num">{{ l.auto_amount|default_if_none:"-"|intcomma }}</td>
+    <td class="num">{% if l.override_amount is not None and not l.is_adhoc %}{{ l.override_amount|intcomma }}{% endif %}</td>
+    <td class="num strong">{% if l.kind == "deduction" and l.amount %}-{% endif %}{{ l.amount|intcomma }}</td>
+    <td class="small">{{ l.override_reason }}</td>
+    {% if not st.is_confirmed %}<td>
+      <form method="post" action="{% url 'payroll:detail_action' st.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="line_id" value="{{ l.pk }}">
+        {% if l.is_adhoc %}<button class="btn-light" name="action" value="adhoc_remove" onclick="return confirm('この項目を削除しますか？')">削除</button>
+        {% else %}<input name="amount" placeholder="金額" style="width:90px"> <input name="reason" placeholder="理由（必須）" style="width:140px">
+        <button class="btn-light" name="action" value="line">修正</button>
+        {% if l.override_amount is not None %}<button class="btn-light" name="action" value="line_clear">戻す</button>{% endif %}{% endif %}</form></td>{% endif %}
+  </tr>
+  {% empty %}<tr><td colspan="8" class="muted">まだ計算していません。「再計算」を押してください。</td></tr>{% endfor %}
+</table></div>
+
+{% if not st.is_confirmed %}
+<h3>当月のみの項目を追加（特別手当・調整金・控除など）</h3>
+<form method="post" action="{% url 'payroll:detail_action' st.pk %}" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="adhoc_add">
+  <select name="kind" style="width:auto">{% for v, l in kind_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+  <input name="name" placeholder="項目名" required style="width:160px"> <input name="detail" placeholder="内訳（明細に表示）" style="width:180px">
+  <input name="amount" placeholder="金額" required style="width:100px"> <input name="reason" placeholder="理由・メモ" style="width:160px">
+  <button class="btn-light" type="submit">追加</button>
+</form>
+<p class="muted small">毎月発生する項目は「設定（給与項目）」に登録すると、次回から自動で入ります。</p>
+{% endif %}
+
+<h2>変更履歴</h2>
+<table class="list"><tr><th>日時</th><th>ユーザー</th><th>操作</th><th>変更前</th><th>変更後</th><th>理由</th></tr>
+{% for h in history %}<tr><td class="small">{{ h.at|date:"Y-m-d H:i" }}</td><td>{{ h.username|default:"-" }}</td><td>{{ h.action|action_label }}</td><td class="small">{{ h.before|kv }}</td><td class="small">{{ h.after|kv }}</td><td class="small">{{ h.reason }}</td></tr>
+{% empty %}<tr><td colspan="6" class="muted">履歴はありません。</td></tr>{% endfor %}</table>
+{% endblock %}

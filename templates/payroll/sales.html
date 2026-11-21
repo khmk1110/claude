@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}営業件数の入力{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>営業件数の入力　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+{% include "payroll/_nav.html" %}
+<div class="card" style="margin-bottom:16px">
+  <b>写真・文面から入力</b>
+  <p class="muted small">LINEの文面や、入金確定シートをコピーした表を貼り付けると、氏名と件数（行の最後の数字）を読み取ってフォームに入れます。保存するまで反映されません。</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="parse">
+    <textarea name="text" rows="5" style="width:100%;max-width:640px" placeholder="例）&#10;青木 12&#10;井上 8"></textarea><br>
+    <label><input type="radio" name="kind" value="confirmed" checked style="width:auto"> 入金確定件数として読み取る</label>
+    <label><input type="radio" name="kind" value="acquired" style="width:auto"> 獲得件数として読み取る</label>
+    <button class="btn-light" type="submit">読み取る</button>
+  </form>
+  {% if parsed is not None %}
+  <table class="list small" style="margin-top:8px"><tr><th>貼り付けた行</th><th>読み取った件数</th><th>メンバー</th></tr>
+  {% for r in parsed %}<tr><td>{{ r.text }}</td><td class="num">{{ r.count }}</td><td>{% if r.member %}{{ r.member.name }}{% if r.method == "prefix" %} <span class="attn">（姓で照合）</span>{% endif %}{% else %}<span class="warn">特定できません{% if r.candidates %}（候補: {% for c in r.candidates %}{{ c.name }} {% endfor %}）{% endif %}</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="3" class="muted">読み取れる行がありませんでした。</td></tr>{% endfor %}</table>
+  {% endif %}
+</div>
+
+<form method="post" enctype="multipart/form-data">{% csrf_token %}
+<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="save">
+<p class="muted small">
+  <b>獲得件数</b>＝この月に獲得した件数（営業ダッシュボード）。<b>翌月</b>の単価判定（前月獲得件数）に使います。<br>
+  <b>入金確定件数</b>＝この月の入金確定シートの総合件数。<b>この月</b>の営業報酬（件数×単価）に使います。空欄にすると削除されます。
+</p>
+<div class="table-scroll"><table class="list">
+  <tr><th>氏名</th><th>区分</th><th class="num">獲得件数</th><th class="num">入金確定件数</th><th>商材別の入金確定件数（個人別報酬）</th></tr>
+  {% for r in rows %}
+  <tr><td class="strong">{{ r.member.name }}</td><td>{{ r.member.get_employment_type_display }}</td>
+    <td class="num"><input name="acq_{{ r.member.pk }}" value="{{ r.acq }}" inputmode="numeric" style="width:80px;text-align:right"></td>
+    <td class="num">{% if r.products %}<span class="muted small">商材別の合計</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric" style="width:80px;text-align:right">{% endif %}</td>
+    <td>{% for p, v in r.products %}<label class="small">{{ p.name }} <input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric" style="width:64px;text-align:right"></label> {% endfor %}</td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">対象のメンバーがいません。</td></tr>{% endfor %}
+</table></div>
+<div class="card" style="margin:12px 0">
+  <b>根拠の保存（任意）</b>
+  <p class="small muted">代表から届いた写真や文面を一緒に保存できます。</p>
+  <select name="evidence_kind" style="width:auto"><option value="confirmed">入金確定件数</option><option value="acquired">獲得件数</option></select>
+  <input type="file" name="evidence" accept="image/*,application/pdf" style="width:auto">
+  <textarea name="evidence_text" rows="2" style="width:100%;max-width:640px" placeholder="文面を貼り付け"></textarea>
+</div>
+<button class="btn" type="submit">保存</button>
+</form>
+
+{% if evidence %}<h2>保存した根拠</h2>
+<table class="list"><tr><th>日時</th><th>種類</th><th>ファイル</th><th>文面</th></tr>
+{% for e in evidence %}<tr><td class="small">{{ e.uploaded_at|date:"Y-m-d H:i" }}</td><td>{{ e.get_kind_display }}</td><td>{% if e.file %}<a href="{% url 'payroll:evidence' e.pk %}" target="_blank">表示</a>{% endif %}</td><td class="small">{{ e.text|linebreaksbr }}</td></tr>{% endfor %}</table>{% endif %}
+{% endblock %}
