@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}読み取りルールの設定{% endblock %}
+{% block content %}
+<h1>読み取りルールの設定</h1>
+<p>「{{ sf.original_name }}」の各列が何を表すかを選んでください。保存すると、同じ見出しの資料は次回から自動で読み取ります。見出しが変わった資料は、自動では読み替えず再度ここで確認します。</p>
+<form method="post" class="card" style="max-width:720px">{% csrf_token %}
+  <p><label>ルール名<br><input name="name" value="{{ sf.original_name }}"></label></p>
+  <p><label>資料の種類<br><select name="kind">{% for v, l in kinds %}<option value="{{ v }}" {% if v == sf.document_kind %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></label></p>
+  <p><label>経費項目<br><select name="category">{% for c in cats %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></label></p>
+  <table class="list">{% for key, label in fields %}<tr><th>{{ label }}{% if key == "amount" %}（必須）{% endif %}</th><td>
+    <select name="col_{{ key }}"><option value="">（使わない）</option>{% for h in sf.headers %}{% if h %}<option value="{{ h }}">{{ h }}</option>{% endif %}{% endfor %}</select></td></tr>{% endfor %}</table>
+  <p><label>反映する給与の月（資料の利用月から何か月後か）<br><input name="offset" value="1" style="width:80px"> か月後</label></p>
+  <button class="btn" type="submit">保存して読み取る</button>
+</form>
+{% endblock %}

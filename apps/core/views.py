@@ -57,7 +57,19 @@ def dashboard(request):
             "net": sum(s.net_amount or 0 for s in sts),
             "needs_review": sum(1 for s in sts if s.needs_review),
         }
+    expenses = None
+    if stepup.is_verified(request, "expenses", touch=False):
+        from apps.expenses.models import ExpenseIssue, ExpenseRecord
+
+        recs = ExpenseRecord.objects.filter(status__in=["unchecked", "pending", "imported", "modified"])
+        expenses = {
+            "pending": recs.filter(status="pending").count(),
+            "unchecked": recs.exclude(status="pending").count(),
+            "issues": ExpenseIssue.objects.filter(resolved=False).count(),
+            "unreflected": sum(r.effective_amount or 0 for r in ExpenseRecord.objects.filter(status="approved")),
+        }
     ctx = {
+        "expenses": expenses,
         "payroll": payroll,
         "month": month,
         "member_count": len(members),

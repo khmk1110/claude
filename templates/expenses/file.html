@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}{{ sf.original_name }}{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>{{ sf.original_name }}</h1>
+  <div><a class="btn-light" href="{% url 'expenses:index' %}{% if sf.target_month %}?month={{ sf.target_month|date:'Y-m' }}{% endif %}">一覧</a>
+  {% if sf.file %}<a class="btn-light" href="{% url 'expenses:download' sf.pk %}">元資料をダウンロード</a>{% endif %}</div></div>
+<p class="muted">{{ sf.get_file_format_display }}・{{ sf.get_status_display }}・取り込み {{ sf.uploaded_at|date:"Y-m-d H:i" }}（{{ sf.uploaded_by|default:"-" }}）{% if sf.profile %}・読み取りルール「{{ sf.profile.name }}」{% endif %}{% if sf.used_ocr %}・<b>OCR（画像からの読み取り）</b>{% endif %}</p>
+{% if sf.error_message %}<p class="warn">{{ sf.error_message }}</p>{% endif %}
+{% if sf.status == "needs_mapping" %}<div class="card attnbox">この形式の資料は初めてです（または見出しが変わりました）。<a href="{% url 'expenses:mapping' sf.pk %}">読み取りルールを設定</a>してください。</div>{% endif %}
+
+<form method="post" action="{% url 'expenses:file_action' sf.pk %}" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="meta">
+  種類 <select name="kind" style="width:auto">{% for v, l in kinds %}<option value="{{ v }}" {% if v == sf.document_kind %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  資料の月 <b>{{ sf.document_month|date:"Y年n月"|default:"-" }}</b>
+  反映する給与の月 <input type="month" name="target_month" value="{{ sf.target_month|date:'Y-m' }}" style="width:auto">
+  資料の合計 <input name="source_total" value="{{ sf.source_total|default_if_none:'' }}" placeholder="請求額など" style="width:110px">
+  <button class="btn-light" type="submit">更新</button>
+  <span class="muted small">読み取った合計 <b>{{ total|intcomma }}円</b></span>
+</form>
+{% for i in file_issues %}<form method="post" action="{% url 'expenses:issue_resolve' i.pk %}" class="toolbar">{% csrf_token %}
+  <span class="warn">{{ i.get_code_display }}：{{ i.message }}</span> <input name="note" placeholder="確認内容" style="width:180px"> <button class="btn-light">確認済みにする</button></form>{% endfor %}
+
+{% if pages %}
+<details {% if sf.used_ocr %}open{% endif %}><summary class="strong">元資料のページを表示（{{ pages|length }}ページ）</summary>
+  <div style="display:flex;gap:8px;overflow-x:auto;margin:8px 0">{% for p in pages %}<a href="{% url 'expenses:page' sf.pk p %}" target="_blank"><img src="{% url 'expenses:page' sf.pk p %}" alt="{{ p }}ページ" style="height:420px;border:1px solid #e5e7eb"></a>{% endfor %}</div>
+</details>
+{% endif %}
+
+<form method="post" action="{% url 'expenses:file_action' sf.pk %}" id="bulk">{% csrf_token %}<input type="hidden" name="reason"></form>
+<div class="toolbar">
+  <button class="btn" form="bulk" name="action" value="approve">チェックした行を承認</button>
+  <button class="btn-light" form="bulk" name="action" value="exclude" onclick="const r=prompt('対象外にする理由');if(!r)return false;document.querySelector('#bulk [name=reason]').value=r;">チェックした行を対象外</button>
+  <span class="muted small">承認済みの経費だけが給与計算に反映されます。</span>
+</div>
+<div class="table-scroll"><table class="list">
+  <tr><th><input type="checkbox" id="chk-all"></th><th>行</th><th>資料上の表記</th><th>対象者</th><th>経費項目</th><th>利用日・内容</th><th class="num">金額</th><th>反映月</th><th>状態・確認事項</th></tr>
+  {% for r in records %}
+  <tr id="r{{ r.pk }}" class="{% if r.status == 'pending' %}rowattn{% endif %}">
+    <td>{% if r.status != "reflected" and r.status != "approved" and r.status != "excluded" %}<input type="checkbox" class="chk" name="records" value="{{ r.pk }}" form="bulk">{% endif %}</td>
+    <td>{{ r.row_number }}</td>
+    <td class="small">{% if r.name_text %}{{ r.name_text }}{% endif %}{% if r.card_code %} 〔{{ r.card_code }}〕{% endif %}<br><span class="muted">{{ r.raw_display|truncatechars:60 }}</span></td>
+    <td class="strong">{{ r.effective_member|default:"未設定" }}{% if r.member_id and r.auto_member_id != r.member_id %}<br><span class="muted small">自動: {{ r.auto_member|default:"なし" }}</span>{% endif %}</td>
+    <td>{{ r.effective_category|default:"-" }}</td>
+    <td class="small">{{ r.effective_used_on|date:"Y-m-d"|default:"" }} {{ r.description|default:r.auto_description }}</td>
+    <td class="num strong">{% if r.effective_amount is not None %}{{ r.effective_amount|intcomma }}{% else %}<span class="warn">未入力</span>{% endif %}{% if r.amount is not None and r.auto_amount != r.amount %}<br><span class="muted small">自動: {{ r.auto_amount|default_if_none:"-"|intcomma }}</span>{% endif %}</td>
+    <td>{{ r.effective_target_month|date:"Y年n月"|default:"-" }}</td>
+    <td><span class="badge {% if r.status == 'approved' or r.status == 'reflected' %}ok{% endif %}">{{ r.get_status_display }}</span>
+      {% if r.note %}<br><span class="muted small">{{ r.note }}</span>{% endif %}
+      {% for i in r.issues.all %}{% if not i.resolved %}<br><span class="warn small">{{ i.get_code_display }}：{{ i.message }}</span>
+        <form method="post" action="{% url 'expenses:record_action' r.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="issue_id" value="{{ i.pk }}"><input name="note" placeholder="確認内容" style="width:110px"><button class="btn-light" name="action" value="resolve">確認済み</button></form>{% endif %}{% endfor %}
+    </td>
+  </tr>
+  {% if r.status != "reflected" %}
+  <tr class="{% if r.status == 'pending' %}rowattn{% endif %}"><td></td><td colspan="8">
+    <details><summary class="small">修正{% if r.status == "approved" %}・承認の取り消し{% endif %}</summary>
+    <form method="post" action="{% url 'expenses:record_action' r.pk %}" class="toolbar">{% csrf_token %}
+      <select name="member" style="width:auto"><option value="">対象者</option>{% for m in members %}<option value="{{ m.pk }}" {% if m == r.effective_member %}selected{% endif %}>{{ m.name }}</option>{% endfor %}</select>
+      <select name="category" style="width:auto">{% for c in cats %}<option value="{{ c.pk }}" {% if c == r.effective_category %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+      <input type="date" name="used_on" value="{{ r.effective_used_on|date:'Y-m-d' }}" style="width:auto">
+      <input name="description" value="{{ r.description|default:r.auto_description }}" placeholder="利用内容" style="width:150px">
+      <input name="amount" value="{{ r.effective_amount|default_if_none:'' }}" placeholder="金額" style="width:100px">
+      <label class="small"><input type="checkbox" name="confirm_amount" style="width:auto"> 元資料と一致を確認</label>
+      <input type="month" name="target_month" value="{{ r.effective_target_month|date:'Y-m' }}" style="width:auto">
+      {% if r.name_text %}<label class="small"><input type="checkbox" name="save_alias" style="width:auto"> 「{{ r.name_text }}」を別名として登録</label>{% endif %}
+      <input name="reason" placeholder="修正理由（必須）" required style="width:150px">
+      <button class="btn-light" name="action" value="update">修正</button>
+      {% if r.status == "approved" %}<button class="btn-light" name="action" value="unapprove" formnovalidate>承認を取り消す</button>{% endif %}
+    </form></details></td></tr>
+  {% endif %}
+  {% empty %}<tr><td colspan="9" class="muted">読み取った行はありません。下の「行を手入力」で追加できます。</td></tr>{% endfor %}
+</table></div>
+
+<h3>行を手入力</h3>
+<form method="post" action="{% url 'expenses:file_action' sf.pk %}" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="add">
+  <select name="member" required style="width:auto"><option value="">対象者</option>{% for m in members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select>
+  <select name="category" style="width:auto">{% for c in cats %}<option value="{{ c.pk }}" {% if c.document_kind == sf.document_kind %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+  <input type="date" name="used_on" style="width:auto"> <input name="description" placeholder="利用内容" style="width:150px">
+  <input name="amount" placeholder="金額" required style="width:100px"> <input type="month" name="target_month" value="{{ sf.target_month|date:'Y-m' }}" style="width:auto">
+  <input name="reason" placeholder="メモ" style="width:140px"> <button class="btn-light" type="submit">追加</button>
+</form>
+{% if sf.status != "needs_mapping" %}
+<form method="post" action="{% url 'expenses:file_action' sf.pk %}" onsubmit="return confirm('読み取りをやり直します（修正・承認した行がある場合はできません）。')">{% csrf_token %}<button class="btn-light" name="action" value="reprocess">読み取りをやり直す</button></form>
+{% endif %}
+<script>document.getElementById("chk-all").addEventListener("change", e => document.querySelectorAll(".chk").forEach(c => c.checked = e.target.checked));</script>
+{% endblock %}

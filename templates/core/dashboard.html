@@ -10,7 +10,7 @@
   <div class="card"><div class="muted">勤怠の確認が必要な人</div><div class="big {% if needs_check %}attn{% endif %}">{{ needs_check }}人</div><div class="muted small">過去日に未確定の勤怠あり</div></div>
   <div class="card"><div class="muted">有給の承認待ち</div><div class="big {% if pending_leave %}attn{% endif %}">{{ pending_leave }}件</div></div>
   <div class="card"><div class="muted">給与・報酬（{{ month|date:"n月" }}分）</div>{% if payroll %}<div class="big {% if payroll.unconfirmed %}attn{% endif %}">未確定 {{ payroll.unconfirmed }} / {{ payroll.count }}人</div><div class="muted small">差引合計 {{ payroll.net|intcomma }}円{% if payroll.errors %}・入力途中 {{ payroll.errors }}人{% endif %}{% if payroll.needs_review %}・要確認 {{ payroll.needs_review }}人{% endif %}</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
-  <div class="card"><div class="muted">資料・経費</div>{% if expenses_verified %}<div class="big">-</div><div class="muted small">STEP 5 で表示</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
+  <div class="card"><div class="muted">資料・経費</div>{% if expenses %}<div class="big {% if expenses.pending %}attn{% endif %}">確認待ち {{ expenses.pending }}件</div><div class="muted small">未確認 {{ expenses.unchecked }}件・確認事項 {{ expenses.issues }}件・給与未反映 {{ expenses.unreflected|intcomma }}円</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
 </div>
 
 <h2>出勤基準に届いていない人（シフトの予定ベース）</h2>

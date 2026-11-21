@@ -1,0 +1,492 @@
+"""資料の取り込み・振り分け・確認・承認。
+
+- 同じファイルは2回取り込まない（SHA-256）
+- 氏名・カード識別4桁でメンバーに振り分け、迷うものは「確認待ち」にする（推測で確定しない）
+- 日付と金額が同じというだけで削除しない（重複の疑いとして表示するだけ）
+- 承認済みだけが給与計算に反映される。給与反映済みのデータは変更できない
+- 給与確定後に経費が追加・修正された場合は、給与側に「要確認」を立てて通知する（金額は自動で変えない）
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+import urllib.parse
+import urllib.request
+from datetime import date
+
+from django.core.files.base import ContentFile
+from django.db import transaction
+from django.utils import timezone
+
+from apps.core import audit
+from apps.core.months import month_start
+from apps.members.matching import match_member
+from apps.members.models import CardCode, EmploymentType, Member, MemberAlias
+
+from . import parsers
+from .models import DocumentKind, ExpenseCategory, ExpenseIssue, ExpenseRecord, ImportProfile, SourceFile
+
+R = ExpenseRecord.Status
+Code = ExpenseIssue.Code
+MAX_BYTES = 20 * 1024 * 1024
+FORMATS = {".xlsx": "xlsx", ".xls": "xls", ".csv": "csv", ".pdf": "pdf"}
+LOW_CONFIDENCE = 0.8
+
+
+class DuplicateFile(Exception):
+    def __init__(self, existing: SourceFile):
+        super().__init__(f"同じファイルはすでに取り込み済みです（{existing.original_name}・{existing.uploaded_at:%Y-%m-%d}）。")
+        self.existing = existing
+
+
+class RecordLocked(Exception):
+    pass
+
+
+def add_months(m: date, n: int) -> date:
+    y, mo = divmod(m.month - 1 + n, 12)
+    return date(m.year + y, mo + 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# 取り込み
+# ---------------------------------------------------------------------------
+@transaction.atomic
+def import_file(data: bytes, filename: str, *, user=None, kind: str | None = None, target_month: date | None = None,
+                gsheet_url: str = "") -> SourceFile:
+    ext = os.path.splitext(filename.lower())[1]
+    if gsheet_url:
+        fmt = SourceFile.Format.GSHEET
+    elif ext in FORMATS:
+        fmt = FORMATS[ext]
+    else:
+        raise ValueError(f"{filename}: 対応していない形式です（Excel・CSV・PDF のみ）。")
+    if len(data) > MAX_BYTES:
+        raise ValueError(f"{filename}: ファイルが大きすぎます（20MBまで）。")
+    sha = hashlib.sha256(data).hexdigest()
+    existing = SourceFile.objects.filter(sha256=sha).first()
+    if existing:
+        audit.log("expenses.duplicate_file", target=existing, after={"filename": filename}, user=user)
+        raise DuplicateFile(existing)
+    sf = SourceFile(original_name=filename[:255], sha256=sha, size=len(data), file_format=fmt, gsheet_url=gsheet_url,
+                    uploaded_by=user, target_month=target_month)
+    sf.file.save(f"{sha[:16]}{ext or '.csv'}", ContentFile(data), save=False)
+    if kind in DocumentKind.values and kind != DocumentKind.UNKNOWN:
+        sf.document_kind = kind
+    sf.save()
+    audit.log("expenses.import", target=sf, after={"filename": filename, "format": fmt, "size": len(data)}, user=user)
+    process(sf, data=data, user=user)
+    return sf
+
+
+def import_google_sheet(url: str, *, user=None, kind=None, target_month=None) -> SourceFile:
+    """リンク共有されたスプレッドシートを CSV として取り込む（Google Sheets API 未設定でも使える）。"""
+    m = re.search(r"/spreadsheets/d/([A-Za-z0-9_\-]+)", url)
+    if not m:
+        raise ValueError("GoogleスプレッドシートのURLではありません。")
+    gid = urllib.parse.parse_qs(urllib.parse.urlparse(url).fragment).get("gid", ["0"])[0]
+    export = f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv&gid={gid}"
+    try:
+        with urllib.request.urlopen(export, timeout=20) as res:
+            data = res.read(MAX_BYTES + 1)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError("スプレッドシートを読み込めませんでした。共有設定を「リンクを知っている全員（閲覧者）」にするか、"
+                         "CSV／Excel でダウンロードしてアップロードしてください。") from e
+    return import_file(data, f"Googleスプレッドシート_{m.group(1)[:8]}.csv", user=user, kind=kind,
+                       target_month=target_month, gsheet_url=url)
+
+
+def _builtin_profile(parser: str) -> ImportProfile | None:
+    return ImportProfile.objects.filter(header_signature=f"builtin:{parser}", is_active=True).first()
+
+
+def _category_for(sf: SourceFile, profile: ImportProfile | None) -> ExpenseCategory | None:
+    if profile and profile.default_category_id:
+        return profile.default_category
+    return ExpenseCategory.objects.filter(document_kind=sf.document_kind, is_active=True).order_by("display_order").first()
+
+
+@transaction.atomic
+def process(sf: SourceFile, *, data: bytes | None = None, user=None) -> SourceFile:
+    """資料を読み取って明細行を作る（読み取りルールの登録後に再実行してもよい）。"""
+    if sf.records.exclude(status__in=[R.IMPORTED, R.UNCHECKED, R.PENDING]).exists():
+        raise RecordLocked("修正・承認済みの行があるため、読み取りをやり直せません。")
+    sf.records.all().delete()
+    sf.issues.all().delete()
+    data = data if data is not None else sf.file.open("rb").read()
+    sf.error_message = ""
+    try:
+        doc, profile = _parse(sf, data)
+    except parsers.NeedsMapping as e:
+        sf.headers = e.headers
+        sf.status = SourceFile.Status.NEEDS_MAPPING
+        sf.save()
+        return sf
+    except Exception as e:  # noqa: BLE001 — 読めない資料はエラーとして残し、手入力できるようにする
+        sf.status = SourceFile.Status.ERROR
+        sf.error_message = f"読み取れませんでした: {e}"
+        sf.save()
+        return sf
+
+    sf.profile, sf.parser, sf.used_ocr = profile, doc.parser, doc.used_ocr
+    sf.headers = doc.headers
+    if doc.document_month is None:
+        months = [month_start(r.used_on) for r in doc.rows if r.used_on]
+        if months:
+            doc.document_month = max(set(months), key=months.count)  # 利用日の最も多い月
+    if doc.document_month:
+        sf.document_month = doc.document_month
+    offset = int((profile.options or {}).get("payroll_month_offset", 0)) if profile else 0
+    if sf.target_month is None and sf.document_month:
+        sf.target_month = add_months(sf.document_month, offset)
+    if doc.source_total is not None:
+        sf.source_total = doc.source_total
+    sf.row_count = len(doc.rows)
+    sf.status = SourceFile.Status.PARSED if sf.document_kind != DocumentKind.UNKNOWN else SourceFile.Status.NEEDS_KIND
+    sf.save()
+    for w in doc.warnings:
+        ExpenseIssue.objects.create(source_file=sf, code=Code.LOW_CONFIDENCE, message=w[:255])
+    category = _category_for(sf, profile)
+    for row in doc.rows:
+        rec = ExpenseRecord(
+            source_file=sf, row_number=row.row_number, raw=row.raw, auto_category=category,
+            auto_used_on=row.used_on, auto_description=row.description[:255], auto_route=row.route[:255],
+            auto_amount=row.amount, auto_target_month=sf.target_month, name_text=row.name[:100],
+            member_no_text=row.member_no[:20], card_code=row.card_code, card_last4=row.card_last4,
+            transaction_id=row.txn_id[:100], confidence=row.confidence,
+        )
+        rec.dedupe_key = dedupe_key(rec, sf)
+        rec.save()
+        evaluate(rec, initial=True)
+    check_file(sf)
+    return sf
+
+
+def _parse(sf: SourceFile, data: bytes):
+    if sf.file_format in ("xlsx", "xls", "csv", "gsheet"):
+        rows = parsers.read_table_rows(data, "csv" if sf.file_format == "gsheet" else sf.file_format)
+        _, headers = parsers.find_header(rows)
+        sig = parsers.header_signature(headers)
+        profile = ImportProfile.objects.filter(header_signature=sig, is_active=True).first()
+        if sf.document_kind == DocumentKind.UNKNOWN:
+            sf.document_kind_auto = profile.document_kind if profile else parsers.guess_kind(sf.original_name + " ".join(headers))
+            sf.document_kind = sf.document_kind_auto
+        return parsers.parse_table(rows, profile), profile
+
+    # PDF
+    from . import ocr
+
+    pages = ocr.pdf_text_pages(data)
+    text = "\n".join(pages)
+    flat = parsers.nfkc(text).replace(" ", "")
+    if "ENEOS" in flat.upper() or sf.document_kind == DocumentKind.GASOLINE:
+        parser = "eneos_card_summary"
+    elif re.search(r"交通費[(（]\d{1,2}月分", flat):
+        parser = "transport_invoice"
+    else:
+        raise ValueError("この形式のPDFの読み取りルールがありません。行を手入力してください。")
+    profile = _builtin_profile(parser)
+    sf.document_kind_auto = profile.document_kind if profile else parsers.guess_kind(text)
+    if sf.document_kind == DocumentKind.UNKNOWN:
+        sf.document_kind = sf.document_kind_auto
+    if parser == "transport_invoice":
+        return parsers.parse_transport_invoice(pages, timezone.localdate()), profile
+    return parsers.parse_eneos_card_summary(data), profile
+
+
+def dedupe_key(rec: ExpenseRecord, sf: SourceFile) -> str:
+    if rec.transaction_id:
+        return "txn:" + rec.transaction_id
+    who = rec.card_code or parsers.nfkc(rec.name_text).replace(" ", "") or rec.member_no_text
+    base = "|".join(str(x) for x in (sf.document_kind, who, rec.auto_used_on, rec.auto_amount,
+                                       sf.document_month, rec.auto_description))
+    return hashlib.sha1(base.encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# 振り分け・確認事項の判定
+# ---------------------------------------------------------------------------
+def _issue(rec, code, message):
+    if not rec.issues.filter(code=code, resolved=False).exists():
+        ExpenseIssue.objects.create(record=rec, code=code, message=message[:255])
+
+
+def _resolve(rec, code, note="自動解決", user=None):
+    rec.issues.filter(code=code, resolved=False).update(resolved=True, resolved_at=timezone.now(), resolved_by=user,
+                                                         resolution_note=note)
+
+
+def evaluate(rec: ExpenseRecord, *, initial: bool = False) -> ExpenseRecord:
+    """振り分けと確認事項の判定。取り込み時と修正時に呼ぶ。"""
+    if initial:
+        by_card = by_name = None
+        if rec.card_code:
+            card = CardCode.objects.filter(code=rec.card_code).select_related("member").first()
+            if card is None:
+                _issue(rec, Code.UNKNOWN_CARD, f"カード〔{rec.card_code}〕はカード対応表に登録されていません。")
+            elif card.ignored:
+                rec.status = R.EXCLUDED
+                rec.note = f"カード〔{rec.card_code}〕は給与に反映しない設定です（{card.label or card.member or '対象外'}）。"
+                rec.save()
+                return rec
+            else:
+                by_card = card.member
+        if rec.name_text or rec.member_no_text:
+            m = Member.objects.filter(member_no=rec.member_no_text).first() if rec.member_no_text else None
+            if m is None and rec.name_text:
+                res = match_member(rec.name_text)
+                if res.ok:
+                    m = res.member
+                elif res.method == "ambiguous":
+                    _issue(rec, Code.MULTIPLE_CANDIDATES,
+                           f"「{rec.name_text}」に当てはまる人が複数います（{'、'.join(c.name for c in res.candidates)}）。")
+                else:
+                    _issue(rec, Code.UNKNOWN_MEMBER, f"「{rec.name_text}」はメンバーに登録されていません（別表記の登録が必要かもしれません）。")
+            by_name = m
+        if by_card and by_name and by_card.pk != by_name.pk:
+            _issue(rec, Code.NAME_CARD_MISMATCH, f"氏名（{by_name}）とカードの担当者（{by_card}）が一致しません。")
+        rec.auto_member = by_card or by_name
+        if rec.auto_member and rec.auto_member.employment_type == EmploymentType.EMPLOYEE:
+            rec.status = R.EXCLUDED
+            rec.note = "正社員のため給与計算（明細）の対象外です。"
+            rec.save()
+            return rec
+        if rec.confidence is not None and float(rec.confidence) < LOW_CONFIDENCE:
+            _issue(rec, Code.LOW_CONFIDENCE, "OCR（画像からの読み取り）のため、金額を元資料と見比べて確認してください。"
+                   if rec.source_file.used_ocr else "読み取り精度が低いため確認してください。")
+        if rec.auto_amount is None:
+            _issue(rec, Code.LOW_CONFIDENCE, "金額を読み取れませんでした。元資料を見て入力してください。")
+        dup = ExpenseRecord.objects.filter(dedupe_key=rec.dedupe_key).exclude(source_file=rec.source_file).exclude(
+            status=R.EXCLUDED).first()
+        if dup:
+            _issue(rec, Code.DUPLICATE_TXN, f"別の資料（{dup.source_file.original_name} {dup.row_number}行目）に同じ取引があります。")
+    else:
+        # 修正後: 対象者・金額が入っていれば関連する確認事項を自動で解決
+        if rec.effective_member:
+            for code in (Code.UNKNOWN_MEMBER, Code.UNKNOWN_CARD, Code.MULTIPLE_CANDIDATES, Code.NAME_CARD_MISMATCH):
+                if rec.member_id:
+                    _resolve(rec, code, "対象者を指定")
+    # 対象月の整合性
+    tm, fm = rec.effective_target_month, rec.source_file.target_month
+    if tm and fm and tm != fm:
+        _issue(rec, Code.MONTH_MISMATCH, f"反映月（{tm:%Y年%m月}）が資料の反映月（{fm:%Y年%m月}）と異なります。")
+    else:
+        _resolve(rec, Code.MONTH_MISMATCH)
+    if rec.status in (R.IMPORTED, R.UNCHECKED, R.PENDING):
+        rec.status = R.PENDING if rec.issues.filter(resolved=False).exists() else R.UNCHECKED
+    rec.save()
+    return rec
+
+
+def check_file(sf: SourceFile) -> None:
+    """資料の合計と読み取った金額の合計を比べる。"""
+    sf.issues.filter(code=Code.TOTAL_MISMATCH, resolved=False).delete()
+    if sf.source_total is None:
+        return
+    total = sum((r.effective_amount or 0) for r in sf.records.all())
+    if total != sf.source_total:
+        ExpenseIssue.objects.create(source_file=sf, code=Code.TOTAL_MISMATCH,
+                                    message=f"資料の合計 {sf.source_total:,}円 と、読み取った金額の合計 {total:,}円 が一致しません。")
+
+
+# ---------------------------------------------------------------------------
+# 管理者の操作
+# ---------------------------------------------------------------------------
+def _snap(rec: ExpenseRecord) -> dict:
+    return {
+        "対象者": str(rec.effective_member or ""), "経費項目": str(rec.effective_category or ""),
+        "利用日": rec.effective_used_on.isoformat() if rec.effective_used_on else None,
+        "利用内容": rec.description or rec.auto_description, "金額": rec.effective_amount,
+        "反映月": rec.effective_target_month.isoformat() if rec.effective_target_month else None,
+        "状態": rec.get_status_display(),
+    }
+
+
+def _ensure_editable(rec: ExpenseRecord):
+    if rec.status == R.REFLECTED:
+        raise RecordLocked("給与反映済みのデータは変更できません。先に給与の確定を取り消してください。")
+
+
+def _notify_payroll(rec: ExpenseRecord, note: str, user=None):
+    """給与確定後の変更なら、給与側に要確認を立てる。"""
+    from apps.payroll.models import PayrollStatement
+
+    m, tm = rec.effective_member, rec.effective_target_month
+    if not (m and tm):
+        return
+    st = PayrollStatement.objects.filter(member=m, month=tm, status=PayrollStatement.Status.CONFIRMED).first()
+    if st:
+        PayrollStatement.objects.filter(pk=st.pk).update(
+            needs_review=True, review_note=(st.review_note + "\n" if st.review_note else "") + note)
+        _issue(rec, Code.CHANGED_AFTER_PAYROLL, f"{tm:%Y年%m月}の給与は確定済みです。給与画面で再計算するか判断してください。")
+        audit.log("payroll.flag_review", target=st, after={"note": note}, user=user)
+
+
+@transaction.atomic
+def update_record(rec: ExpenseRecord, *, user=None, reason: str, member=None, category=None, used_on=None,
+                  description=None, amount=None, target_month=None, save_alias: bool = False) -> ExpenseRecord:
+    _ensure_editable(rec)
+    if not reason:
+        raise ValueError("修正理由を入力してください。")
+    before = _snap(rec)
+    if member is not None:
+        rec.member = member
+    if category is not None:
+        rec.category = category
+    if used_on is not None:
+        rec.used_on = used_on
+    if description is not None:
+        rec.description = description[:255]
+    if amount is not None:
+        rec.amount = amount
+        _resolve(rec, Code.LOW_CONFIDENCE, "金額を確認・入力", user)
+    if target_month is not None:
+        rec.target_month = month_start(target_month)
+    rec.override_reason = reason[:255]
+    was_approved = rec.status == R.APPROVED
+    if rec.status in (R.IMPORTED, R.UNCHECKED, R.PENDING, R.APPROVED, R.EXCLUDED):
+        rec.status = R.MODIFIED
+    rec.save()
+    if save_alias and member is not None and rec.name_text:
+        MemberAlias.objects.get_or_create(member=member, alias=rec.name_text, defaults={"note": "資料の取り込み時に登録"})
+    evaluate(rec)
+    audit.log("expenses.record_update", target=rec, before=before, after=_snap(rec), reason=reason, user=user)
+    if was_approved:
+        _notify_payroll(rec, f"承認済み経費（{rec.source_file.original_name} {rec.row_number}行目）が修正されました", user)
+    check_file(rec.source_file)
+    return rec
+
+
+@transaction.atomic
+def resolve_issue(issue: ExpenseIssue, *, user=None, note: str) -> None:
+    if not note:
+        raise ValueError("確認した内容を入力してください。")
+    issue.resolved, issue.resolved_at, issue.resolved_by, issue.resolution_note = True, timezone.now(), user, note[:255]
+    issue.save()
+    if issue.record_id:
+        evaluate(issue.record)
+    audit.log("expenses.issue_resolve", target_type="expenses.ExpenseIssue", target_id=issue.pk,
+              target_repr=issue.get_code_display(), after={"note": note}, user=user)
+
+
+def approval_problems(rec: ExpenseRecord) -> list[str]:
+    problems = []
+    if rec.status in (R.APPROVED, R.REFLECTED, R.EXCLUDED):
+        problems.append(f"状態が「{rec.get_status_display()}」です")
+    if rec.issues.filter(resolved=False).exclude(code=Code.CHANGED_AFTER_PAYROLL).exists():
+        problems.append("未解決の確認事項があります")
+    if not rec.effective_member:
+        problems.append("対象者が未設定です")
+    if not rec.effective_category:
+        problems.append("経費項目が未設定です")
+    if rec.effective_amount is None:
+        problems.append("金額が未設定です")
+    if not rec.effective_target_month:
+        problems.append("反映する給与の月が未設定です")
+    return problems
+
+
+@transaction.atomic
+def approve(records, *, user=None) -> tuple[int, list[str]]:
+    ok, skipped = 0, []
+    for rec in records:
+        problems = approval_problems(rec)
+        if problems:
+            skipped.append(f"{rec.row_number}行目: {'・'.join(problems)}")
+            continue
+        rec.status, rec.approved_at, rec.approved_by = R.APPROVED, timezone.now(), user
+        rec.save()
+        audit.log("expenses.approve", target=rec, after=_snap(rec), user=user)
+        _notify_payroll(rec, f"経費が承認されました（{rec.effective_category} {rec.effective_amount:,}円）", user)
+        ok += 1
+    return ok, skipped
+
+
+@transaction.atomic
+def unapprove(rec: ExpenseRecord, *, user=None, reason: str) -> None:
+    _ensure_editable(rec)
+    if rec.status != R.APPROVED:
+        raise ValueError("承認済みのデータではありません。")
+    if not reason:
+        raise ValueError("承認を取り消す理由を入力してください。")
+    rec.status, rec.approved_at, rec.approved_by = R.MODIFIED, None, None
+    rec.save()
+    audit.log("expenses.unapprove", target=rec, reason=reason, user=user)
+
+
+@transaction.atomic
+def exclude(records, *, user=None, reason: str) -> int:
+    if not reason:
+        raise ValueError("対象外にする理由を入力してください。")
+    n = 0
+    for rec in records:
+        _ensure_editable(rec)
+        was_approved = rec.status == R.APPROVED
+        before = rec.get_status_display()
+        rec.status, rec.note = R.EXCLUDED, reason[:255]
+        rec.save()
+        audit.log("expenses.exclude", target=rec, before={"状態": before}, reason=reason, user=user)
+        if was_approved:
+            _notify_payroll(rec, f"承認済み経費（{rec.row_number}行目）が対象外にされました", user)
+        n += 1
+    return n
+
+
+@transaction.atomic
+def add_manual_record(sf: SourceFile, *, user=None, member, category, amount: int, used_on=None, description="",
+                      target_month=None, reason="") -> ExpenseRecord:
+    n = (sf.records.order_by("-row_number").values_list("row_number", flat=True).first() or 0) + 1
+    rec = ExpenseRecord(source_file=sf, row_number=n, raw={"手入力": reason or "手入力"}, member=member, category=category,
+                        amount=amount, used_on=used_on, description=description[:255],
+                        target_month=month_start(target_month) if target_month else None, override_reason=reason or "手入力",
+                        status=R.MODIFIED)
+    rec.dedupe_key = "manual:" + hashlib.sha1(f"{sf.pk}|{n}|{member.pk}|{amount}".encode()).hexdigest()
+    rec.save()
+    evaluate(rec)
+    audit.log("expenses.record_add", target=rec, after=_snap(rec), reason=reason, user=user)
+    check_file(sf)
+    return rec
+
+
+@transaction.atomic
+def set_file_meta(sf: SourceFile, *, user=None, kind=None, target_month=None, source_total="__keep__") -> None:
+    before = {"種類": sf.get_document_kind_display(), "反映月": sf.target_month, "資料の合計": sf.source_total}
+    if kind:
+        sf.document_kind = kind
+        if sf.status == SourceFile.Status.NEEDS_KIND and kind != DocumentKind.UNKNOWN:
+            sf.status = SourceFile.Status.PARSED
+    if target_month:
+        sf.target_month = month_start(target_month)
+        for rec in sf.records.exclude(status__in=[R.REFLECTED]):
+            rec.auto_target_month = sf.target_month
+            rec.save(update_fields=["auto_target_month", "updated_at"])
+            evaluate(rec)
+    if source_total != "__keep__":
+        sf.source_total = source_total
+    sf.save()
+    check_file(sf)
+    audit.log("expenses.file_update", target=sf, before=before,
+              after={"種類": sf.get_document_kind_display(), "反映月": sf.target_month, "資料の合計": sf.source_total}, user=user)
+
+
+@transaction.atomic
+def save_mapping(sf: SourceFile, *, user=None, name: str, kind: str, column_map: dict, category=None,
+                 payroll_month_offset: int = 0) -> ImportProfile:
+    if "amount" not in column_map:
+        raise ValueError("「金額」の列を指定してください。")
+    if not any(k in column_map for k in ("name", "member_no", "card")):
+        raise ValueError("「氏名」「メンバー番号」「カード番号」のいずれかの列を指定してください。")
+    sig = parsers.header_signature(sf.headers)
+    profile, _ = ImportProfile.objects.update_or_create(
+        header_signature=sig,
+        defaults=dict(name=name or sf.original_name, document_kind=kind, headers=sf.headers, column_map=column_map,
+                      default_category=category, options={"payroll_month_offset": payroll_month_offset},
+                      created_by=user, is_active=True),
+    )
+    sf.document_kind = kind
+    sf.save()
+    audit.log("expenses.profile_save", target=profile, after={"columns": column_map, "kind": kind}, user=user)
+    process(sf, user=user)
+    return profile

@@ -51,7 +51,7 @@ class ImportProfile(models.Model):
 
     name = models.CharField("ルール名", max_length=100)
     document_kind = models.CharField("資料の種類", max_length=20, choices=DocumentKind.choices)
-    header_signature = models.CharField("見出しの指紋", max_length=64, db_index=True)
+    header_signature = models.CharField("見出しの指紋", max_length=80, db_index=True)
     headers = models.JSONField("見出し一覧", default=list)
     column_map = models.JSONField(
         "列の対応", default=dict, help_text='例: {"amount": "利用金額", "used_on": "利用日", "card": "カード番号"}'
@@ -104,7 +104,10 @@ class SourceFile(models.Model):
         "資料の種類（自動判定）", max_length=20, choices=DocumentKind.choices, default=DocumentKind.UNKNOWN
     )
     profile = models.ForeignKey(ImportProfile, null=True, blank=True, on_delete=models.PROTECT)
-    target_month = models.DateField("対象年月", null=True, blank=True, validators=[validate_month_start])
+    parser = models.CharField("読み取り方法", max_length=32, blank=True)
+    headers = models.JSONField("見出し", default=list, blank=True)
+    document_month = models.DateField("資料の月（利用月・〇月分）", null=True, blank=True, validators=[validate_month_start])
+    target_month = models.DateField("反映する給与の月", null=True, blank=True, validators=[validate_month_start])
     status = models.CharField("状態", max_length=20, choices=Status.choices, default=Status.UPLOADED)
     used_ocr = models.BooleanField("OCRで読み取り", default=False)
     row_count = models.PositiveIntegerField("行数", default=0)
@@ -169,6 +172,7 @@ class ExpenseRecord(models.Model):
     amount = models.IntegerField("金額", null=True, blank=True)
     target_month = models.DateField("対象年月", null=True, blank=True, validators=[validate_month_start])
     override_reason = models.CharField("修正理由", max_length=255, blank=True)
+    note = models.CharField("メモ", max_length=255, blank=True)
 
     status = models.CharField("状態", max_length=16, choices=Status.choices, default=Status.IMPORTED, db_index=True)
     dedupe_key = models.CharField("重複判定キー", max_length=128, db_index=True)
@@ -199,6 +203,15 @@ class ExpenseRecord(models.Model):
                 name="reflected_requires_statement",
             ),
         ]
+
+    @property
+    def raw_display(self) -> str:
+        """資料上の元の行（OCR結果・PDFの行・表の各列）を1行で表示する。"""
+        raw = self.raw or {}
+        for key in ("OCR", "行", "手入力"):
+            if raw.get(key):
+                return str(raw[key])
+        return " / ".join(str(v) for v in raw.values() if v not in (None, ""))
 
     # 実際に使う値（修正値 → 自動値の順）
     @property

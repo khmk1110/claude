@@ -1,2 +1,41 @@
 {% extends "base.html" %}
-{% block content %}<h1>資料・経費管理</h1><p class="muted">STEP 5 で実装します。</p>{% endblock %}
+{% load humanize %}
+{% block title %}資料・経費管理{% endblock %}
+{% block content %}
+<div class="pagehead"><h1>資料・経費管理　{{ month|date:"Y年n月" }}の給与に反映する分</h1>{% include "includes/monthnav.html" %}</div>
+
+<div class="grid">
+  <div class="card"><div class="muted">取り込んだ資料</div><div class="big">{{ files|length }}件</div><div class="muted small">未確認の資料 {{ unchecked_files }}件</div></div>
+  <div class="card"><div class="muted">確認待ち・未確認</div><div class="big {% if counts.pending or counts.unchecked %}attn{% endif %}">{{ counts.pending|default:0 }} / {{ counts.unchecked|default:0 }}件</div><div class="muted small">エラー・確認事項 {{ open_issues }}件</div></div>
+  <div class="card"><div class="muted">承認済み / 給与反映済み</div><div class="big">{{ counts.approved|default:0 }} / {{ counts.reflected|default:0 }}件</div></div>
+  <div class="card"><div class="muted">経費合計（承認済み）</div><div class="big">{{ grand_total|intcomma }}円</div><div class="muted small">うち給与未反映 {{ unreflected|intcomma }}円</div></div>
+</div>
+
+<div class="card" style="margin:16px 0">
+  <b>資料を取り込む</b>
+  <form method="post" action="{% url 'expenses:upload' %}" enctype="multipart/form-data" class="toolbar">{% csrf_token %}
+    <input type="file" name="files" multiple accept=".xlsx,.xls,.csv,.pdf" style="width:auto">
+    <select name="kind" style="width:auto"><option value="">種類：自動判定</option>{% for v, l in kinds %}{% if v != "unknown" %}<option value="{{ v }}">{{ l }}</option>{% endif %}{% endfor %}</select>
+    <label class="small">反映する給与の月 <input type="month" name="target_month" style="width:auto"></label>
+    <button class="btn" type="submit">取り込む</button>
+  </form>
+  <form method="post" action="{% url 'expenses:upload' %}" class="toolbar">{% csrf_token %}
+    <input name="gsheet_url" placeholder="GoogleスプレッドシートのURL（リンク共有されたもの）" style="max-width:480px">
+    <button class="btn-light" type="submit">スプレッドシートを取り込む</button>
+  </form>
+  <p class="muted small">Excel（xlsx・xls）・CSV・PDF に対応。複数ファイルをまとめて選べます。反映する給与の月を空欄にすると、資料の月から自動で決めます（ガソリン：請求月の翌月、交通費：〇月分の2か月後）。</p>
+</div>
+
+<h2>資料</h2>
+<table class="list"><tr><th>取り込み日時</th><th>ファイル</th><th>種類</th><th>資料の月</th><th>反映月</th><th class="num">行数</th><th>状態</th></tr>
+{% for f in files %}<tr><td class="small">{{ f.uploaded_at|date:"Y-m-d H:i" }}</td><td><a href="{% url 'expenses:file' f.pk %}">{{ f.original_name }}</a>{% if f.used_ocr %} <span class="tag">OCR</span>{% endif %}</td>
+  <td>{{ f.get_document_kind_display }}</td><td>{{ f.document_month|date:"Y年n月"|default:"-" }}</td><td>{{ f.target_month|date:"Y年n月"|default:"-" }}</td><td class="num">{{ f.row_count }}</td>
+  <td><span class="badge {% if f.status == 'parsed' %}ok{% endif %}">{{ f.get_status_display }}</span></td></tr>
+{% empty %}<tr><td colspan="7" class="muted">この月の資料はまだありません。</td></tr>{% endfor %}</table>
+
+<h2>個人別の経費（承認済み・給与反映済み）</h2>
+<div class="table-scroll"><table class="list"><tr><th>氏名</th>{% for c in cats %}<th class="num">{{ c.name }}</th>{% endfor %}<th class="num">合計</th></tr>
+{% for r in member_rows %}<tr><td class="strong">{{ r.member.name }}</td>{% for v in r.cells %}<td class="num">{{ v|intcomma }}</td>{% endfor %}<td class="num strong">{{ r.total|intcomma }}</td></tr>
+{% empty %}<tr><td colspan="{{ cats|length|add:2 }}" class="muted">承認済みの経費はまだありません。</td></tr>{% endfor %}
+<tr><th>項目別合計</th>{% for v in cat_totals %}<th class="num">{{ v|intcomma }}</th>{% endfor %}<th class="num">{{ grand_total|intcomma }}</th></tr></table></div>
+{% endblock %}
