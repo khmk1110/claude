@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>ダッシュボード</h1>
+<p class="muted">各機能は STEP 3 以降で順に実装します。</p>
+<div class="grid">
+  <div class="card"><b>シフト管理</b><p class="muted">準備中</p></div>
+  <div class="card"><b>勤怠・有給管理</b><p class="muted">準備中</p></div>
+  <div class="card"><b>給与・報酬</b><p class="muted">{% if payroll_verified %}認証済み{% else %}金額を表示するには追加パスワードが必要です{% endif %}</p></div>
+  <div class="card"><b>資料・経費</b><p class="muted">{% if expenses_verified %}認証済み{% else %}金額を表示するには追加パスワードが必要です{% endif %}</p></div>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+/media/
+/private/
+/staticfiles/
+*.sqlite3
+# 実データ（氏名・給与・カード番号など）は絶対にコミットしない
+*.xlsx
+*.xls
+*.csv
+*.pdf

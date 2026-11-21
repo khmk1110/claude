@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}社内管理システム{% endblock %}</title>
+  <style>
+    :root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --accent:#1d4ed8; --danger:#b91c1c; --ok:#15803d; --soft:#f9fafb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; color:var(--fg); background:var(--bg); font-size:15px; }
+    header { display:flex; align-items:center; gap:24px; padding:12px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+    header .brand { font-weight:700; }
+    nav a { color:var(--fg); text-decoration:none; margin-right:16px; }
+    nav a:hover { color:var(--accent); }
+    nav .lock::after { content:" 🔒"; font-size:12px; }
+    main { padding:24px; max-width:1200px; margin:0 auto; }
+    .card { border:1px solid var(--line); border-radius:8px; padding:20px; background:var(--bg); }
+    .muted { color:var(--muted); }
+    .error { color:var(--danger); font-weight:600; }
+    .msg-success { color:var(--ok); }
+    button, .btn { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:10px 18px; font-size:15px; cursor:pointer; }
+    input, select { padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:15px; width:100%; max-width:360px; }
+    table { border-collapse:collapse; width:100%; }
+    th, td { border-bottom:1px solid var(--line); padding:8px; text-align:left; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+    .right { margin-left:auto; }
+    @media (max-width: 640px) { header, main { padding:12px 16px; } }
+  </style>
+</head>
+<body>
+  {% if user.is_authenticated %}
+  <header>
+    <span class="brand">{{ COMPANY_NAME }} 社内管理</span>
+    <nav>
+      <a href="{% url 'dashboard' %}">ダッシュボード</a>
+      <a href="#">シフト</a>
+      <a href="#">勤怠・有給</a>
+      <a href="/admin/members/member/">メンバー</a>
+      <a class="lock" href="{% url 'payroll:index' %}">給与・報酬</a>
+      <a class="lock" href="{% url 'expenses:index' %}">資料・経費</a>
+    </nav>
+    <form class="right" method="post" action="{% url 'logout' %}">{% csrf_token %}
+      <span class="muted">{{ user }}</span> <button type="submit">ログアウト</button>
+    </form>
+  </header>
+  {% endif %}
+  <main>
+    {% for message in messages %}<p class="msg-{{ message.tags }}">{{ message }}</p>{% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

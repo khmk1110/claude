@@ -1,0 +1,20 @@
+from django.contrib import admin
+from django.contrib.auth import views as auth_views
+from django.urls import include, path
+
+from apps.accounts import views as account_views
+from apps.core import views as core_views
+
+admin.site.site_header = "社内管理システム"
+admin.site.site_title = "社内管理システム"
+
+urlpatterns = [
+    path("", core_views.dashboard, name="dashboard"),
+    path("login/", auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),
+    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("stepup/<str:scope>/", account_views.stepup_view, name="stepup"),
+    path("settings/stepup-passwords/", account_views.stepup_password_change_view, name="stepup_password_change"),
+    path("payroll/", include("apps.payroll.urls")),
+    path("expenses/", include("apps.expenses.urls")),
+    path("admin/", admin.site.urls),
+]
