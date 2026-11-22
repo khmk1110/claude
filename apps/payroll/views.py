@@ -202,6 +202,7 @@ def _expense_panels(month, members):
           "open": sum(r["row"]["open"] for r in contractors + interns if r["row"]) + sum(r["open"] for r in tr_unknown),
           "total": sum(r["amount"] for r in contractors + interns), "net_total": sum(r["net"] for r in contractors + interns),
           "processing": [f for f in processing if f.document_kind == "transport"],
+          "needs": [f for f in files if f.status in ("needs_mapping", "needs_kind") and f.document_kind in ("transport", "unknown", "")],
           "errors": [f for f in errors if f.document_kind == "transport"]}
     tr_rows = [r["row"] for r in contractors + interns if r["row"]] + tr_unknown
     tr["status"] = "processing" if tr["processing"] else status(tr_rows, bool(tr_rows))

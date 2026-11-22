@@ -676,3 +676,19 @@ class TransportPanelTests(TableScreenshotTests):
         self.assertContains(page, "52,000 − 35,000")
         self.assertContains(page, "17,000")
         self.assertContains(page, "0 − 35,000")  # 交通費がない個人事業主も表示（0円）
+
+
+class ExpenseRedirectTests(TableScreenshotTests):
+    def test_upload_errors_return_to_payroll_page(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        data = {"kind": "transport", "target_month": "2026-11", "next": "/payroll/?month=2026-11#transport"}
+        csv = "名前,金額\n大石一郎,52000\n".encode()
+        r1 = self.client.post("/payroll/expenses/upload/", {**data, "files": SimpleUploadedFile("t.csv", csv)})
+        self.assertEqual(r1["Location"], "/payroll/?month=2026-11#transport")
+        # 同じファイルをもう一度（重複エラー）でも給与の画面に戻る
+        r2 = self.client.post("/payroll/expenses/upload/", {**data, "files": SimpleUploadedFile("t.csv", csv)})
+        self.assertEqual(r2["Location"], "/payroll/?month=2026-11#transport")
+        r3 = self.client.post("/payroll/expenses/line/", {"category": "999999", "target_month": "", "text": "x",
+                                                          "next": "/payroll/?month=2026-11#transport"})
+        self.assertIn(r3.status_code, (302, 404))

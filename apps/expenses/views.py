@@ -157,8 +157,9 @@ def upload(request):
     if done:
         messages.success(request, f"{done}件の資料を取り込みました。" + ("画像・PDFは裏で読み取っています（1〜3分）。" if any(
             f.name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".pdf")) for f in request.FILES.getlist("files")) else "内容を確認してください。"))
-        if request.POST.get("next"):
-            return _next_or(request, None)
+    if request.POST.get("next"):
+        # 給与の画面から取り込んだ時は、成功しても失敗しても給与の画面に戻る（メッセージはそちらに出る）
+        return _next_or(request, redirect(f"{_base(request)}?month={(target or date.today()).strftime('%Y-%m')}"))
     if done == 1 and last:
         return _go(request, "file", pk=last.pk)
     return redirect(f"{_base(request)}?month={(target or date.today()).strftime('%Y-%m')}")
@@ -176,7 +177,7 @@ def line_import(request):
                                        evidence=request.FILES.get("evidence"), note=request.POST.get("note", "").strip())
     except ValueError as e:
         messages.error(request, str(e))
-        return redirect(f"{_base(request)}?month={request.POST.get('target_month') or ''}")
+        return _next_or(request, redirect(f"{_base(request)}?month={request.POST.get('target_month') or ''}"))
     messages.success(request, f"{sf.row_count}件を取り込みました。内容を確認して承認してください。")
     return _next_or(request, _go(request, "file", pk=sf.pk))
 
