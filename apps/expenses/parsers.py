@@ -207,8 +207,10 @@ def parse_table(rows: list[list], profile) -> ParsedDocument:
 # 請求書PDF の交通費行
 # ---------------------------------------------------------------------------
 TRANSPORT_LINE = re.compile(
-    r"交通費\s*[(（]\s*(\d{1,2})\s*月分\s*[)）]\s*(.+?)\s+(-?[\d,]+)\s+(\d+)\s+(?:\S+\s+)?(-?[\d,]+)\s*$"
+    r"交通費\s*[(（]?\s*(\d{1,2})\s*月\s*分?\s*[)）]?\s*(.+?)\s+[¥￥]?(-?[\d,]+)\s*円?\s+(\d+)\s+(?:[^\d\s¥￥-]\S*\s+)?[¥￥]?(-?[\d,]+)\s*円?\s*$"
 )
+# 単価・数量がない形（「交通費(8月分) 仲田 52,080」）
+TRANSPORT_LINE_SHORT = re.compile(r"交通費\s*[(（]?\s*(\d{1,2})\s*月\s*分?\s*[)）]?\s*(.+?)\s+[¥￥]?(-?[\d,]+)\s*円?\s*$")
 
 
 def parse_transport_invoice(pages: list[str], today: date) -> ParsedDocument:
@@ -224,13 +226,17 @@ def parse_transport_invoice(pages: list[str], today: date) -> ParsedDocument:
         for line in text.splitlines():
             line = nfkc(line)
             # スクショの読み取りでは「交通 費 (8 月 分 ) 矢 木 淳之介」のように1文字ずつ空白が入るので詰める
-            line = re.sub(r"(?<=[^\x00-\x7F]) +(?=[^\x00-\x7F])", "", line)
+            line = re.sub(r"(?<=[^\x00-\x7F¥￥]) +(?=[^\x00-\x7F¥￥])", "", line)
             line = re.sub(r"[(（]\s*(\d{1,2})\s*月\s*分\s*[)）]", r"(\1月分)", line)
             m = TRANSPORT_LINE.search(line)
-            if not m:
-                continue
+            if m:
+                month_no, name, total = int(m[1]), m[2].strip(), m[5]
+            else:
+                m = TRANSPORT_LINE_SHORT.search(line)
+                if not m:
+                    continue
+                month_no, name, total = int(m[1]), m[2].strip(), m[3]
             n += 1
-            month_no, name, unit, qty, total = int(m[1]), m[2].strip(), m[3], m[4], m[5]
             months.add(month_no)
             doc.rows.append(ParsedRow(row_number=n, raw={"ページ": page_no, "行": line}, name=name,
                                       description=f"交通費（{month_no}月分）", amount=parse_amount(total)))

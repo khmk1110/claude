@@ -76,9 +76,13 @@
     {% for f in exp.tr.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」から交通費の行を読み取れませんでした。
       <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
-      <div class="small">それでも読めない時は、下の「LINEで届いた交通費を文で入れる」で入力してください。</div></div>{% endfor %}
+      <div class="small">それでも読めない時は、下の「LINEで届いた交通費を文で入れる」で入力してください。</div>
+      {% if f.error_message %}<details class="small" style="margin-top:6px"><summary>読み取った文字を見る（うまくいかない時はこの画面を送ってください）</summary><div style="word-break:break-all">{{ f.error_message }}</div></details>{% endif %}</div>{% endfor %}
     {% for f in exp.tr.needs %}<div class="notice">⚠️ 「{{ f.original_name }}」は初めての形式の資料です。<a href="{% url 'payroll_expenses:mapping' f.pk %}">どの列が名前・金額かを1回だけ設定する</a>と、次回から自動で読み取ります。</div>{% endfor %}
-    {% for f in exp.tr.errors %}<div class="notice">⚠️ {{ f.original_name }} を読み取れませんでした。<a href="{% url 'payroll_expenses:file' f.pk %}">詳しく</a></div>{% endfor %}
+    {% for f in exp.tr.errors %}<div class="notice">⚠️ 「{{ f.original_name }}」を読み取れませんでした。
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
+        <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
+      <div class="small" style="word-break:break-all">理由: {{ f.error_message|truncatechars:300 }}</div></div>{% endfor %}
 
     <ul class="plist">
       <li class="prow phead"><div class="pmain small muted">個人事業主</div><div class="pcalc small muted">交通費 − 35,000円</div><div class="pamt small muted">支給額</div></li>

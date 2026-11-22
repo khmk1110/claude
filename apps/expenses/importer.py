@@ -180,6 +180,11 @@ def process(sf: SourceFile, *, data: bytes | None = None, user=None) -> SourceFi
         sf.error_message = ""
         sf.save(update_fields=["error_message"])
         audit.log("expenses.ocr_verified", target=sf, after={"note": doc.warnings_ok})
+    if not doc.rows and getattr(doc, "extracted_text", None) is not None:
+        # 何も読み取れなかった時は、読み取った文字の先頭を残して原因を確かめられるようにする
+        snippet = " / ".join(l.strip() for l in doc.extracted_text.splitlines() if l.strip())[:400]
+        sf.error_message = f"読み取った文字（先頭）: {snippet or '（文字が見つかりませんでした）'}"
+        sf.save(update_fields=["error_message"])
     _create_records(sf, doc, _category_for(sf, profile))
     check_file(sf)
     return sf
@@ -303,6 +308,7 @@ def _parse(sf: SourceFile, data: bytes):
         # 交通費などの請求書のスクショ: 文字を読み取って「交通費(8月分) 氏名 … 金額」の行を探す（必ず確認待ち）
         text = _transport_text_from_image(img)
         doc = parsers.parse_transport_invoice([text], timezone.localdate())
+        doc.extracted_text = text
         doc.used_ocr = True
         for r in doc.rows:
             r.confidence = 0.6
@@ -314,7 +320,7 @@ def _parse(sf: SourceFile, data: bytes):
     pages = ocr.pdf_text_pages(data)
     text = "\n".join(pages)
     flat = parsers.nfkc(text).replace(" ", "")
-    if sf.document_kind == DocumentKind.TRANSPORT and not re.search(r"交通費[(（]\d{1,2}月分", flat):
+    if sf.document_kind == DocumentKind.TRANSPORT and not re.search(r"交通費[(（]?\d{1,2}月", flat):
         # 文字の入っていない（スキャンした）PDF：ページを画像にして読み取る
         pages = [_transport_text_from_image(im) for im in ocr.render_pages(data, dpi=200, first=1, last=5)]
         text = "\n".join(pages)
@@ -322,7 +328,7 @@ def _parse(sf: SourceFile, data: bytes):
         flat = re.sub(r"\s+", "", flat)
     if "ENEOS" in flat.upper() or sf.document_kind == DocumentKind.GASOLINE:
         parser = "eneos_card_summary"
-    elif re.search(r"交通費[(（]\d{1,2}月分", flat):
+    elif re.search(r"交通費[(（]?\d{1,2}月", flat) or sf.document_kind == DocumentKind.TRANSPORT:
         parser = "transport_invoice"
     else:
         raise ValueError("この形式のPDFの読み取りルールがありません。行を手入力してください。")
@@ -331,7 +337,9 @@ def _parse(sf: SourceFile, data: bytes):
     if sf.document_kind == DocumentKind.UNKNOWN:
         sf.document_kind = sf.document_kind_auto
     if parser == "transport_invoice":
-        return parsers.parse_transport_invoice(pages, timezone.localdate()), profile
+        doc = parsers.parse_transport_invoice(pages, timezone.localdate())
+        doc.extracted_text = text
+        return doc, profile
     return parsers.parse_eneos_card_summary(data, pages), profile
 
 

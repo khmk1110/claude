@@ -253,3 +253,18 @@ class TransportOcrSpacingTests(TestCase):
         text = "交通 費 (8 月 分 ) 大 石 52,080 1 52,080\n交通 費 (8 月 分 ) 長谷 川 花子 6,822 1 6,822"
         doc = parse_transport_invoice([text], _d(2026, 11, 1))
         self.assertEqual([(r.name, r.amount) for r in doc.rows], [("大石", 52080), ("長谷川花子", 6822)])
+
+
+class TransportFormatVariantsTests(TestCase):
+    def test_variants(self):
+        from datetime import date as _d
+
+        from apps.expenses.parsers import parse_transport_invoice
+
+        text = ("交通費 10月分 大石 ¥52,080 1 式 ¥52,080\n"
+                "交通費（10月分） 長谷川 6,822円 1 6,822円\n"
+                "交通費(10月分) 吉野 7,184\n"
+                "システム費用(訪問) -3,300 3 -9,900")
+        doc = parse_transport_invoice([text], _d(2026, 11, 1))
+        self.assertEqual([(r.name, r.amount) for r in doc.rows], [("大石", 52080), ("長谷川", 6822), ("吉野", 7184)])
+        self.assertEqual(doc.document_month, _d(2026, 10, 1))
