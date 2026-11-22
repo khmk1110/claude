@@ -32,6 +32,15 @@ document.querySelectorAll('form.card').forEach(function(f){f.addEventListener('s
 <div class="card">
   <p><b>{{ target|date:"Y年n月" }}の{{ kind_label }}</b>を読み取りました。対象者と件数を確認して「保存する」を押してください。</p>
   {% for w in plan.warnings %}<div class="notice">⚠️ {{ w }}</div>{% endfor %}
+  {% if plan.text %}
+  <details class="more" {% if not rows %}open{% endif %} style="margin-bottom:12px"><summary>読み取った文字を見る・直して読み直す</summary>
+    <form method="post">{% csrf_token %}<input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="{{ plan.kind }}"><input type="hidden" name="month" value="{{ month_param }}">
+      <p class="small muted">スクショから読み取った文字です。読み間違いを直して「この文で読み直す」を押すと、もう一度読み取ります。</p>
+      <textarea name="text" rows="10" style="width:100%">{{ plan.text }}</textarea>
+      <div class="form-row"><button class="btn" type="submit">この文で読み直す</button></div>
+    </form>
+  </details>
+  {% endif %}
   {% if plan.total is not None %}
     {% if plan.total == total_sum %}<div class="notice info">✅ 資料の「月合計」{{ plan.total }}件と、読み取った件数の合計 {{ total_sum }}件が一致しました。</div>
     {% else %}<div class="notice">⚠️ 資料の「月合計」{{ plan.total }}件と、読み取った件数の合計 {{ total_sum }}件が一致しません。資料と見比べてください。</div>{% endif %}

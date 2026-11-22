@@ -41,7 +41,39 @@ def clean_name(s: str) -> str:
     return s.strip("【】[]「」:：")
 
 
-def parse_dashboard(text: str) -> Parsed:
+BRACKETS = "【】[]［］「」『』()（）|｜Il1"
+
+
+def _split_header(header: str, known: list[str]) -> list[str]:
+    """【平川＋田所・谷口】を名前に分ける。OCRで「＋」が「十」になったり「・」が消えた時は、登録済みの名前・別名で切り分ける。"""
+    parts = [clean_name(n) for n in SPLIT_NAMES.split(header) if clean_name(n)]
+    if not known:
+        return parts
+    known = sorted({k for k in known if len(k) >= 2}, key=len, reverse=True)
+    out = []
+    for part in parts:
+        if part in known:
+            out.append(part)
+            continue
+        found, i, rest = [], 0, ""
+        while i < len(part):
+            hit = next((k for k in known if part.startswith(k, i)), None)
+            if hit:
+                if rest.strip("十+"):
+                    found.append(rest.strip("十+"))
+                rest = ""
+                found.append(hit)
+                i += len(hit)
+            else:
+                rest += part[i]
+                i += 1
+        if rest.strip("十+"):
+            found.append(rest.strip("十+"))
+        out.extend(found if any(f in known for f in found) else [part])
+    return out
+
+
+def parse_dashboard(text: str, known_names: list[str] | None = None) -> Parsed:
     """営業ダッシュボード（LINEの文）を読む。
 
     【堀田】の次の行「131/90（進捗…）」の 131 が獲得件数。
@@ -50,19 +82,32 @@ def parse_dashboard(text: str) -> Parsed:
     """
     p = Parsed()
     lines = [nfkc(l).strip() for l in (text or "").splitlines()]
-    m = re.search(r"【\s*(\d{1,2})\s*月", text and nfkc(text) or "")
+    m = (re.search(r"【\s*(\d{1,2})\s*月", nfkc(text or ""))
+         or re.search(r"(\d{1,2})\s*月\s*(?:最終)?\s*(?:実績|結果)", nfkc(text or "")))
     if m:
         p.month = int(m.group(1))
+    known = [clean_name(nfkc(k)).replace(" ", "") for k in (known_names or [])]
+    # 意味のない行（区切り線・OCRのごみ）を除く
+    lines = [ln for ln in lines if ln and len(re.sub(r"[\W_xX]", "", ln)) >= 1 and not re.fullmatch(r"[xX\W_十・]{1,3}", ln)]
     blocks, cur = [], None
-    for ln in lines:
+    for idx, ln in enumerate(lines):
         hm = re.match(r"^【(.+?)】", ln)
+        nxt = lines[idx + 1] if idx + 1 < len(lines) else ""
+        # 【】が読み取れなくても、次の行が「131/90」なら名前の行とみなす
+        looks_header = not re.search(r"\d", ln) and re.match(r"^\d+\s*/\s*\d+", nxt)
         if hm and not re.search(r"\d+\s*月", hm.group(1)):
-            cur = {"header": hm.group(1), "lines": [], "raw": ln}
+            header = hm.group(1)
+        elif looks_header:
+            header = ln.strip(BRACKETS + " ")
+        else:
+            header = None
+        if header:
+            cur = {"header": header, "lines": [], "raw": ln}
             blocks.append(cur)
-        elif cur is not None and ln and not set(ln) <= set("⸻-ー—=_ "):
+        elif cur is not None and not set(ln) <= set("⸻-ー—=_ "):
             cur["lines"].append(ln)
     for b in blocks:
-        names = [clean_name(n) for n in SPLIT_NAMES.split(b["header"]) if clean_name(n)]
+        names = _split_header(b["header"], known)
         total = att = None
         explicit: dict[str, Entry] = {}
         pending_name = None
@@ -223,6 +268,22 @@ def table_text_from_image(data: bytes) -> str:
     return "\n".join(out)
 
 
+def dashboard_text_from_image(data: bytes) -> str:
+    """LINEのスクショ（吹き出しの背景・絵文字あり）を読む。読み方を何通りか試し、「131/90」の行が一番多く読めた結果を使う。"""
+    from apps.expenses import ocr
+
+    img = _open_image(data)
+    variants = [(img, 6), (img.point(lambda v: 255 if v > 175 else 0), 6), (img, 4)]
+    best, best_score = "", -1
+    for im, psm in variants:
+        words = ocr.ocr_words(im, lang="jpn+eng", psm=psm)
+        text = "\n".join(_join_cjk(line.text) for line in ocr.group_lines(words, tolerance=18))
+        score = len(re.findall(r"(?m)^\s*\d+\s*/\s*\d+", nfkc(text))) * 2 + nfkc(text).count("件")
+        if score > best_score:
+            best, best_score = text, score
+    return best
+
+
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp")
 
 
@@ -238,10 +299,7 @@ def text_from_upload(f, kind: str = "confirmed") -> str:
     if name.endswith(IMAGE_EXT):
         if kind == "confirmed":
             return table_text_from_image(data)
-        from apps.expenses import ocr
-
-        words = ocr.ocr_words(_open_image(data), lang="jpn+eng", psm=6)
-        return "\n".join(_join_cjk(line.text) for line in ocr.group_lines(words, tolerance=18))
+        return dashboard_text_from_image(data)
     if name.endswith((".xlsx", ".xls", ".csv")):
         from apps.expenses.parsers import read_table_rows
 

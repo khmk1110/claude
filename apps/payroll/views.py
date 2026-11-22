@@ -688,15 +688,17 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
     from . import ingest
     from .models import IgnoredName
 
-    parsed = ingest.parse_dashboard(text) if kind == "acquired" else ingest.parse_count_table(text)
+    active = list(Member.objects.filter(status=Member.Status.ACTIVE))
+    aliases = list(MemberAlias.objects.filter(member__in=active))
+    known = [m.name for m in active] + [m.name.split()[0] for m in active if " " in m.name] + [a.alias for a in aliases]
+    parsed = ingest.parse_dashboard(text, known) if kind == "acquired" else ingest.parse_count_table(text)
     if kind == "acquired":
         target = _resolve_year(parsed.month, payroll_month) if parsed.month else prev_month(payroll_month)
     else:
         target = payroll_month
     ignored = set(IgnoredName.objects.values_list("name_normalized", flat=True))
-    active = list(Member.objects.filter(status=Member.Status.ACTIVE))
     candidates = [(m.pk, m.name) for m in active]
-    candidates += [(a.member_id, a.alias) for a in MemberAlias.objects.filter(member__in=active)]
+    candidates += [(a.member_id, a.alias) for a in aliases]
     # スクショが2枚で同じ行が重なって写っている時は1つにまとめる（件数が違えば両方残して確認してもらう）
     entries, seen = [], {}
     for e in parsed.entries:
@@ -722,7 +724,7 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
         rows.append({"i": i, "name": e.name, "count": e.count, "att": e.attendance, "line": e.line, "note": note,
                      "member_id": member_id, "method": method, "ignored": is_ignored})
     return {"kind": kind, "month": target.isoformat(), "payroll_month": payroll_month.isoformat(),
-            "rows": rows, "total": parsed.total, "warnings": parsed.warnings}
+            "rows": rows, "total": parsed.total, "warnings": parsed.warnings, "text": text[:8000]}
 
 
 def _start_counts_ocr(pk: int, payroll_month: date) -> None:

@@ -599,3 +599,12 @@ class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
         self.assertEqual(rec.status, "approved")
         # 経費メニュー（/expenses/）は今まで通り経費のパスワードが必要
         self.assertNotEqual(self.client.get("/expenses/").status_code, 200)
+
+
+class DashboardOcrRobustnessTests(TestCase):
+    def test_brackets_and_plus_misread(self):
+        from apps.payroll.ingest import parse_dashboard
+
+        text = "[9 月最終実績]\n|長谷十田中谷川|\n・\n72/60( 進捗 120.0%)\n出勤 18/22 日\n谷川\n3 日 8 件\n田中\n3日4件\nxX\n大石\n131/90( 進捗 145.6%)\n出勤 20/20 日"
+        p = parse_dashboard(text, ["長谷", "田中", "谷川", "大石"])
+        self.assertEqual({e.name: e.count for e in p.entries}, {"谷川": 8, "田中": 4, "長谷": 60, "大石": 131})
