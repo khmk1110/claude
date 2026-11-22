@@ -301,8 +301,7 @@ def _parse(sf: SourceFile, data: bytes):
             sf.document_kind = DocumentKind.GASOLINE
             return parsers.parse_eneos_image(img), _builtin_profile("eneos_card_summary")
         # 交通費などの請求書のスクショ: 文字を読み取って「交通費(8月分) 氏名 … 金額」の行を探す（必ず確認待ち）
-        words = ocr.ocr_words(img.convert("L").resize((img.width * 2, img.height * 2)), lang="jpn+eng", psm=6)
-        text = "\n".join(line.text for line in ocr.group_lines(words, tolerance=20))
+        text = _transport_text_from_image(img)
         doc = parsers.parse_transport_invoice([text], timezone.localdate())
         doc.used_ocr = True
         for r in doc.rows:
@@ -315,6 +314,12 @@ def _parse(sf: SourceFile, data: bytes):
     pages = ocr.pdf_text_pages(data)
     text = "\n".join(pages)
     flat = parsers.nfkc(text).replace(" ", "")
+    if sf.document_kind == DocumentKind.TRANSPORT and not re.search(r"交通費[(（]\d{1,2}月分", flat):
+        # 文字の入っていない（スキャンした）PDF：ページを画像にして読み取る
+        pages = [_transport_text_from_image(im) for im in ocr.render_pages(data, dpi=200, first=1, last=5)]
+        text = "\n".join(pages)
+        flat = parsers.nfkc(text).replace(" ", "")
+        flat = re.sub(r"\s+", "", flat)
     if "ENEOS" in flat.upper() or sf.document_kind == DocumentKind.GASOLINE:
         parser = "eneos_card_summary"
     elif re.search(r"交通費[(（]\d{1,2}月分", flat):
@@ -328,6 +333,37 @@ def _parse(sf: SourceFile, data: bytes):
     if parser == "transport_invoice":
         return parsers.parse_transport_invoice(pages, timezone.localdate()), profile
     return parsers.parse_eneos_card_summary(data, pages), profile
+
+
+def _transport_text_from_image(img) -> str:
+    """請求書のスクショを文字にする。「交通費(8月分) 名前 金額…」の名前の部分は日本語だけでもう一度読む（名前の精度を上げる）。"""
+    from PIL import ImageOps
+
+    from . import ocr
+
+    g = img.convert("L")
+    if g.width < 1000:
+        g = g.resize((g.width * 2, g.height * 2))
+    elif g.width > 1800:
+        g = g.resize((1600, int(g.height * 1600 / g.width)))
+    out = []
+    for line in ocr.group_lines(ocr.ocr_words(g, lang="jpn+eng", psm=6), tolerance=20):
+        ws = sorted(line.words, key=lambda w: w.left)
+        texts = [parsers.nfkc(w.text) for w in ws]
+        joined = "".join(texts)
+        end = next((i for i, t in enumerate(texts) if ")" in t or "）" in t), None)
+        num = next((i for i, t in enumerate(texts) if end is not None and i > end and re.fullmatch(r"-?[\d,]+", t)), None)
+        if "交通" in joined and end is not None and num is not None and num > end + 1:
+            name_ws = ws[end + 1:num]
+            top = max(0, min(w.top for w in name_ws) - 6)
+            bot = max(w.top + w.height for w in name_ws) + 6
+            crop = g.crop((max(0, name_ws[0].left - 6), top, name_ws[-1].left + name_ws[-1].width + 6, bot))
+            crop = ImageOps.expand(crop.resize((crop.width * 3, crop.height * 3)), border=20, fill=255)
+            name = "".join(w.text for w in ocr.ocr_words(crop, lang="jpn", psm=7)).replace(" ", "")
+            if name:
+                texts = texts[:end + 1] + [name] + texts[num:]
+        out.append(" ".join(texts))
+    return "\n".join(out)
 
 
 def dedupe_key(rec: ExpenseRecord, sf: SourceFile) -> str:

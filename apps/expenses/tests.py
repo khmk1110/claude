@@ -242,3 +242,14 @@ class LineAndOcrConfirmTests(TestCase):
         self.assertEqual(importer.approve([rec])[0], 1)  # 古いインスタンスを渡しても最新の金額で承認する（上書きしない）
         rec.refresh_from_db()
         self.assertEqual((rec.effective_amount, rec.status), (28000, R.APPROVED))
+
+
+class TransportOcrSpacingTests(TestCase):
+    def test_spaced_ocr_lines_are_read(self):
+        from datetime import date as _d
+
+        from apps.expenses.parsers import parse_transport_invoice
+
+        text = "交通 費 (8 月 分 ) 大 石 52,080 1 52,080\n交通 費 (8 月 分 ) 長谷 川 花子 6,822 1 6,822"
+        doc = parse_transport_invoice([text], _d(2026, 11, 1))
+        self.assertEqual([(r.name, r.amount) for r in doc.rows], [("大石", 52080), ("長谷川花子", 6822)])

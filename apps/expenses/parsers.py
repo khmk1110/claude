@@ -223,6 +223,9 @@ def parse_transport_invoice(pages: list[str], today: date) -> ParsedDocument:
     for page_no, text in enumerate(pages, start=1):
         for line in text.splitlines():
             line = nfkc(line)
+            # スクショの読み取りでは「交通 費 (8 月 分 ) 矢 木 淳之介」のように1文字ずつ空白が入るので詰める
+            line = re.sub(r"(?<=[^\x00-\x7F]) +(?=[^\x00-\x7F])", "", line)
+            line = re.sub(r"[(（]\s*(\d{1,2})\s*月\s*分\s*[)）]", r"(\1月分)", line)
             m = TRANSPORT_LINE.search(line)
             if not m:
                 continue

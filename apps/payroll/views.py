@@ -195,6 +195,7 @@ def _expense_panels(month, members):
 
     gas = {"rows": gas_rows, "total": sum(r["amount"] for r in gas_rows), "checks": checks, "unknown_cards": unknown_cards,
            "files": gas_files, "open": sum(r["open"] for r in gas_rows),
+           "empty": [f for f in gas_files if f.status == "parsed" and not f.row_count],
            "processing": [f for f in processing if f.document_kind in ("gasoline", "unknown", "")],
            "errors": [f for f in errors if f.document_kind in ("gasoline", "unknown", "")]}
     gas["status"] = "processing" if gas["processing"] else status(gas_rows, bool(gas_rows))
@@ -203,6 +204,7 @@ def _expense_panels(month, members):
           "total": sum(r["amount"] for r in contractors + interns), "net_total": sum(r["net"] for r in contractors + interns),
           "processing": [f for f in processing if f.document_kind == "transport"],
           "needs": [f for f in files if f.status in ("needs_mapping", "needs_kind") and f.document_kind in ("transport", "unknown", "")],
+          "empty": [f for f in files if f.document_kind == "transport" and f.status == "parsed" and not f.row_count],
           "errors": [f for f in errors if f.document_kind == "transport"]}
     tr_rows = [r["row"] for r in contractors + interns if r["row"]] + tr_unknown
     tr["status"] = "processing" if tr["processing"] else status(tr_rows, bool(tr_rows))
