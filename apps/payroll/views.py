@@ -347,6 +347,130 @@ def expenses_fix(request):
     })
 
 
+
+def _member_products(st):
+    """この人の明細に関係する商材（個人専用＋全員共通）と、今入っている件数。"""
+    personal, common = _product_members(st.month)
+    products = list(personal.get(st.member_id, [])) + [p for p in common if p not in personal.get(st.member_id, [])]
+    counts = {c.product_id: c.count for c in SalesCount.objects.filter(member=st.member, month=st.month,
+                                                                       kind=SalesCount.Kind.CONFIRMED, product__in=products)}
+    return [{"p": p, "count": counts.get(p.pk), "personal": p in personal.get(st.member_id, [])} for p in products]
+
+
+@payroll_view
+def review(request):
+    """1人ずつ確認：明細のプレビュー＋その人の件数・当月の項目の修正＋確定。"""
+    month = month_from_request(request)
+    sts = list(PayrollStatement.objects.filter(month=month).select_related("member")
+               .order_by("member__display_order", "member_id"))
+    if not sts:
+        messages.info(request, "先に「計算する」を押してください。")
+        return redirect(f"/payroll/?month={month:%Y-%m}")
+    cur = None
+    if request.GET.get("st", "").isdigit():
+        cur = next((x for x in sts if x.pk == int(request.GET["st"])), None)
+    if cur is None:
+        cur = next((x for x in sts if not x.is_confirmed), sts[0])
+    i = sts.index(cur)
+    snap, draft = _snapshot_for(cur)
+    from .pdf import slip_rows
+
+    lines = {l.name: l for l in cur.lines.all()}
+    rows = []
+    for name, detail, amount in slip_rows(snap):
+        l = lines.get(name)
+        rows.append({"name": name, "detail": detail, "amount": amount, "line": l,
+                     "editable": bool(l) and not cur.is_confirmed and not l.is_adhoc,
+                     "adhoc": bool(l) and l.is_adhoc})
+    errors = [m["text"] for m in (cur.calc_messages or []) if m.get("level") == "error"]
+    warns = [m["text"] for m in (cur.calc_messages or []) if m.get("level") == "warning"]
+    products = _member_products(cur)
+    return render(request, "payroll/review.html", {
+        **month_context(month), "sts": sts, "st": cur, "i": i, "prev": sts[i - 1] if i > 0 else None,
+        "next": sts[i + 1] if i + 1 < len(sts) else None, "snap": snap, "draft": draft, "rows": rows,
+        "total": sum(r["amount"] for r in rows), "errors": errors, "warns": warns, "products": products,
+        "is_product_member": calc.is_product_member(cur.member),
+        "kind_choices": PayrollItemDefinition.Kind.choices, "confirmed_count": sum(1 for x in sts if x.is_confirmed),
+    })
+
+
+@payroll_view
+@require_POST
+def review_action(request, pk):
+    st = get_object_or_404(PayrollStatement.objects.select_related("member"), pk=pk)
+    p, user = request.POST, request.user
+    action = p.get("action")
+    go = f"/payroll/review/?month={st.month:%Y-%m}&st={st.pk}"
+    try:
+        with transaction.atomic():
+            if st.is_confirmed and action not in ("reopen",):
+                raise ImmutableAfterConfirmError("確定済みです。直す時は「確定を取り消す」を押してください。")
+            if action == "products":
+                changed = []
+                for x in _member_products(st):
+                    raw = p.get(f"count_{x['p'].pk}", "").strip()
+                    value = _int_or_none(raw) if raw else None
+                    if value == x["count"]:
+                        continue
+                    row = SalesCount.objects.filter(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED, product=x["p"]).first()
+                    if value is None:
+                        if row:
+                            row.delete()
+                    elif row:
+                        row.count, row.updated_by = value, user
+                        row.save()
+                    else:
+                        SalesCount.objects.create(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED,
+                                                  product=x["p"], count=value, updated_by=user)
+                    audit.log("payroll.sales_count", target=st.member, before={"count": x["count"]},
+                              after={"month": st.month, "kind": f"入金確定件数（{x['p'].name}）", "count": value}, user=user)
+                    changed.append(x["p"].name)
+                calc.calculate(st, user=user, log=False)
+                messages.success(request, f"{'・'.join(changed)}の件数を保存して計算し直しました。" if changed else "計算し直しました。")
+            elif action == "line":
+                line = get_object_or_404(PayrollLine, pk=p.get("line_id"), statement=st)
+                amount = _int_or_none(p.get("amount", "").replace(",", ""))
+                if amount is None:
+                    raise ValueError("金額を数字で入れてください。")
+                calc.set_line_override(line, amount if amount != line.auto_amount else None,
+                                       reason=p.get("reason", "").strip() or "1人ずつ確認で修正", user=user)
+                messages.success(request, f"{line.name}を{amount:,}円にしました。")
+            elif action == "adhoc_add":
+                amount = _int_or_none(p.get("amount", "").replace(",", ""))
+                if amount is None or not p.get("name", "").strip():
+                    raise ValueError("項目名と金額を入れてください。")
+                calc.add_adhoc_line(st, name=p.get("name", "").strip(), kind=p.get("kind") or "earning", amount=amount,
+                                    detail=p.get("detail", "").strip(), reason="1人ずつ確認で追加", user=user)
+                messages.success(request, f"「{p.get('name').strip()}」を追加しました。")
+            elif action == "adhoc_remove":
+                line = get_object_or_404(PayrollLine, pk=p.get("line_id"), statement=st)
+                calc.remove_adhoc_line(line, user=user, reason="1人ずつ確認で削除")
+                messages.success(request, "項目を削除しました。")
+            elif action == "recalc":
+                calc.calculate(st, user=user, log=False)
+                messages.success(request, "計算し直しました。")
+            elif action == "confirm":
+                calc.confirm(st, user=user)
+                nxt = (PayrollStatement.objects.filter(month=st.month).exclude(status=S.CONFIRMED)
+                       .order_by("member__display_order", "member_id").first())
+                messages.success(request, f"{st.member.name}さんを確定しました。")
+                if nxt:
+                    go = f"/payroll/review/?month={st.month:%Y-%m}&st={nxt.pk}"
+                else:
+                    messages.success(request, "全員の確定が終わりました。明細PDFをダウンロードできます。")
+                    go = f"/payroll/?month={st.month:%Y-%m}#step4"
+            elif action == "reopen":
+                calc.reopen(st, user=user, reason=p.get("reason", "").strip() or "1人ずつ確認で取り消し")
+                messages.success(request, "確定を取り消しました。")
+            else:
+                raise ValueError("不明な操作です。")
+    except ImmutableAfterConfirmError as e:
+        messages.error(request, str(e))
+    except (ValueError, KeyError) as e:
+        messages.error(request, str(e) or "入力内容が正しくありません。")
+    return redirect(go)
+
+
 @payroll_view
 def month_home(request):
     """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""

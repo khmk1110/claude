@@ -392,6 +392,11 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
             spec.display_order = item.display_order
             specs.append(spec)
 
+    if is_product_member(member) and not SalesCount.objects.filter(
+            member=member, month=month, kind=SalesCount.Kind.CONFIRMED, product__isnull=False).exists():
+        # 商材別に報酬を計算する人は、商材別の件数がないと営業報酬が0円になってしまう
+        ctx.error("商品別の件数（プロパン・都市ガス・訪問電気など）が入っていません。「1人ずつ確認」で入れてください。", "product")
+
     existing = {(l.item_id, l.sub_key): l for l in st.lines.filter(is_adhoc=False)}
     keep_ids = set()
     for spec in specs:

@@ -175,8 +175,13 @@ def process(sf: SourceFile, *, data: bytes | None = None, user=None) -> SourceFi
         sf.save()
         return sf
     except Exception as e:  # noqa: BLE001 — 読めない資料はエラーとして残し、手入力できるようにする
+        import subprocess
+
         sf.status = SourceFile.Status.ERROR
-        sf.error_message = f"読み取れませんでした: {e}"
+        if isinstance(e, (subprocess.TimeoutExpired, subprocess.CalledProcessError)):
+            sf.error_message = "画像の読み取りに時間がかかりすぎました（スクショで取り込むと確実です）。"
+        else:
+            sf.error_message = f"読み取れませんでした: {e}"
         sf.save()
         return sf
 

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}1人ずつ確認｜{{ month|date:"n月" }}分{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:index' %}?month={{ month_param }}">← {{ month|date:"n月" }}分の給与</a></p><h1>1人ずつ確認</h1></div>
+  <span class="chip {% if confirmed_count == sts|length %}chip-ok{% endif %}">確定 {{ confirmed_count }} / {{ sts|length }}人</span></div>
+
+<nav class="people">
+  {% for x in sts %}<a href="?month={{ month_param }}&st={{ x.pk }}" class="person {% if x.pk == st.pk %}is-cur{% endif %} {% if x.is_confirmed %}is-ok{% elif x.blocking_errors %}is-err{% endif %}">
+    <span class="dot"></span>{{ x.member.name }}</a>{% endfor %}
+</nav>
+
+{% for e in errors %}<div class="notice">⚠️ {{ e }}</div>{% endfor %}
+{% for w in warns %}<div class="notice info">ℹ️ {{ w }}</div>{% endfor %}
+
+<div class="review-grid">
+  {# ── 明細のプレビュー（PDFと同じ内容） ── #}
+  <section class="slip {% if draft %}is-draft{% endif %}">
+    {% if draft %}<div class="slip-stamp">確認用</div>{% else %}<div class="slip-stamp ok">確定済み</div>{% endif %}
+    <h2 class="slip-title">明 細 書</h2>
+    <div class="slip-head">
+      <div class="slip-name">{{ snap.member.name }} 様</div>
+      <div class="slip-meta">{{ month|date:"Y年n月" }}分<br><span class="muted small">支払日 {{ snap.payment_date }}</span></div>
+    </div>
+    <table class="slip-table">
+      <thead><tr><th>内容</th><th class="num">金額</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr><td><b>{{ r.name }}</b>{% if r.detail %}<div class="small muted">{{ r.detail }}</div>{% endif %}
+            {% if r.editable %}
+            <details class="slip-edit"><summary>金額を直す</summary>
+              <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="form-row">{% csrf_token %}
+                <input type="hidden" name="action" value="line"><input type="hidden" name="line_id" value="{{ r.line.pk }}">
+                <div class="yen" style="width:140px"><input name="amount" value="{{ r.line.amount }}" inputmode="numeric"><em>円</em></div>
+                <button class="btn" type="submit">保存</button>
+              </form>
+              {% if r.line.override_amount is not None %}<div class="small muted">自動計算は {{ r.line.auto_amount|default_if_none:"-"|intcomma }}円（手で直しています）</div>{% endif %}
+            </details>
+            {% elif r.adhoc and not st.is_confirmed %}
+            <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="action" value="adhoc_remove"><input type="hidden" name="line_id" value="{{ r.line.pk }}">
+              <button class="linkbtn small" type="submit" onclick="return confirm('「{{ r.name }}」を消しますか？')">この項目を消す</button></form>
+            {% endif %}
+        </td><td class="num {% if r.amount < 0 %}neg{% endif %}">{{ r.amount|intcomma }}</td></tr>
+      {% empty %}<tr><td colspan="2" class="muted">まだ計算していません。</td></tr>{% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td>報酬額合計</td><td class="num">{{ total|intcomma }} 円</td></tr>
+        <tr class="net"><td>差引支払額</td><td class="num">{{ snap.totals.net|default_if_none:"-"|intcomma }} 円</td></tr>
+      </tfoot>
+    </table>
+    <p class="small"><a href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る</a></p>
+  </section>
+
+  {# ── この人の入力 ── #}
+  <div class="review-side">
+    {% if products and not st.is_confirmed %}
+    <section class="card">
+      <p class="card-title">商品別の件数{% if is_product_member %} <span class="chip chip-open">{{ st.member.name }}さん専用</span>{% endif %}</p>
+      <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="products">
+        <div class="prod-grid">
+          {% for x in products %}<label class="prod"><span>{{ x.p.name }}</span>
+            <div class="yen"><input name="count_{{ x.p.pk }}" value="{{ x.count|default_if_none:'' }}" inputmode="numeric"><em>件</em></div></label>{% endfor %}
+        </div>
+        <button class="btn btn-primary" type="submit">保存して計算</button>
+      </form>
+    </section>
+    {% endif %}
+
+    {% if not st.is_confirmed %}
+    <section class="card">
+      <p class="card-title">この月だけの項目を追加</p>
+      <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="adhoc-form">{% csrf_token %}<input type="hidden" name="action" value="adhoc_add">
+        <input name="name" placeholder="項目名（例：サウナコンサル）" required>
+        <div class="form-row">
+          <select name="kind">{% for v, l in kind_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+          <div class="yen" style="flex:1"><input name="amount" placeholder="金額" inputmode="numeric" required><em>円</em></div>
+        </div>
+        <button class="btn" type="submit">追加</button>
+      </form>
+    </section>
+    {% endif %}
+    <p class="small"><a href="{% url 'payroll:detail' st.pk %}">詳しい計算の中身・変更履歴を見る</a></p>
+  </div>
+</div>
+
+<div class="review-bar">
+  {% if prev %}<a class="btn" href="?month={{ month_param }}&st={{ prev.pk }}">◀ 前</a>{% else %}<span></span>{% endif %}
+  {% if st.is_confirmed %}
+    <form method="post" action="{% url 'payroll:review_action' st.pk %}" onsubmit="const r=prompt('取り消す理由');if(!r)return false;this.reason.value=r;">{% csrf_token %}
+      <input type="hidden" name="action" value="reopen"><input type="hidden" name="reason"><button class="btn" type="submit">確定を取り消す</button></form>
+  {% elif errors %}
+    <button class="btn" disabled>直すところがあります</button>
+  {% else %}
+    <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="confirm">
+      <button class="btn btn-ok" type="submit">この内容で確定{% if next %}して次へ{% endif %}</button></form>
+  {% endif %}
+  {% if next %}<a class="btn" href="?month={{ month_param }}&st={{ next.pk }}">次 ▶</a>{% else %}<span></span>{% endif %}
+</div>
+{% endblock %}

@@ -501,8 +501,7 @@ class CountsImportFlowTests(TestCase):
         self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "text": text})
         self.assertContains(self.client.get("/payroll/counts/?month=2026-11"), "一致しました")
         page = self.client.get("/payroll/?month=2026-11")
-        self.assertContains(page, "件数を取り込む")
-        self.assertContains(page, "まとめて確定")
+        self.assertContains(page, "明細を確認して確定")
 
 
 def _table_png(rows):
@@ -749,3 +748,42 @@ class ApproveWithOcrWarningsTests(TableScreenshotTests):
         # 承認できなかった理由は名前で表示する
         page = self.client.get("/payroll/?month=2026-11")
         self.assertNotContains(page, "2行目")
+
+
+
+class ReviewPageTests(TableScreenshotTests):
+    def _prepare(self):
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "prepare"})
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        return list(PayrollStatement.objects.filter(month=NOV).order_by("member__display_order", "member_id"))
+
+    def test_preview_adhoc_and_confirm_next(self):
+        sts = self._prepare()
+        self.assertTrue(sts)
+        st = sts[0]
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "明 細 書")
+        self.assertContains(page, st.member.name)
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "adhoc_add", "name": "サウナコンサル", "kind": "earning", "amount": "30,000"})
+        self.assertContains(self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}"), "サウナコンサル")
+
+    def test_product_member_needs_product_counts(self):
+        from apps.payroll.models import PayrollItemDefinition, Product
+
+        sc = PayrollItemDefinition.objects.get(code="sales_commission")
+        sc.excluded_members.add(self.a)
+        prod = Product.objects.create(code="visit_elec", name="訪問電気")
+        item = PayrollItemDefinition.objects.create(code="product_visit_elec", name="訪問電気", kind="earning",
+                                                    method=PayrollItemDefinition.Method.PRODUCT_COMMISSION,
+                                                    params={"product": "visit_elec"}, default_amount=7250,
+                                                    scope=PayrollItemDefinition.Scope.MEMBER, display_order=12)
+        item.members.add(self.a)
+        sts = self._prepare()
+        st = next(x for x in sts if x.member_id == self.a.pk)
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "商品別の件数（プロパン・都市ガス・訪問電気など）が入っていません")
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "products", f"count_{prod.pk}": "3"})
+        st.refresh_from_db()
+        line = st.lines.get(code="product_visit_elec")
+        self.assertEqual(line.amount, 3 * 7250)
+        self.assertFalse(any("商品別の件数" in m["text"] for m in st.calc_messages))

@@ -239,6 +239,17 @@ def file_action(request, pk):
                 raise ValueError("金額が入力されていません。")
             n = importer.confirm_amounts(sf, amounts, user=user, reason=p.get("reason", "").strip() or "元資料と照合")
             messages.success(request, f"{n}件の金額を確定しました。内容を確認して承認してください。")
+        elif action == "discard":
+            # 読み取れなかった資料（行がない・承認済みの行がない）を取り消す
+            if sf.records.exclude(status__in=[R.IMPORTED, R.UNCHECKED, R.PENDING, R.EXCLUDED]).exists():
+                raise ValueError("承認・修正済みの行があるため取り消せません。")
+            name = sf.original_name
+            audit.log("expenses.discard_file", target=sf, before={"file": name, "rows": sf.records.count()}, user=user)
+            sf.records.all().delete()
+            sf.issues.all().delete()
+            sf.delete()
+            messages.success(request, f"「{name}」を取り消しました。")
+            return _next_or(request, _go(request, "index"))
         elif action == "reprocess":
             importer.process(sf, user=user)
             messages.success(request, "読み取りをやり直しました。")

@@ -2,24 +2,26 @@
 {# 給与の画面の「② 経費」：ガソリン代・交通費・その他を別々の枠にする #}
 <section class="step card {% if exp.gas.status == 'ok' and exp.tr.status != 'attn' and exp.tr.status != 'open' and exp.other.status != 'open' and exp.other.status != 'attn' %}done{% endif %}" id="step2">
   <div class="step-head"><span class="no">{% if exp.gas.status == 'ok' and exp.open_total == 0 %}✓{% else %}2{% endif %}</span>
-    <div><b>経費を取り込む</b><div class="small muted">ガソリン代・交通費・その他の経費を取り込んで、内容を確かめて「承認」します。承認したものだけが給与に入ります。</div></div></div>
+    <div><b>経費</b><div class="small muted">承認したものだけ給与に入ります</div></div></div>
 
   {# ───────── ガソリン代 ───────── #}
   <div class="xpanel" id="gas">
     <div class="xpanel-head">
-      <div class="xpanel-title"><span class="xicon">⛽</span><div><b>ガソリン代</b><div class="small muted">ENEOSの「請求明細表（合計版）」のスクショかPDF</div></div></div>
+      <div class="xpanel-title"><span class="xicon">⛽</span><div><b>ガソリン代</b></div></div>
       {% include "payroll/_xstatus.html" with st=exp.gas.status open=exp.gas.open %}
     </div>
 
     {% if exp.gas.processing %}
-      <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中です</b><div class="small muted">1〜2分かかることがあります。終わると自動で表示されます。</div></div></div>
+      <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>
       <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>
     {% endif %}
     {% for f in exp.gas.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」からガソリン代を読み取れませんでした。
-      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas">
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
-      <div class="small">それでも読めない時は、下の「カード番号と金額を文で入れる」で入力してください。</div></div>{% endfor %}
-    {% for f in exp.gas.errors %}<div class="notice">⚠️ {{ f.original_name }} を読み取れませんでした。{{ f.error_message|truncatechars:80 }} <a href="{% url 'payroll_expenses:file' f.pk %}">詳しく</a></div>{% endfor %}
+      <div class="small">読めない時は下の「文で入れる」で入力できます。</div></div>{% endfor %}
+    {% for f in exp.gas.errors %}<div class="notice">⚠️ 「{{ f.original_name }}」は読み取れませんでした。スクショで取り込むと確実です。
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="discard"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas">
+        <button class="btn" type="submit">この資料を取り消す</button></form></div>{% endfor %}
 
     {% if exp.gas.rows %}
       {% for c in exp.gas.checks %}{% if not c.ok %}<div class="notice">⚠️ 読み取った金額が明細と合っていない可能性があります。金額を明細と見比べてください。</div>{% endif %}{% endfor %}
@@ -40,7 +42,7 @@
       <div class="xactions">
         {% if exp.gas.open %}
         <form method="post" action="{% url 'payroll:expenses_approve_all' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="gasoline">
-          <button class="btn btn-primary" type="submit">内容OK・まとめて承認（{{ exp.gas.open }}件）</button></form>
+          <button class="btn btn-primary" type="submit">まとめて承認（{{ exp.gas.open }}件）</button></form>
         {% endif %}
         {% if exp.gas.rows %}<a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=gasoline">名前・金額を直す</a>{% endif %}
       </div>
@@ -50,11 +52,11 @@
       <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas"><input type="hidden" name="target_month" value="{{ month_param }}"><input type="hidden" name="kind" value="gasoline">
       <label class="drop">
         <input type="file" name="files" multiple accept="image/*,.pdf" onchange="this.form.querySelector('.drop-text').textContent='取り込み中…';this.form.submit()">
-        <span class="drop-icon">📷</span><span class="drop-text">{% if exp.gas.rows %}別の明細を追加で取り込む{% else %}明細のスクショ・PDFを選ぶ{% endif %}</span>
-        {% if not exp.gas.rows %}<span class="small muted">選ぶとすぐに読み取りが始まります</span>{% endif %}
+        <span class="drop-icon">📷</span><span class="drop-text">{% if exp.gas.rows %}追加で取り込む{% else %}ENEOSの明細を選ぶ{% endif %}</span>
+        
       </label>
     </form>
-    <details class="more"><summary>スクショがない時：カード番号と金額を文で入れる</summary>
+    <details class="more"><summary>文で入れる</summary>
       <form method="post" action="{% url 'payroll_expenses:gasoline_text' %}">{% csrf_token %}
         <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas"><input type="hidden" name="target_month" value="{{ month_param }}">
         <textarea name="text" rows="3" style="width:100%" placeholder="カード番号の4桁 金額&#10;0007 82049&#10;0008 47943"></textarea>
@@ -66,23 +68,24 @@
   {# ───────── 交通費 ───────── #}
   <div class="xpanel" id="transport">
     <div class="xpanel-head">
-      <div class="xpanel-title"><span class="xicon">🚃</span><div><b>交通費</b><div class="small muted">個人事業主は <b>交通費 − 35,000円</b> を支給します（インターンは引きません）</div></div></div>
+      <div class="xpanel-title"><span class="xicon">🚃</span><div><b>交通費</b><div class="small muted">個人事業主は −35,000円</div></div></div>
       {% include "payroll/_xstatus.html" with st=exp.tr.status open=exp.tr.open %}
     </div>
     {% if exp.tr.processing %}
-      <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中です</b><div class="small muted">終わると自動で表示されます。</div></div></div>
+      <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>
       <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>
     {% endif %}
     {% for f in exp.tr.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」から交通費の行を読み取れませんでした。
-      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
-      <div class="small">それでも読めない時は、下の「LINEで届いた交通費を文で入れる」で入力してください。</div>
+      <div class="small">読めない時は下の「文で入れる」で入力できます。</div>
       {% if f.error_message %}<details class="small" style="margin-top:6px"><summary>読み取った文字を見る（うまくいかない時はこの画面を送ってください）</summary><div style="word-break:break-all">{{ f.error_message }}</div></details>{% endif %}</div>{% endfor %}
     {% for f in exp.tr.needs %}<div class="notice">⚠️ 「{{ f.original_name }}」は初めての形式の資料です。<a href="{% url 'payroll_expenses:mapping' f.pk %}">どの列が名前・金額かを1回だけ設定する</a>と、次回から自動で読み取ります。</div>{% endfor %}
     {% for f in exp.tr.errors %}<div class="notice">⚠️ 「{{ f.original_name }}」を読み取れませんでした。
-      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
-      <div class="small" style="word-break:break-all">理由: {{ f.error_message|truncatechars:300 }}</div></div>{% endfor %}
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="discard"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
+        <button class="btn" type="submit">この資料を取り消す</button></form></div>{% endfor %}
 
     <ul class="plist">
       <li class="prow phead"><div class="pmain small muted">個人事業主</div><div class="pcalc small muted">交通費 − 35,000円</div><div class="pamt small muted">支給額</div></li>
@@ -109,17 +112,17 @@
     <div class="xactions">
       {% if exp.tr.open %}
       <form method="post" action="{% url 'payroll:expenses_approve_all' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="transport">
-        <button class="btn btn-primary" type="submit">内容OK・まとめて承認（{{ exp.tr.open }}件）</button></form>
+        <button class="btn btn-primary" type="submit">まとめて承認（{{ exp.tr.open }}件）</button></form>
       {% endif %}
       <a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=transport">名前・金額を直す</a>
     </div>
     <form method="post" action="{% url 'payroll_expenses:upload' %}" enctype="multipart/form-data" class="xupload compact">{% csrf_token %}
       <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport"><input type="hidden" name="target_month" value="{{ month_param }}"><input type="hidden" name="kind" value="transport">
       <label class="drop"><input type="file" name="files" multiple accept="image/*,.pdf,.xlsx,.xls,.csv" onchange="this.form.querySelector('.drop-text').textContent='取り込み中…';this.form.submit()">
-        <span class="drop-icon">📄</span><span class="drop-text">交通費の請求書（PDF・スクショ・Excel）を選ぶ</span></label>
+        <span class="drop-icon">📄</span><span class="drop-text">請求書を選ぶ</span></label>
     </form>
     {% if transport_category %}
-    <details class="more"><summary>LINEで届いた交通費を文で入れる</summary>
+    <details class="more"><summary>文で入れる</summary>
       <form method="post" action="{% url 'payroll_expenses:line_import' %}">{% csrf_token %}
         <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport"><input type="hidden" name="target_month" value="{{ month_param }}"><input type="hidden" name="category" value="{{ transport_category.pk }}">
         <textarea name="text" rows="3" style="width:100%" placeholder="名前 金額（内容）&#10;関 42000 交通費"></textarea>
@@ -132,7 +135,7 @@
   {# ───────── その他 ───────── #}
   <details class="xpanel" id="other" {% if exp.other.rows %}open{% endif %}>
     <summary class="xpanel-head">
-      <div class="xpanel-title"><span class="xicon">🧾</span><div><b>その他の経費</b><div class="small muted">LINEで届いた立替えなど（ある時だけ）</div></div></div>
+      <div class="xpanel-title"><span class="xicon">🧾</span><div><b>その他の経費</b></div></div>
       {% if exp.other.rows %}{% include "payroll/_xstatus.html" with st=exp.other.status open=exp.other.open %}{% else %}<span class="chip">なし</span>{% endif %}
     </summary>
     {% if exp.other.rows %}
@@ -144,7 +147,7 @@
       {% endfor %}
     </ul>
     {% if exp.other.open %}<div class="xactions"><form method="post" action="{% url 'payroll:expenses_approve_all' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="other">
-      <button class="btn btn-primary" type="submit">内容OK・まとめて承認（{{ exp.other.open }}件）</button></form></div>{% endif %}
+      <button class="btn btn-primary" type="submit">まとめて承認（{{ exp.other.open }}件）</button></form></div>{% endif %}
     <div class="xactions"><a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=other">名前・金額を直す</a></div>
     {% endif %}
     <form method="post" action="{% url 'payroll_expenses:line_import' %}">{% csrf_token %}
@@ -155,5 +158,5 @@
     </form>
   </details>
 
-  <p class="small"><a href="{% url 'payroll_expenses:index' %}?month={{ month_param }}">この月の経費の明細をすべて見る</a></p>
+  
 </section>
