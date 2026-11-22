@@ -10,6 +10,7 @@ urlpatterns = [
     path("sales/", views.sales, name="sales"),
     path("counts/", views.counts_import, name="counts_import"),
     path("expenses/approve-all/", views.expenses_approve_all, name="expenses_approve_all"),
+    path("expenses/fix/", views.expenses_fix, name="expenses_fix"),
     path("evidence/<int:pk>/", views.evidence_file, name="evidence"),
     path("employees/", views.employees, name="employees"),
     path("teams/", views.teams, name="teams"),

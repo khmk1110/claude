@@ -42,7 +42,7 @@
         <form method="post" action="{% url 'payroll:expenses_approve_all' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="gasoline">
           <button class="btn btn-primary" type="submit">内容OK・まとめて承認（{{ exp.gas.open }}件）</button></form>
         {% endif %}
-        {% for f in exp.gas.files|slice:":1" %}<a class="btn" href="{% url 'payroll_expenses:file' f.pk %}">金額・名前を直す</a>{% endfor %}
+        {% if exp.gas.rows %}<a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=gasoline">名前・金額を直す</a>{% endif %}
       </div>
     {% endif %}
 
@@ -103,7 +103,7 @@
         {% endfor %}
       {% endif %}
       {% for r in exp.tr.unknown %}
-        <li class="prow prow-attn"><div class="pmain"><b>{{ r.label }}</b></div><div class="pcalc"></div><div class="pamt">{{ r.amount|intcomma }}<small>円</small></div><div class="pnote">⚠ 誰の交通費か分かりません。「金額・名前を直す」で選んでください</div></li>
+        <li class="prow prow-attn"><div class="pmain"><b>{{ r.label }}</b></div><div class="pcalc"></div><div class="pamt">{{ r.amount|intcomma }}<small>円</small></div><div class="pnote">⚠ 誰の交通費か分かりません。「名前・金額を直す」で選んでください</div></li>
       {% endfor %}
     </ul>
     <div class="xactions">
@@ -111,7 +111,7 @@
       <form method="post" action="{% url 'payroll:expenses_approve_all' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="transport">
         <button class="btn btn-primary" type="submit">内容OK・まとめて承認（{{ exp.tr.open }}件）</button></form>
       {% endif %}
-      {% for f in exp.tr.files|slice:":1" %}<a class="btn" href="{% url 'payroll_expenses:file' f.pk %}">金額・名前を直す</a>{% endfor %}
+      <a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=transport">名前・金額を直す</a>
     </div>
     <form method="post" action="{% url 'payroll_expenses:upload' %}" enctype="multipart/form-data" class="xupload compact">{% csrf_token %}
       <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport"><input type="hidden" name="target_month" value="{{ month_param }}"><input type="hidden" name="kind" value="transport">
@@ -145,6 +145,7 @@
     </ul>
     {% if exp.other.open %}<div class="xactions"><form method="post" action="{% url 'payroll:expenses_approve_all' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="other">
       <button class="btn btn-primary" type="submit">内容OK・まとめて承認（{{ exp.other.open }}件）</button></form></div>{% endif %}
+    <div class="xactions"><a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=other">名前・金額を直す</a></div>
     {% endif %}
     <form method="post" action="{% url 'payroll_expenses:line_import' %}">{% csrf_token %}
       <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#other"><input type="hidden" name="target_month" value="{{ month_param }}">

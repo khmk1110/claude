@@ -362,3 +362,29 @@ details.xpanel > summary::-webkit-details-marker { display: none; }
   .prow .pcalc { grid-column: 1; text-align: left; grid-row: 2; }
   .prow .pamt { grid-row: 1 / span 2; grid-column: 2; }
 }
+
+/* ===== 経費の名前・金額を直す画面 ===== */
+.fix-help { background: #f8fafc; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+.fix-help p { margin: 0; }
+.fix-attn-count { margin-top: 6px !important; color: #92400e; }
+.fix-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.fix-card { background: #fff; border: 1px solid var(--line, #e5e7eb); border-radius: 14px; padding: 12px 14px; }
+.fix-card.is-attn { border: 2px solid #f59e0b; background: #fffbeb; }
+.fix-card.is-excluded { opacity: 0.55; }
+.fix-src { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.fix-src b { font-size: 1.15rem; }
+.fix-why { margin-top: 4px; font-size: 0.85rem; color: #92400e; font-weight: 600; }
+.fix-fields { display: grid; grid-template-columns: 1fr 160px; gap: 10px; margin-top: 10px; }
+.fix-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: #64748b; font-weight: 600; }
+.fix-field select, .fix-field input { font-size: 1.05rem; padding: 10px 12px; min-height: 46px; border-radius: 10px; width: 100%; box-sizing: border-box; }
+.yen { position: relative; }
+.yen input { text-align: right; padding-right: 34px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.yen em { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: #64748b; }
+.fix-opts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
+.fix-add { margin-top: 12px; }
+.fix-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; margin-top: 12px; background: linear-gradient(to top, var(--bg, #f3f4f6) 75%, transparent); z-index: 5; }
+@media (max-width: 640px) {
+  .fix-fields { grid-template-columns: 1fr 130px; }
+  .fix-bar { bottom: 64px; }
+}
+[hidden] { display: none !important; }

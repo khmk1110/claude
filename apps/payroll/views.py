@@ -237,6 +237,112 @@ def expenses_approve_all(request):
     return redirect(f"/payroll/?month={month:%Y-%m}#step2")
 
 
+
+GROUP_LABELS = {"transport": "交通費", "gasoline": "ガソリン代", "other": "その他の経費"}
+
+
+def _group_records(month, group):
+    if group in ("transport", "gasoline"):
+        return _month_expense_records(month, codes={group})
+    return _month_expense_records(month, exclude_codes={"gasoline", "transport"})
+
+
+@payroll_view
+def expenses_fix(request):
+    """名前と金額を手で直すための画面（給与の画面の「金額・名前を直す」）。"""
+    from django.utils import timezone
+
+    from apps.expenses import importer
+    from apps.expenses.models import ExpenseCategory, SourceFile
+
+    month = month_from_request(request)
+    group = request.GET.get("group") or request.POST.get("group") or "transport"
+    if group not in GROUP_LABELS:
+        group = "transport"
+    back = f"/payroll/?month={month:%Y-%m}#{'gas' if group == 'gasoline' else group}"
+    recs = _group_records(month, group)
+    members = list(Member.objects.filter(status=Member.Status.ACTIVE).order_by("display_order", "id"))
+    by_id = {m.pk: m for m in members}
+
+    if request.method == "POST":
+        changed, errors = 0, []
+        with transaction.atomic():
+            for r in recs:
+                if f"amount_{r.pk}" not in request.POST:
+                    continue
+                label = r.name_text or (f"カード {r.card_code}" if r.card_code else f"{r.row_number}行目")
+                want_excluded = bool(request.POST.get(f"exclude_{r.pk}"))
+                try:
+                    if want_excluded and r.status != "excluded":
+                        importer.exclude([r], user=request.user, reason="給与の画面で対象外にした")
+                        changed += 1
+                        continue
+                    if want_excluded:
+                        continue
+                    mid = request.POST.get(f"member_{r.pk}")
+                    member = by_id.get(int(mid)) if mid and mid.isdigit() else None
+                    amount = _int_or_none(request.POST.get(f"amount_{r.pk}", "").replace(",", "").replace("円", ""))
+                    if amount is None:
+                        errors.append(f"{label}: 金額を数字で入れてください")
+                        continue
+                    new_member = member if member and member != r.effective_member else None
+                    new_amount = amount if amount != r.effective_amount else None
+                    if new_member is None and new_amount is None and r.status != "excluded":
+                        continue
+                    if r.status == "excluded" and new_member is None and new_amount is None:
+                        new_amount = amount  # 対象外を戻す
+                    importer.update_record(r, user=request.user, reason="給与の画面で修正", member=new_member, amount=new_amount,
+                                           save_alias=bool(new_member) and bool(request.POST.get(f"alias_{r.pk}")))
+                    changed += 1
+                except (ValueError, importer.RecordLocked) as e:
+                    errors.append(f"{label}: {e}")
+            # 資料にない人を追加
+            add_mid, add_amt = request.POST.get("add_member"), _int_or_none(request.POST.get("add_amount", "").replace(",", ""))
+            if add_mid and add_mid.isdigit() and add_amt:
+                cat = ExpenseCategory.objects.filter(code=group).first() if group != "other" else None
+                sf = next((x.source_file for x in recs), None)
+                if sf is None:
+                    sf = SourceFile.objects.create(original_name=f"{GROUP_LABELS[group]}（手入力）", sha256=__import__("hashlib").sha256(f"manual-{group}-{month}-{timezone.now().isoformat()}".encode()).hexdigest(),
+                                                   file_format=SourceFile.Format.MANUAL, document_kind=group if group != "other" else "unknown",
+                                                   target_month=month, status=SourceFile.Status.PARSED, uploaded_by=request.user)
+                if cat is None:
+                    cat = ExpenseCategory.objects.filter(is_active=True).exclude(code__in=["gasoline", "transport"]).first()
+                try:
+                    importer.add_manual_record(sf, user=request.user, member=by_id[int(add_mid)], category=cat, amount=add_amt,
+                                               description=f"{GROUP_LABELS[group]}（手入力）", target_month=month,
+                                               reason="給与の画面で追加")
+                    changed += 1
+                except (ValueError, KeyError, importer.RecordLocked) as e:
+                    errors.append(f"追加: {e}")
+            if request.POST.get("then") == "approve" and not errors:
+                fresh = [r for r in _group_records(month, group) if r.status in OPEN_EXPENSE]
+                ok, skipped = importer.approve(fresh, user=request.user)
+                if ok:
+                    messages.success(request, f"{ok}件を承認しました。")
+                for msg in skipped[:5]:
+                    errors.append(f"承認できませんでした：{msg}")
+        if changed:
+            messages.success(request, f"{changed}件を保存しました。")
+        for e in errors[:10]:
+            messages.error(request, e)
+        if errors:
+            return redirect(f"/payroll/expenses/fix/?month={month:%Y-%m}&group={group}")
+        return redirect(back)
+
+    rows = []
+    for r in recs:
+        issues = [i.message for i in r.issues.all() if not i.resolved]
+        m = r.effective_member
+        rows.append({"r": r, "member": m, "issues": issues, "excluded": r.status == "excluded",
+                     "approved": r.status in ("approved", "reflected"),
+                     "attn": (m is None and r.status != "excluded") or bool(issues)})
+    rows.sort(key=lambda x: (not x["attn"], x["excluded"]))
+    return render(request, "payroll/expenses_fix.html", {
+        **month_context(month), "group": group, "label": GROUP_LABELS[group], "rows": rows, "members": members,
+        "back": back, "attn_count": sum(1 for x in rows if x["attn"]),
+    })
+
+
 @payroll_view
 def month_home(request):
     """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""

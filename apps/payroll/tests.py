@@ -692,3 +692,38 @@ class ExpenseRedirectTests(TableScreenshotTests):
         r3 = self.client.post("/payroll/expenses/line/", {"category": "999999", "target_month": "", "text": "x",
                                                           "next": "/payroll/?month=2026-11#transport"})
         self.assertIn(r3.status_code, (302, 404))
+
+
+class ExpensesFixPageTests(TableScreenshotTests):
+    def test_fix_name_amount_exclude_add_and_approve(self):
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
+        from apps.members.models import MemberAlias
+
+        cat = ExpenseCategory.objects.get(code="transport")
+        sf = SourceFile.objects.create(original_name="t.png", sha256="f" * 64, file_format="image", document_kind="transport",
+                                       target_month=NOV, status="parsed")
+        unknown = ExpenseRecord.objects.create(source_file=sf, row_number=1, name_text="大右", auto_category=cat, auto_amount=52080,
+                                               auto_target_month=NOV, dedupe_key="f1")
+        wrong_amt = ExpenseRecord.objects.create(source_file=sf, row_number=2, name_text="吉野", auto_member=self.b, auto_category=cat,
+                                                 auto_amount=999, auto_target_month=NOV, dedupe_key="f2")
+        boss = ExpenseRecord.objects.create(source_file=sf, row_number=3, name_text="代表", auto_category=cat, auto_amount=10000,
+                                            auto_target_month=NOV, dedupe_key="f3")
+        page = self.client.get("/payroll/expenses/fix/?month=2026-11&group=transport")
+        self.assertContains(page, "大右")
+        self.assertContains(page, "直す必要がある行が")
+        res = self.client.post("/payroll/expenses/fix/", {
+            "month": "2026-11", "group": "transport", "then": "approve",
+            f"member_{unknown.pk}": self.a.pk, f"amount_{unknown.pk}": "52,080", f"alias_{unknown.pk}": "1",
+            f"member_{wrong_amt.pk}": self.b.pk, f"amount_{wrong_amt.pk}": "6822",
+            f"member_{boss.pk}": "", f"amount_{boss.pk}": "10000", f"exclude_{boss.pk}": "1",
+            "add_member": self.c.pk, "add_amount": "3000",
+        })
+        self.assertEqual(res["Location"], "/payroll/?month=2026-11#transport")
+        unknown.refresh_from_db(); wrong_amt.refresh_from_db(); boss.refresh_from_db()
+        self.assertEqual((unknown.effective_member, unknown.status), (self.a, "approved"))
+        self.assertEqual((wrong_amt.effective_amount, wrong_amt.status), (6822, "approved"))
+        self.assertEqual(boss.status, "excluded")
+        self.assertTrue(MemberAlias.objects.filter(member=self.a, alias="大右").exists())
+        added = ExpenseRecord.objects.get(source_file=sf, row_number=4)
+        self.assertEqual((added.effective_member, added.effective_amount, added.effective_target_month), (self.c, 3000, NOV))
+        self.assertContains(self.client.get("/payroll/?month=2026-11"), "52,080 − 35,000")

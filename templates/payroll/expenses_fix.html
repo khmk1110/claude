@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}{{ label }}を直す{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{{ back }}">← {{ month|date:"n月" }}分の給与に戻る</a></p><h1>{{ label }}の名前・金額を直す</h1></div></div>
+
+<div class="fix-help">
+  <p>名前が違う時は<b>正しい人を選ぶ</b>、金額が違う時は<b>数字を書き換える</b>だけです。最後に下の「保存する」を押してください。</p>
+  {% if attn_count %}<p class="fix-attn-count">⚠️ 直す必要がある行が <b>{{ attn_count }}件</b> あります（上に並んでいます）</p>{% endif %}
+</div>
+
+<form method="post" class="fix-form">{% csrf_token %}
+  <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="group" value="{{ group }}">
+  <ul class="fix-list">
+  {% for x in rows %}{% with r=x.r %}
+    <li class="fix-card {% if x.attn %}is-attn{% endif %} {% if x.excluded %}is-excluded{% endif %}" data-card>
+      <div class="fix-src">
+        <span class="small muted">資料の表記</span>
+        <b>{{ r.name_text|default:"（名前なし）" }}</b>
+        {% if r.card_code %}<span class="small muted">カード {{ r.card_code }}</span>{% endif %}
+        {% if x.approved %}<span class="chip chip-ok">承認済み</span>{% elif x.excluded %}<span class="chip">対象外</span>{% endif %}
+      </div>
+      {% if x.attn and not x.excluded %}<div class="fix-why">⚠ {% if not x.member %}誰の分か選んでください{% endif %}{% for i in x.issues %}{% if not forloop.first or not x.member %} {% endif %}{{ i }}{% endfor %}</div>{% endif %}
+      <div class="fix-fields">
+        <label class="fix-field"><span>対象の人</span>
+          <select name="member_{{ r.pk }}" data-member data-orig="{{ x.member.pk|default:'' }}">
+            <option value="">― 選んでください ―</option>
+            {% for m in members %}<option value="{{ m.pk }}" {% if x.member and m.pk == x.member.pk %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="fix-field fix-amount"><span>金額</span>
+          <div class="yen"><input name="amount_{{ r.pk }}" value="{{ r.effective_amount|default_if_none:''|intcomma }}" inputmode="numeric" pattern="-?[0-9,]*" autocomplete="off"><em>円</em></div>
+        </label>
+      </div>
+      <div class="fix-opts">
+        {% if r.name_text %}<label class="check small fix-alias" hidden><input type="checkbox" name="alias_{{ r.pk }}" value="1" checked> 次回から「{{ r.name_text }}」はこの人にする</label>{% endif %}
+        <label class="check small"><input type="checkbox" name="exclude_{{ r.pk }}" value="1" {% if x.excluded %}checked{% endif %} data-exclude> 給与に入れない（対象外）</label>
+      </div>
+    </li>
+  {% endwith %}{% empty %}
+    <li class="fix-card"><span class="muted">この月の{{ label }}はまだありません。</span></li>
+  {% endfor %}
+  </ul>
+
+  <details class="fix-add more"><summary>＋ 資料にない人を追加する</summary>
+    <div class="fix-fields" style="margin-top:10px">
+      <label class="fix-field"><span>対象の人</span><select name="add_member"><option value="">― 選んでください ―</option>{% for m in members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select></label>
+      <label class="fix-field fix-amount"><span>金額</span><div class="yen"><input name="add_amount" inputmode="numeric" autocomplete="off"><em>円</em></div></label>
+    </div>
+  </details>
+
+  <div class="fix-bar">
+    <button class="btn btn-primary" type="submit" name="then" value="approve">保存して承認する</button>
+    <button class="btn" type="submit" name="then" value="">保存だけする</button>
+    <a class="btn btn-light" href="{{ back }}">やめる</a>
+  </div>
+</form>
+
+<script>
+document.querySelectorAll('[data-card]').forEach(function(card){
+  var sel = card.querySelector('[data-member]'), alias = card.querySelector('.fix-alias'), ex = card.querySelector('[data-exclude]');
+  function upd(){
+    if (alias) alias.hidden = !(sel && sel.value && sel.value !== sel.dataset.orig);
+    card.classList.toggle('is-excluded', ex && ex.checked);
+    if (sel && sel.value && !ex.checked) card.classList.remove('is-attn');
+  }
+  if (sel) sel.addEventListener('change', upd);
+  if (ex) ex.addEventListener('change', upd);
+});
+</script>
+{% endblock %}
