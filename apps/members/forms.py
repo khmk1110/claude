@@ -11,7 +11,7 @@ class MemberForm(forms.ModelForm):
 
     class Meta:
         model = Member
-        fields = ["name", "name_kana", "short_name", "employment_type", "is_agency", "joined_on", "standard_days",
+        fields = ["name", "name_kana", "short_name", "employment_type", "is_agency", "joined_on", "shift_input_mode",
                   "paid_leave_target", "status", "retired_on", "note"]
         widgets = {"joined_on": forms.DateInput(attrs={"type": "date"}), "retired_on": forms.DateInput(attrs={"type": "date"}),
                    "note": forms.Textarea(attrs={"rows": 2})}
