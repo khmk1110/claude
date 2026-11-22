@@ -24,5 +24,7 @@ urlpatterns = [
     path("members/", include("apps.members.urls")),
     path("payroll/", include("apps.payroll.urls")),
     path("expenses/", include("apps.expenses.urls")),
+    # 給与の画面から経費を扱う入口（給与のパスワードで守る。中身は経費の画面と同じ）
+    path("payroll/expenses/", include(("apps.expenses.urls", "expenses"), namespace="payroll_expenses")),
     path("admin/", admin.site.urls),
 ]

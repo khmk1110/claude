@@ -3,7 +3,7 @@
 {% block title %}資料・経費管理{% endblock %}
 {% block topbar %}経費・資料{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">経費・資料</p><h1>{{ month|date:"Y年n月" }}の給与に反映する経費</h1></div>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">{% if request.resolver_match.namespace == "payroll_expenses" %}<a href="{% url 'payroll:index' %}?month={{ month|date:"Y-m" }}">← {{ month|date:"n月" }}分の給与に戻る</a>{% else %}経費・資料{% endif %}</p><h1>{{ month|date:"Y年n月" }}の給与に反映する経費</h1></div>{% include "includes/monthnav.html" %}</div>
 
 <div class="grid">
   <div class="card"><div class="muted">取り込んだ資料</div><div class="big">{{ files|length }}件</div><div class="muted small">未確認の資料 {{ unchecked_files }}件</div></div>

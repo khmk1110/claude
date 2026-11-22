@@ -563,3 +563,39 @@ class TableScreenshotTests(TestCase):
         ev = SalesEvidence.objects.create(month=NOV, kind="confirmed", status="processing")
         res = self.client.get(f"/payroll/counts/?month=2026-11&ev={ev.pk}")
         self.assertContains(res, "読み取っています")
+
+
+class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
+    def test_two_screenshots_overlapping_rows_are_merged(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        p1 = _table_png([("営業", "9月", "合計"), ("大石一郎", 3, 41), ("吉野健太", 0, 27)])
+        p2 = _table_png([("吉野健太", 0, 27), ("長谷川花子", 2, 12), ("月合計", 5, 80)])
+        res = self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "file": [
+            SimpleUploadedFile("a.png", p1, content_type="image/png"), SimpleUploadedFile("b.png", p2, content_type="image/png")]})
+        self.client.get(res["Location"])
+        plan = self.client.session["counts_import"]
+        self.assertEqual({r["member_id"]: r["count"] for r in plan["rows"]}, {self.a.pk: 41, self.b.pk: 27, self.c.pk: 12})
+        self.assertEqual(len(plan["rows"]), 3)
+        self.assertEqual(plan["total"], 80)
+
+    def test_expenses_from_payroll_page_with_payroll_password_only(self):
+        from apps.members.models import CardCode
+
+        CardCode.objects.create(member=self.a, code="0007")
+        page = self.client.get("/payroll/?month=2026-11")
+        self.assertContains(page, "/payroll/expenses/upload/")
+        self.assertNotContains(page, "経費を開く（パスワード）")
+        res = self.client.post("/payroll/expenses/gasoline-text/", {"text": "0007 82049", "target_month": "2026-11",
+                                                                     "next": "/payroll/?month=2026-11"})
+        self.assertEqual(res["Location"], "/payroll/?month=2026-11")
+        rec = ExpenseRecord.objects.get()
+        self.assertEqual(rec.effective_amount, 82049)
+        page = self.client.get("/payroll/?month=2026-11")
+        self.assertContains(page, "チェックした分を承認")
+        self.client.post(f"/payroll/expenses/files/{rec.source_file_id}/action/", {
+            "action": "approve", "records": [rec.pk], "next": "/payroll/?month=2026-11"})
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, "approved")
+        # 経費メニュー（/expenses/）は今まで通り経費のパスワードが必要
+        self.assertNotEqual(self.client.get("/expenses/").status_code, 200)

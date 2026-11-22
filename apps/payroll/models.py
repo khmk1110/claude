@@ -191,6 +191,8 @@ class SalesEvidence(models.Model):
     status = models.CharField("状態", max_length=16, default="done")  # processing / done / error
     plan = models.JSONField("読み取り結果", null=True, blank=True)
     error_message = models.TextField("エラー", blank=True)
+    # スクショが2枚以上の時、2枚目以降は1枚目にぶら下げて一緒に読む
+    parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="parts")
 
     class Meta:
         verbose_name = "営業件数の根拠"

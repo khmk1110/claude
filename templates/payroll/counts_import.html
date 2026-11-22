@@ -9,16 +9,16 @@
   <form method="post" enctype="multipart/form-data" class="card">{% csrf_token %}
     <input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="acquired"><input type="hidden" name="month" value="{{ month_param }}">
     <p class="card-title">① 獲得件数（営業ダッシュボード）</p>
-    <p class="small muted">LINEで届く「【10月 最終実績】…」の文をそのまま貼り付けるか、スクショを選んでください。{{ prev|date:"n月" }}の獲得件数として、{{ month|date:"n月" }}分の単価の判定に使います。</p>
+    <p class="small muted">LINEで届く「【10月 最終実績】…」の文をそのまま貼り付けるか、スクショを選んでください（2枚以上もまとめて選べます）。{{ prev|date:"n月" }}の獲得件数として、{{ month|date:"n月" }}分の単価の判定に使います。</p>
     <textarea name="text" rows="6" style="width:100%" placeholder="【10月 最終実績】&#10;【堀田】&#10;131/90（進捗 145.6%）…"></textarea>
-    <div class="form-row"><input type="file" name="file" accept="image/*,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
+    <div class="form-row"><input type="file" name="file" multiple accept="image/*,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
   </form>
   <form method="post" enctype="multipart/form-data" class="card">{% csrf_token %}
     <input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="confirmed"><input type="hidden" name="month" value="{{ month_param }}">
     <p class="card-title">② 入金確定件数（入金確定シート）</p>
-    <p class="small muted">スプレッドシートの「営業別件数」の表を、名前から「月合計」まで選んでコピーして貼り付けるか、スクショ・Excel・CSVを選んでください。各行の一番右の数字（合計）を{{ month|date:"n月" }}の入金確定件数にします。</p>
+    <p class="small muted">スプレッドシートの「営業別件数」の表を、名前から「月合計」まで選んでコピーして貼り付けるか、スクショ・Excel・CSVを選んでください（2枚以上もまとめて選べます。重なって写った行は1つにまとめます）。各行の一番右の数字（合計）を{{ month|date:"n月" }}の入金確定件数にします。</p>
     <textarea name="text" rows="6" style="width:100%" placeholder="営業	2月	3月	…	合計&#10;天野烈斗	0	0	…	73&#10;月合計	…	400"></textarea>
-    <div class="form-row"><input type="file" name="file" accept="image/*,.xlsx,.xls,.csv,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
+    <div class="form-row"><input type="file" name="file" multiple accept="image/*,.xlsx,.xls,.csv,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
   </form>
 </div>
 <p class="small muted">読み取った内容は、次の画面で確認してから保存します（まだ保存されません）。名前は登録メンバーと自動で照合します。</p>

@@ -96,7 +96,6 @@ def index(request):
 @payroll_view
 def month_home(request):
     """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""
-    from apps.accounts import stepup as _stepup
     from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
 
     month = month_from_request(request)
@@ -120,11 +119,14 @@ def month_home(request):
         rows.append({"st": st, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
                      "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns})
-    expenses_ok = _stepup.is_verified(request, "expenses", touch=False)
-    files = list(SourceFile.objects.filter(target_month=month).order_by("-uploaded_at")) if expenses_ok else []
-    open_recs = ExpenseRecord.objects.filter(status__in=["imported", "unchecked", "pending", "modified"], auto_target_month=month).count()
+    # 経費は給与の画面から扱う（給与のパスワードで守られている）
+    expenses_ok = True
+    open_status = ["imported", "unchecked", "pending", "modified"]
+    files = list(SourceFile.objects.filter(target_month=month).order_by("-uploaded_at"))
+    open_recs = ExpenseRecord.objects.filter(status__in=open_status, auto_target_month=month).count()
     for f in files:
-        f.open_count = f.records.filter(status__in=["imported", "unchecked", "pending", "modified"]).count()
+        f.open_list = list(f.records.filter(status__in=open_status).select_related("member", "category").prefetch_related("issues").order_by("row_number"))
+        f.open_count = len(f.open_list)
     errors = sum(1 for r in rows if r["errors"])
     confirmable = [st for st in sts if st.status in (S.CALCULATED, S.REVIEW) and not st.blocking_errors]
     contractors = [st for st in sts if st.employment_type == "contractor"]
@@ -695,8 +697,18 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
     active = list(Member.objects.filter(status=Member.Status.ACTIVE))
     candidates = [(m.pk, m.name) for m in active]
     candidates += [(a.member_id, a.alias) for a in MemberAlias.objects.filter(member__in=active)]
+    # スクショが2枚で同じ行が重なって写っている時は1つにまとめる（件数が違えば両方残して確認してもらう）
+    entries, seen = [], {}
+    for e in parsed.entries:
+        k = normalize_name(e.name)
+        if k in seen and seen[k] == e.count:
+            continue
+        if k in seen:
+            e.note = (e.note + "・" if e.note else "") + "同じ名前が別の件数でもう1行あります（どちらか選ぶ）"
+        seen[k] = e.count
+        entries.append(e)
     rows, taken = [], set()
-    for i, e in enumerate(parsed.entries):
+    for i, e in enumerate(entries):
         res = match_member(e.name, include_retired=False)
         member_id, method, note = (res.member.pk if res.ok else None), res.method, e.note
         is_ignored = normalize_name(e.name) in ignored
@@ -735,14 +747,17 @@ def _counts_ocr(pk: int, payroll_month: date) -> None:
         ev = SalesEvidence.objects.get(pk=pk)
 
         class _F:
-            name = ev.file.name
+            def __init__(self, field):
+                self.field, self.name = field, field.name
 
-            @staticmethod
-            def read():
-                with ev.file.open("rb") as fh:
+            def read(self):
+                with self.field.open("rb") as fh:
                     return fh.read()
 
-        text = ((ev.text + "\n") if ev.text else "") + ingest.text_from_upload(_F, ev.kind)
+        texts = [ev.text] if ev.text else []
+        for e in [ev, *ev.parts.order_by("pk")]:
+            texts.append(ingest.text_from_upload(_F(e.file), ev.kind))
+        text = "\n".join(texts)
         plan = build_counts_plan(ev.kind, text, payroll_month)
         SalesEvidence.objects.filter(pk=pk).update(status="done", plan=plan, text=text[:5000],
                                                    month=date.fromisoformat(plan["month"]))
@@ -782,22 +797,28 @@ def counts_import(request):
     if request.method == "POST" and request.POST.get("step") == "parse":
         kind = request.POST.get("kind", "acquired")
         text = request.POST.get("text", "")
-        f = request.FILES.get("file")
-        if not f and not text.strip():
+        files = request.FILES.getlist("file")
+        if not files and not text.strip():
             messages.error(request, "文を貼り付けるか、ファイルを選んでください。")
             return redirect(back)
-        if f and ingest.is_slow_upload(f.name):
-            # スクショ・PDFは裏で読み取り、待ち画面を出す（画面が固まらないように）
+        if len(files) > 10:
+            messages.error(request, "ファイルは一度に10個までです。")
+            return redirect(back)
+        if any(ingest.is_slow_upload(x.name) for x in files):
+            # スクショ・PDFは裏で読み取り、待ち画面を出す（画面が固まらないように）。2枚目以降は1枚目にぶら下げる
             ev = SalesEvidence.objects.create(month=payroll_month, kind=kind, text=text[:5000], uploaded_by=request.user,
-                                              file=f, status="processing")
+                                              file=files[0], status="processing")
+            for x in files[1:]:
+                SalesEvidence.objects.create(month=payroll_month, kind=kind, uploaded_by=request.user, file=x,
+                                             status="part", parent=ev)
             if dj_settings.OCR_IN_BACKGROUND:
                 transaction.on_commit(lambda: _start_counts_ocr(ev.pk, payroll_month))
             else:
                 _counts_ocr(ev.pk, payroll_month)
             return redirect(f"{back}&ev={ev.pk}")
         try:
-            if f:
-                text = (text + "\n" if text else "") + ingest.text_from_upload(f, kind)
+            for x in files:
+                text = (text + "\n" if text else "") + ingest.text_from_upload(x, kind)
             new_plan = build_counts_plan(kind, text, payroll_month)
         except Exception as e:  # noqa: BLE001
             messages.error(request, f"読み取れませんでした: {e}")

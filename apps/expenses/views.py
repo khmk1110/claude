@@ -26,8 +26,38 @@ from .models import DocumentKind, ExpenseCategory, ExpenseIssue, ExpenseRecord, 
 R = ExpenseRecord.Status
 
 
+def _scope(request) -> str:
+    """給与の画面（/payroll/expenses/）から開いた時は給与のパスワード、経費メニューからは経費のパスワードで守る。"""
+    return "payroll" if request.path.startswith("/payroll/") else "expenses"
+
+
 def expenses_view(view):
-    return login_required(stepup_required("expenses")(view))
+    from functools import wraps
+
+    from apps.accounts import stepup
+    from apps.accounts.decorators import stepup_denied_response
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        scope = _scope(request)
+        if not stepup.is_verified(request, scope):
+            return stepup_denied_response(request, scope)
+        return view(request, *args, **kwargs)
+
+    wrapped.stepup_scope = "expenses"
+    return login_required(wrapped)
+
+
+def _base(request) -> str:
+    return "/payroll/expenses/" if request.path.startswith("/payroll/") else "/expenses/"
+
+
+def _go(request, name: str, **kwargs):
+    """同じ入口（経費メニュー／給与の画面）のまま移動する。"""
+    from django.urls import reverse
+
+    ns = getattr(request.resolver_match, "namespace", None) or "expenses"
+    return redirect(reverse(f"{ns}:{name.split(':')[-1]}", kwargs=kwargs or None))
 
 
 def _next_or(request, default):
@@ -46,7 +76,7 @@ def gasoline_text(request):
         messages.success(request, f"ガソリン代を {sf.row_count}件 取り込みました。")
     except ValueError as e:
         messages.error(request, str(e))
-    return _next_or(request, redirect("expenses:index"))
+    return _next_or(request, _go(request, "index"))
 
 
 def _int(text):
@@ -130,8 +160,8 @@ def upload(request):
         if request.POST.get("next"):
             return _next_or(request, None)
     if done == 1 and last:
-        return redirect("expenses:file", pk=last.pk)
-    return redirect(f"/expenses/?month={(target or date.today()).strftime('%Y-%m')}")
+        return _go(request, "file", pk=last.pk)
+    return redirect(f"{_base(request)}?month={(target or date.today()).strftime('%Y-%m')}")
 
 
 @expenses_view
@@ -146,9 +176,9 @@ def line_import(request):
                                        evidence=request.FILES.get("evidence"), note=request.POST.get("note", "").strip())
     except ValueError as e:
         messages.error(request, str(e))
-        return redirect(f"/expenses/?month={request.POST.get('target_month') or ''}")
+        return redirect(f"{_base(request)}?month={request.POST.get('target_month') or ''}")
     messages.success(request, f"{sf.row_count}件を取り込みました。内容を確認して承認してください。")
-    return _next_or(request, redirect("expenses:file", pk=sf.pk))
+    return _next_or(request, _go(request, "file", pk=sf.pk))
 
 
 @expenses_view
@@ -226,7 +256,7 @@ def file_action(request, pk):
             raise ValueError("不明な操作です。")
     except (ValueError, importer.RecordLocked) as e:
         messages.error(request, str(e))
-    return redirect("expenses:file", pk=sf.pk)
+    return _next_or(request, _go(request, "file", pk=sf.pk))
 
 
 @expenses_view
@@ -269,7 +299,7 @@ def record_action(request, pk):
             raise ValueError("不明な操作です。")
     except (ValueError, importer.RecordLocked) as e:
         messages.error(request, str(e))
-    return redirect(f"/expenses/files/{rec.source_file_id}/#r{rec.pk}")
+    return redirect(f"{_base(request)}files/{rec.source_file_id}/#r{rec.pk}")
 
 
 @expenses_view
@@ -281,7 +311,7 @@ def file_issue_resolve(request, pk):
         messages.success(request, "確認済みにしました。")
     except ValueError as e:
         messages.error(request, str(e))
-    return redirect("expenses:file", pk=issue.source_file_id)
+    return _go(request, "file", pk=issue.source_file_id)
 
 
 @expenses_view
@@ -299,7 +329,7 @@ def mapping(request, pk):
             messages.error(request, str(e))
         else:
             messages.success(request, "読み取りルールを保存しました。次回から同じ形式の資料は自動で読み取ります。")
-            return redirect("expenses:file", pk=sf.pk)
+            return _go(request, "file", pk=sf.pk)
     return render(request, "expenses/mapping.html", {
         "sf": sf, "fields": parsers.FIELDS.items(), "kinds": DocumentKind.choices, "cats": ExpenseCategory.objects.filter(is_active=True),
     })
