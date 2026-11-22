@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}読み取り中{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="card" style="text-align:center;padding:40px 16px">
+  <div class="spinner" aria-hidden="true"></div>
+  <p style="font-size:1.1rem;margin-top:16px"><b>読み取っています…</b></p>
+  <p class="small muted">スクショの文字を読み取っています（30秒〜1分ほど）。<br>終わると自動で確認画面に進みます。このままお待ちください。</p>
+  <p class="small"><a href="{% url 'payroll:counts_import' %}?month={{ month_param }}">やめて戻る</a></p>
+</div>
+<script>setTimeout(function(){location.reload()},3000)</script>
+{% endblock %}

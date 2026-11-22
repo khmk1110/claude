@@ -677,6 +677,79 @@ def _resolve_year(month_no: int, base: date) -> date:
     return date(y, month_no, 1)
 
 
+
+def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
+    """読み取った文から、確認画面の内容（誰に何件か）を作る。名前は自動で照合し、OCRの1〜2文字違いも推定する。"""
+    from apps.core.text import normalize_name
+    from apps.members.models import MemberAlias
+
+    from . import ingest
+    from .models import IgnoredName
+
+    parsed = ingest.parse_dashboard(text) if kind == "acquired" else ingest.parse_count_table(text)
+    if kind == "acquired":
+        target = _resolve_year(parsed.month, payroll_month) if parsed.month else prev_month(payroll_month)
+    else:
+        target = payroll_month
+    ignored = set(IgnoredName.objects.values_list("name_normalized", flat=True))
+    active = list(Member.objects.filter(status=Member.Status.ACTIVE))
+    candidates = [(m.pk, m.name) for m in active]
+    candidates += [(a.member_id, a.alias) for a in MemberAlias.objects.filter(member__in=active)]
+    rows, taken = [], set()
+    for i, e in enumerate(parsed.entries):
+        res = match_member(e.name, include_retired=False)
+        member_id, method, note = (res.member.pk if res.ok else None), res.method, e.note
+        is_ignored = normalize_name(e.name) in ignored
+        if member_id is None and not is_ignored and res.method != "ambiguous":
+            member_id = ingest.guess_member(e.name, candidates, taken)
+            if member_id:
+                method = "guess"
+                note = (note + "・" if note else "") + "名前を推定しました（合っているか確認）"
+        if member_id:
+            taken.add(member_id)
+        rows.append({"i": i, "name": e.name, "count": e.count, "att": e.attendance, "line": e.line, "note": note,
+                     "member_id": member_id, "method": method, "ignored": is_ignored})
+    return {"kind": kind, "month": target.isoformat(), "payroll_month": payroll_month.isoformat(),
+            "rows": rows, "total": parsed.total, "warnings": parsed.warnings}
+
+
+def _start_counts_ocr(pk: int, payroll_month: date) -> None:
+    import threading
+
+    def run():
+        from django.db import close_old_connections
+
+        close_old_connections()
+        try:
+            _counts_ocr(pk, payroll_month)
+        finally:
+            close_old_connections()
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _counts_ocr(pk: int, payroll_month: date) -> None:
+    from . import ingest
+
+    try:
+        ev = SalesEvidence.objects.get(pk=pk)
+
+        class _F:
+            name = ev.file.name
+
+            @staticmethod
+            def read():
+                with ev.file.open("rb") as fh:
+                    return fh.read()
+
+        text = ((ev.text + "\n") if ev.text else "") + ingest.text_from_upload(_F, ev.kind)
+        plan = build_counts_plan(ev.kind, text, payroll_month)
+        SalesEvidence.objects.filter(pk=pk).update(status="done", plan=plan, text=text[:5000],
+                                                   month=date.fromisoformat(plan["month"]))
+    except Exception as e:  # noqa: BLE001
+        SalesEvidence.objects.filter(pk=pk).update(status="error", error_message=f"読み取れませんでした: {e}")
+
+
 @payroll_view
 def counts_import(request):
     from django.utils import timezone
@@ -687,36 +760,51 @@ def counts_import(request):
     from . import ingest
     from .models import IgnoredName
 
+    from django.conf import settings as dj_settings
+
     payroll_month = month_from_request(request)
+    back = f"/payroll/counts/?month={payroll_month:%Y-%m}"
+    ev_id = request.GET.get("ev")
+    if ev_id and request.method == "GET":
+        ev = SalesEvidence.objects.filter(pk=ev_id).first()
+        if ev is None:
+            return redirect(back)
+        if ev.status == "processing":
+            return render(request, "payroll/counts_wait.html", {**month_context(payroll_month), "ev": ev})
+        if ev.status == "error":
+            messages.error(request, ev.error_message or "読み取れませんでした。")
+            return redirect(back)
+        if ev.plan:
+            request.session["counts_import"] = ev.plan
+            SalesEvidence.objects.filter(pk=ev.pk).update(plan=None)
+        return redirect(back)
     plan = request.session.get("counts_import")
     if request.method == "POST" and request.POST.get("step") == "parse":
         kind = request.POST.get("kind", "acquired")
         text = request.POST.get("text", "")
         f = request.FILES.get("file")
+        if not f and not text.strip():
+            messages.error(request, "文を貼り付けるか、ファイルを選んでください。")
+            return redirect(back)
+        if f and ingest.is_slow_upload(f.name):
+            # スクショ・PDFは裏で読み取り、待ち画面を出す（画面が固まらないように）
+            ev = SalesEvidence.objects.create(month=payroll_month, kind=kind, text=text[:5000], uploaded_by=request.user,
+                                              file=f, status="processing")
+            if dj_settings.OCR_IN_BACKGROUND:
+                transaction.on_commit(lambda: _start_counts_ocr(ev.pk, payroll_month))
+            else:
+                _counts_ocr(ev.pk, payroll_month)
+            return redirect(f"{back}&ev={ev.pk}")
         try:
             if f:
-                text = (text + "\n" if text else "") + ingest.text_from_upload(f)
-            parsed = ingest.parse_dashboard(text) if kind == "acquired" else ingest.parse_count_table(text)
+                text = (text + "\n" if text else "") + ingest.text_from_upload(f, kind)
+            new_plan = build_counts_plan(kind, text, payroll_month)
         except Exception as e:  # noqa: BLE001
             messages.error(request, f"読み取れませんでした: {e}")
-            return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")
-        if kind == "acquired":
-            target = _resolve_year(parsed.month, payroll_month) if parsed.month else prev_month(payroll_month)
-        else:
-            target = payroll_month
-        ignored = set(IgnoredName.objects.values_list("name_normalized", flat=True))
-        rows = []
-        for i, e in enumerate(parsed.entries):
-            res = match_member(e.name, include_retired=False)
-            rows.append({"i": i, "name": e.name, "count": e.count, "att": e.attendance, "line": e.line, "note": e.note,
-                         "member_id": res.member.pk if res.ok else None, "method": res.method,
-                         "ignored": normalize_name(e.name) in ignored})
-        if f or text:
-            SalesEvidence.objects.create(month=target, kind=kind, text=text[:5000], uploaded_by=request.user,
-                                         file=f if f and not f.name.lower().endswith((".xlsx", ".xls", ".csv")) else "")
-        request.session["counts_import"] = {"kind": kind, "month": target.isoformat(), "payroll_month": payroll_month.isoformat(),
-                                            "rows": rows, "total": parsed.total, "warnings": parsed.warnings}
-        return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")
+            return redirect(back)
+        SalesEvidence.objects.create(month=date.fromisoformat(new_plan["month"]), kind=kind, text=text[:5000], uploaded_by=request.user)
+        request.session["counts_import"] = new_plan
+        return redirect(back)
     if request.method == "POST" and request.POST.get("step") == "cancel":
         request.session.pop("counts_import", None)
         return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")

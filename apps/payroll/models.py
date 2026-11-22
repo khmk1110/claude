@@ -187,6 +187,10 @@ class SalesEvidence(models.Model):
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    # スクショの読み取りは時間がかかるので裏で行い、結果（確認画面の内容）をここに置く
+    status = models.CharField("状態", max_length=16, default="done")  # processing / done / error
+    plan = models.JSONField("読み取り結果", null=True, blank=True)
+    error_message = models.TextField("エラー", blank=True)
 
     class Meta:
         verbose_name = "営業件数の根拠"

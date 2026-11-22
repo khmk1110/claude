@@ -21,7 +21,12 @@
     <div class="form-row"><input type="file" name="file" accept="image/*,.xlsx,.xls,.csv,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
   </form>
 </div>
-<p class="small muted">読み取った内容は、次の画面で確認してから保存します（まだ保存されません）。</p>
+<p class="small muted">読み取った内容は、次の画面で確認してから保存します（まだ保存されません）。名前は登録メンバーと自動で照合します。</p>
+<script>
+document.querySelectorAll('form.card').forEach(function(f){f.addEventListener('submit',function(){
+  var b=f.querySelector('button[type=submit]'); if(b){b.disabled=true;b.textContent='読み取り中…';}
+});});
+</script>
 
 {% else %}
 <div class="card">
@@ -36,14 +41,14 @@
       <thead><tr><th>資料の名前</th><th>対象者</th><th class="num">件数</th>{% if plan.kind == "acquired" %}<th class="num">出勤（資料／シフト）</th>{% endif %}<th class="num">保存済みの値</th><th>メモ</th></tr></thead>
       <tbody>
       {% for r in rows %}
-      <tr class="{% if not r.member_id and not r.ignored or r.att_mismatch %}row-attn{% endif %}">
+      <tr class="{% if not r.member_id and not r.ignored or r.att_mismatch or r.method == 'guess' %}row-attn{% endif %}">
         <td class="strong">{{ r.name }}</td>
         <td><select name="member_{{ r.i }}">
             <option value="skip" {% if not r.member_id or r.ignored %}selected{% endif %}>取り込まない</option>
             {% for m in members %}<option value="{{ m.pk }}" {% if m.pk == r.member_id and not r.ignored %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
           </select>
           {% if not r.member_id %}<label class="check small"><input type="checkbox" name="ignore_{{ r.i }}" value="1" {% if r.ignored %}checked{% endif %}> 次回も取り込まない</label>{% endif %}
-          {% if r.method == "ambiguous" %}<div class="small text-warn">同じ名前の人が複数います。選んでください</div>{% elif not r.member_id and not r.ignored %}<div class="small text-warn">誰か選んでください（選ぶと次回から自動）</div>{% endif %}</td>
+          {% if r.method == "guess" and r.member_id %}<div><span class="badge-guess">推定</span> <span class="small muted">似た名前から選びました。違えば選び直してください</span></div>{% elif r.method == "ambiguous" %}<div class="small text-warn">同じ名前の人が複数います。選んでください</div>{% elif not r.member_id and not r.ignored %}<div class="small text-warn">誰か選んでください（選ぶと次回から自動）</div>{% endif %}</td>
         <td class="num"><input name="count_{{ r.i }}" value="{{ r.count }}" inputmode="numeric" style="width:80px;text-align:right"></td>
         {% if plan.kind == "acquired" %}<td class="num {% if r.att_mismatch %}text-warn{% endif %}">{{ r.att|default_if_none:"-" }} ／ {{ r.sys_att|default_if_none:"-" }}</td>{% endif %}
         <td class="num">{{ r.existing|default_if_none:"-" }}</td>

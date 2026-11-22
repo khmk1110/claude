@@ -18,6 +18,7 @@ from apps.payroll.models import (
     Product,
     RateTable,
     SalesCount,
+    SalesEvidence,
     Team,
     TeamMembership,
 )
@@ -502,3 +503,63 @@ class CountsImportFlowTests(TestCase):
         page = self.client.get("/payroll/?month=2026-11")
         self.assertContains(page, "件数を取り込む")
         self.assertContains(page, "まとめて確定")
+
+
+def _table_png(rows):
+    """スプレッドシートの表のスクショに似せた画像（架空の名前）。"""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    font = ImageFont.truetype("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", 26)
+    img = Image.new("RGB", (900, 60 + 48 * len(rows)), "white")
+    d = ImageDraw.Draw(img)
+    for i, row in enumerate(rows):
+        y = 30 + 48 * i
+        d.line((20, y - 8, 880, y - 8), fill=(210, 210, 210))
+        d.text((20, y), row[0], font=font, fill="black")
+        for j, v in enumerate(row[1:]):
+            d.text((360 + 130 * j, y), str(v), font=font, fill="black")
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+class TableScreenshotTests(TestCase):
+    def setUp(self):
+        make_tables()
+        self.user = User.objects.create_user("o", password="x-pass-12345", role=User.Role.OWNER)
+        stepup.set_password("payroll", "pay-pass")
+        self.client.force_login(self.user)
+        self.client.post("/stepup/payroll/", {"password": "pay-pass"})
+        self.a = Member.objects.create(name="大石 一郎", employment_type=C)
+        self.b = Member.objects.create(name="吉野 健太", employment_type=C)
+        self.c = Member.objects.create(name="長谷川 花子", employment_type=C)
+
+    def test_guess_member_tolerates_one_wrong_char(self):
+        from apps.payroll.ingest import guess_member
+
+        cands = [(1, "大石一郎"), (2, "吉野健太"), (3, "長谷川花子")]
+        self.assertEqual(guess_member("吉野健大", cands), 2)
+        self.assertEqual(guess_member("長谷川花", cands), 3)
+        self.assertIsNone(guess_member("山田", cands))
+
+    def test_screenshot_reads_names_and_counts_then_waits_and_confirms(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        png = _table_png([("営業", "9月", "合計"), ("大石一郎", 3, 41), ("吉野健太", 0, 27), ("長谷川花子", 2, 12), ("月合計", 5, 80)])
+        res = self.client.post("/payroll/counts/?month=2026-11", {
+            "step": "parse", "kind": "confirmed", "file": SimpleUploadedFile("sheet.png", png, content_type="image/png")})
+        self.assertIn("ev=", res["Location"])  # 待ち画面へ（テストでは読み取りはその場で終わる）
+        res = self.client.get(res["Location"])
+        self.assertEqual(res.status_code, 302)
+        plan = self.client.session["counts_import"]
+        got = {r["member_id"]: r["count"] for r in plan["rows"]}
+        self.assertEqual(got, {self.a.pk: 41, self.b.pk: 27, self.c.pk: 12})
+        self.assertEqual(plan["total"], 80)
+        self.assertContains(self.client.get("/payroll/counts/?month=2026-11"), "一致しました")
+
+    def test_wait_page_while_processing(self):
+        ev = SalesEvidence.objects.create(month=NOV, kind="confirmed", status="processing")
+        res = self.client.get(f"/payroll/counts/?month=2026-11&ev={ev.pk}")
+        self.assertContains(res, "読み取っています")
