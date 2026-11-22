@@ -136,3 +136,21 @@ def dashboard(request):
         "member_count": len(members), "today_work": today_work, "needs_check": needs_check, "payroll": payroll,
         "attendance_actual_total": sum((s.confirmed_attendance_days for s in sums.values()), Decimal("0")),
     })
+
+
+def csrf_failure(request, reason=""):
+    """セキュリティ確認（CSRF）で止まったとき。古い画面から送信した場合がほとんどなので、画面を開き直してもらう。
+
+    ログイン画面なら自動で開き直す。それ以外は分かりやすい説明と「開き直す」ボタンを出す。
+    """
+    import logging
+
+    from django.contrib import messages as dj_messages
+    from django.shortcuts import redirect
+
+    logging.getLogger("django.security.csrf").warning("CSRF failure: %s %s", request.path, reason)
+    if request.path.startswith("/login/"):
+        dj_messages.info(request, "画面の有効期限が切れていたため、開き直しました。もう一度ログインしてください。")
+        nxt = request.POST.get("next") or request.GET.get("next") or ""
+        return redirect("/login/" + (f"?next={nxt}" if nxt.startswith("/") and not nxt.startswith("//") else ""))
+    return render(request, "core/csrf_failure.html", {"back": request.path}, status=403)

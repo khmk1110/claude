@@ -145,3 +145,16 @@ class SetupPasteTests(TestCase):
         self.assertFalse(Member.objects.exists())
         self.client.post("/settings/", {"action": "setupfile", "text": text, "apply": "1"})
         self.assertEqual(Member.objects.get().member_no, "1")
+
+
+class CsrfFailureTests(TestCase):
+    def test_stale_login_form_is_reopened_and_pages_are_not_cached(self):
+        from django.test import Client
+
+        c = Client(enforce_csrf_checks=True)
+        c.get("/login/")
+        res = c.post("/login/", {"username": "x", "password": "y", "csrfmiddlewaretoken": "stale-token-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"})
+        self.assertRedirects(res, "/login/", fetch_redirect_response=False)
+        page = c.get("/login/")
+        self.assertContains(page, "もう一度ログインしてください")
+        self.assertIn("no-store", page["Cache-Control"])

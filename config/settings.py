@@ -54,11 +54,13 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.core.middleware.CurrentRequestMiddleware",
+    "apps.core.nocache.NoStoreHtmlMiddleware",
     # 給与・経費の URL は、ビュー側のデコレーターに加えてここでも追加認証を検証する（二重の防御）
     "apps.accounts.middleware.StepUpGateMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
+CSRF_FAILURE_VIEW = "apps.core.views.csrf_failure"
 
 TEMPLATES = [
     {
