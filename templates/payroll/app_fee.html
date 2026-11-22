@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}アプリ手数料の対象{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:settings' %}">← 給与の設定</a></p><h1>アプリ手数料の対象</h1></div></div>
+<p>{{ until|slice:":4" }}年{{ until|slice:"5:"|add:0 }}月分までは、チェックした人だけ {{ fee.default_amount|default:0 }}円を引きます。次の月からは個人事業主全員です。</p>
+<form method="post" class="card">{% csrf_token %}
+  <div class="check-list">
+    {% for m in contractors %}<label class="check"><input type="checkbox" name="m_{{ m.pk }}" value="1" {% if m.pk in chosen %}checked{% endif %}> {{ m.name }}</label>{% endfor %}
+  </div>
+  <button class="btn btn-primary" type="submit">保存して計算し直す</button>
+</form>
+{% endblock %}

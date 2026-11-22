@@ -476,7 +476,38 @@ def review_action(request, pk):
 
 @payroll_view
 def payroll_settings(request):
-    return render(request, "payroll/settings.html", {})
+    fee = PayrollItemDefinition.objects.filter(code="app_fee").first()
+    return render(request, "payroll/settings.html", {
+        "fee": fee, "fee_until": (fee.params or {}).get("only_members_until") if fee else None,
+    })
+
+
+@payroll_view
+def app_fee_settings(request):
+    """アプリ手数料：「この月まで」は選んだ人だけにかける（それ以降は個人事業主全員）。"""
+    fee = get_object_or_404(PayrollItemDefinition, code="app_fee")
+    until = (fee.params or {}).get("only_members_until")
+    contractors = list(Member.objects.filter(status=Member.Status.ACTIVE, employment_type=EmploymentType.CONTRACTOR)
+                       .order_by("display_order", "id"))
+    if request.method == "POST":
+        chosen = [m for m in contractors if request.POST.get(f"m_{m.pk}")]
+        before = sorted(fee.members.values_list("name", flat=True))
+        with transaction.atomic():
+            fee.members.set(chosen)
+            audit.log("payroll.app_fee_members", target_type="payroll.PayrollItemDefinition", target_id=str(fee.pk),
+                      target_repr=fee.name, before={"対象者": "・".join(before)},
+                      after={"対象者": "・".join(m.name for m in chosen), "期間": f"{until}まで"}, user=request.user)
+            # 対象の月の未確定の給与を計算し直す
+            n = 0
+            if until:
+                y, mo = map(int, until.split("-"))
+                for st in PayrollStatement.objects.filter(month__lte=date(y, mo, 1)).exclude(status=S.CONFIRMED):
+                    calc.calculate(st, user=request.user, log=False)
+                    n += 1
+        messages.success(request, f"保存しました（未確定の給与 {n}人分を計算し直しました）。")
+        return redirect("payroll:settings")
+    chosen = set(fee.members.values_list("pk", flat=True))
+    return render(request, "payroll/app_fee.html", {"fee": fee, "until": until, "contractors": contractors, "chosen": chosen})
 
 @payroll_view
 def month_home(request):
@@ -511,7 +542,8 @@ def month_home(request):
             if not l.show_on_slip or (amt == 0 and (expense_only or not l.always_show)):
                 continue
             slip.append({"name": l.name, "detail": l.detail, "amount": amt if l.kind == "earning" else -amt,
-                         "missing": l.amount is None})
+                         "missing": l.amount is None, "deduction": l.kind != "earning"})
+        slip.sort(key=lambda x: x["deduction"])
         rows.append({"st": st, "slip": slip, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
                      "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns})

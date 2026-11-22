@@ -18,8 +18,12 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
+_ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "fonts")
+# 見やすい UD フォント（BIZ UDPゴシック、OFL）。太字があるので見出し・項目名・合計を太字にできる
+BOLD_FONT = os.path.join(_ASSETS, "BIZUDPGothic-Bold.ttf")
 FONT_CANDIDATES = [
     os.environ.get("PDF_FONT_PATH", ""),
+    os.path.join(_ASSETS, "BIZUDPGothic-Regular.ttf"),
     "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
     "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
     "/usr/share/fonts/truetype/ipafont/ipag.ttf",
@@ -33,6 +37,14 @@ def font_name() -> str:
             pdfmetrics.registerFont(TTFont("JP", path))
             return "JP"
     raise RuntimeError("PDF用の日本語フォント（TrueType）が見つかりません。PDF_FONT_PATH を設定してください。")
+
+
+@lru_cache(maxsize=1)
+def bold_font_name() -> str:
+    if os.path.exists(BOLD_FONT):
+        pdfmetrics.registerFont(TTFont("JPB", BOLD_FONT))
+        return "JPB"
+    return font_name()
 
 
 def _yen(n) -> str:
@@ -63,8 +75,10 @@ def slip_rows(snapshot: dict) -> list[tuple[str, str, int]]:
         if amount == 0 and (expense_only or not l.get("always_show")):
             continue
         signed = amount if l["kind"] == "earning" else -amount
-        rows.append((l["name"], l.get("detail") or "", signed))
-    return rows
+        rows.append((l["name"], l.get("detail") or "", signed, l["kind"] != "earning"))
+    # 引く金額（ガソリン代・アプリ手数料など）は一番最後にまとめる
+    rows.sort(key=lambda r: r[3])
+    return [r[:3] for r in rows]
 
 
 NAVY = colors.HexColor("#1e293b")
@@ -75,6 +89,7 @@ RULE = colors.HexColor("#c8c2a8")
 def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None:
     """スプレッドシートの「個人別明細」と同じ構成：明細書/STATEMENT・宛名・支払日・内容/内訳/金額（税込）・合計・差引支払額・発行者。"""
     f = font_name()
+    fb = bold_font_name()
     W, H = A4
     left, right = 20 * mm, W - 20 * mm
     pay = date.fromisoformat(snap["payment_date"])
@@ -91,7 +106,7 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
     # 見出し
     y = H - 30 * mm
     c.setFillColor(colors.black)
-    c.setFont(f, 22)
+    c.setFont(fb, 22)
     c.drawString(left, y, "明 細 書")
     c.setFont(f, 10)
     c.setFillColor(LABEL)
@@ -107,7 +122,7 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
     c.drawString(left, y, "宛名")
     c.drawString(left + 100 * mm, y, "支払日")
     c.setFillColor(colors.black)
-    c.setFont(f, 12)
+    c.setFont(fb, 12)
     c.drawString(left + 22 * mm, y, f"{snap['member']['name']} 様")
     c.drawRightString(right, y, f"{pay.year}年{pay.month}月{pay.day}日")
     c.setStrokeColor(colors.HexColor("#e5e7eb"))
@@ -118,12 +133,12 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
     rows = slip_rows(snap)
     total = sum(r[2] for r in rows)
     y -= 14 * mm
-    col1, col2, col3 = left, left + 38 * mm, right
+    col1, col2, col3 = left, left + 48 * mm, right
     head_h, row_h = 10 * mm, 11 * mm
     c.setFillColor(NAVY)
     c.rect(left, y - head_h, right - left, head_h, stroke=0, fill=1)
     c.setFillColor(colors.white)
-    c.setFont(f, 10)
+    c.setFont(fb, 10)
     c.drawString(col1 + 3 * mm, y - 6.6 * mm, "内容")
     c.drawString(col2 + 3 * mm, y - 6.6 * mm, "内訳")
     c.drawRightString(col3 - 3 * mm, y - 6.6 * mm, "金額（税込）")
@@ -131,17 +146,19 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
     c.setStrokeColor(colors.HexColor("#e5e7eb"))
     for name, detail, amount in rows:
         c.setFillColor(colors.black)
-        c.setFont(f, 10.5)
+        c.setFont(fb, 10.5)
         c.drawString(col1 + 3 * mm, y - 7 * mm, name)
         c.setFont(f, 9.5)
+        c.setFillColor(colors.HexColor("#374151"))
         c.drawString(col2 + 3 * mm, y - 7 * mm, detail[:42])
+        c.setFillColor(colors.black)
         c.setFont(f, 10.5)
         c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(amount)}円")
         y -= row_h
         c.line(left, y, right, y)
     # 報酬額合計（経費だけの明細では出さない）
     if not is_expense_only(snap["lines"]):
-        c.setFont(f, 10.5)
+        c.setFont(fb, 10.5)
         c.drawString(col1 + 3 * mm, y - 7 * mm, "報酬額合計")
         c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(total)}円")
         y -= row_h
@@ -152,9 +169,9 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
     c.setFillColor(colors.black)
     c.rect(left, y - bar_h, right - left, bar_h, stroke=0, fill=1)
     c.setFillColor(colors.white)
-    c.setFont(f, 12)
+    c.setFont(fb, 12)
     c.drawString(col1 + 3 * mm, y - 6.2 * mm, "差引支払額")
-    c.setFont(f, 14)
+    c.setFont(fb, 14)
     c.drawRightString(col3 - 3 * mm, y - 6.4 * mm, f"{_yen(snap['totals']['net'])}円")
     y -= bar_h
 
@@ -176,7 +193,7 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
         if label2:
             c.drawString(left + 100 * mm, y, label2)
         c.setFillColor(colors.black)
-        c.setFont(f, 9.5)
+        c.setFont(fb, 9.5)
         c.drawString(left + 22 * mm, y, value1)
         if label2:
             c.drawString(left + 125 * mm, y, value2)

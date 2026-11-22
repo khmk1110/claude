@@ -334,6 +334,10 @@ class PayrollItemDefinition(models.Model):
             return False
         if self.effective_to and month > self.effective_to:
             return False
+        until = (self.params or {}).get("only_members_until")
+        if until and self.scope == self.Scope.EMPLOYMENT_TYPE and f"{month:%Y-%m}" <= until:
+            # この月までは「対象者」に選んだ人だけ（例: アプリ手数料は2026年10月分までは一部の人だけ）
+            return member.employment_type in (self.employment_types or []) and self.members.filter(pk=member.pk).exists()
         if self.scope == self.Scope.EMPLOYMENT_TYPE:
             return member.employment_type in (self.employment_types or [])
         if self.scope == self.Scope.MEMBER:

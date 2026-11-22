@@ -112,6 +112,7 @@ class TeamPageTests(TestCase):
         b = Member.objects.create(name="員 二郎", employment_type="employee")
         for m, n in ((leader, 100), (a, 90), (b, 50)):
             SalesCount.objects.create(member=m, month=date(2026, 11, 1), kind="confirmed", count=n)
+            SalesCount.objects.create(member=m, month=date(2026, 10, 1), kind="acquired", count=n)  # ボーナスは前月の獲得件数で判定
         self.client.post("/payroll/teams/", {"action": "create", "kind": "sales", "leader": leader.pk, "name": "長チーム"})
         team = Team.objects.get(name="長チーム")
         self.client.post("/payroll/teams/", {"action": "add", "team": team.pk, "member": a.pk, "start_month": "2026-11"})

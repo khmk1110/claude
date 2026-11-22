@@ -480,3 +480,5 @@ details.xpanel > summary::-webkit-details-marker { display: none; }
 .set-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .set-card { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid var(--line, #e5e7eb); border-radius: 14px; background: #fff; color: inherit; text-decoration: none; }
 .set-card:hover { border-color: #93c5fd; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08); }
+.check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.check-list label { padding: 10px 12px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; }

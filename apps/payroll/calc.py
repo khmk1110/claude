@@ -243,7 +243,7 @@ def h_expense_sum(ctx: Ctx, item) -> list[LineSpec]:
             ctx.warn(f"{item.name}: 承認済みのデータがありません（資料の取り込み・承認、または手入力が必要です）。", item.code)
         detail = f"{yen(total)} − {yen(subtract)}" if refs else ""
     else:
-        amount, detail = total, (f"{len(refs)}件" if refs else "")
+        amount, detail = total, ""  # 立替金・ガソリン代などは件数を表示しない
     return [LineSpec(item, item.name, item.kind, amount, detail=detail, source_refs=refs)]
 
 
@@ -256,26 +256,33 @@ def h_team_bonus(ctx: Ctx, item) -> list[LineSpec]:
             continue
         counted = members + ([ctx.member] if item.params.get("include_leader_in_average", True) else [])
         counts, missing = [], []
+        by_prev_acquired = item.params.get("count_basis") == "prev_acquired"
         for m in counted:
-            c = ctx.value(Key.CONFIRMED_COUNT) if m.pk == ctx.member.pk else sales_total(m, ctx.month, SalesCount.Kind.CONFIRMED)
+            if by_prev_acquired:
+                # 前月の獲得件数（営業ダッシュボード）のチーム平均で判定する
+                c = ctx.value(Key.PREV_ACQUIRED_COUNT) if m.pk == ctx.member.pk else sales_total(m, prev_month(ctx.month), SalesCount.Kind.ACQUIRED)
+            else:
+                c = ctx.value(Key.CONFIRMED_COUNT) if m.pk == ctx.member.pk else sales_total(m, ctx.month, SalesCount.Kind.CONFIRMED)
             (missing.append(m.name) if c is None else counts.append(int(c)))
         sub = f"team{team.pk}"
+        basis = "前月獲得" if by_prev_acquired else "入金確定"
         if missing:
-            ctx.error(f"チーム「{team.name}」: {', '.join(missing)} の入金確定件数が未入力です。", item.code)
+            ctx.error(f"チーム「{team.name}」: {', '.join(missing)} の{'前月の獲得件数' if by_prev_acquired else '入金確定件数'}が未入力です。", item.code)
             out.append(LineSpec(item, item.name, item.kind, None, sub_key=sub))
             continue
         avg = Decimal(sum(counts)) / len(counts)
         avg_txt = f"{avg.quantize(Decimal('0.1'))}"
         manual_from = item.params.get("manual_from")
         if manual_from is not None and avg >= manual_from:
-            ctx.error(f"チーム「{team.name}」の平均が{avg_txt}件（{manual_from}件以上は別途協議）。金額を手入力してください。", item.code)
-            out.append(LineSpec(item, item.name, item.kind, None, Decimal(len(members)), None, f"平均{avg_txt}件（別途協議）", sub))
+            ctx.error(f"チーム「{team.name}」の{basis}平均が{avg_txt}件（{manual_from}件以上は別途協議）。金額を手入力してください。", item.code)
+            out.append(LineSpec(item, item.name, item.kind, None, Decimal(len(members)), None, f"{basis} 平均{avg_txt}件（別途協議）", sub))
             continue
         per = 0
         for threshold, amount in sorted(item.params.get("tiers", [])):
             if avg >= threshold:
                 per = amount
-        detail = f"チーム平均{avg_txt}件 → {yen(per)} × {len(members)}名" if per else f"チーム平均{avg_txt}件（基準未達）"
+        detail = (f"{basis} 平均{avg_txt}件 → {yen(per)} × {len(members)}名" if per
+                  else f"{basis} 平均{avg_txt}件（70件未満）")
         out.append(LineSpec(item, item.name, item.kind, per * len(members), Decimal(len(members)), per, detail, sub))
     if not out and item.params.get("always_show"):
         out.append(LineSpec(item, item.name, item.kind, 0))  # リーダーでない人も明細には0円で表示する

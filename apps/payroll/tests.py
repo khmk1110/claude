@@ -165,6 +165,9 @@ class CalcTests(TestCase):
             count(leader, OCT, CONF, n, code)
         count(a, OCT, CONF, 60)
         count(b, OCT, CONF, 70)
+        # チームリーダーボーナスは前月（9月）の獲得件数のチーム平均で判定する
+        for m, n in ((leader, 91), (a, 60), (b, 70)):
+            count(m, date(2026, 9, 1), ACQ, n)
         calc.prepare_month(OCT)
         st = PayrollStatement.objects.get(member=leader, month=OCT)
         st = calc.set_input_override(st, "unit_price", 6000, reason="電気の単価", user=self.user)
@@ -187,8 +190,8 @@ class CalcTests(TestCase):
         a = Member.objects.create(member_no="A1", name="メンバーA", employment_type=C)
         team = Team.objects.create(name="T", leader=leader)
         TeamMembership.objects.create(team=team, member=a, start_month=date(2026, 1, 1))
-        count(leader, NOV, CONF, 110)
-        count(a, NOV, CONF, 100)
+        count(leader, OCT, ACQ, 110)  # 前月の獲得件数で判定
+        count(a, OCT, ACQ, 100)
         st = calc.calculate(self.statement(leader))
         self.assertTrue(any("別途協議" in m["text"] for m in st.blocking_errors))
         st = calc.set_line_override(self.line(st, "team_bonus"), 150000, reason="代表と協議", user=self.user)
@@ -829,3 +832,25 @@ class ExpenseOnlySlipTests(TableScreenshotTests):
         self.assertEqual([(n, a) for n, _, a in slip_rows(snap)], [("交通費精算", 8702)])  # 経費の行だけ
         page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
         self.assertNotContains(page, "報酬額合計")
+
+
+class AppFeeAndOrderTests(TableScreenshotTests):
+    def test_app_fee_only_chosen_until_october(self):
+        fee = PayrollItemDefinition.objects.get(code="app_fee")
+        self.assertEqual(fee.params.get("only_members_until"), "2026-10")
+        self.client.post("/payroll/settings/app-fee/", {f"m_{self.a.pk}": "1"})
+        self.assertEqual(list(fee.members.all()), [self.a])
+        self.assertTrue(fee.applies_to(self.a, OCT))
+        self.assertFalse(fee.applies_to(self.b, OCT))  # 10月分は選んだ人だけ
+        self.assertTrue(fee.applies_to(self.b, NOV))   # 11月分からは個人事業主全員
+
+    def test_deductions_last_and_no_count_detail(self):
+        from apps.payroll.pdf import slip_rows
+
+        snap = {"lines": [
+            {"name": "営業報酬", "kind": "earning", "amount": 1000, "always_show": True},
+            {"name": "ガソリン代", "kind": "deduction", "amount": 500, "always_show": True, "expense": True},
+            {"name": "立替金", "kind": "earning", "amount": 300, "expense": True},
+            {"name": "アプリ手数料", "kind": "deduction", "amount": 4000, "always_show": True},
+        ]}
+        self.assertEqual([r[0] for r in slip_rows(snap)], ["営業報酬", "立替金", "ガソリン代", "アプリ手数料"])
