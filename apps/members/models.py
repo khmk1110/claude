@@ -52,6 +52,10 @@ class Member(models.Model):
     retired_on = models.DateField("退職日", null=True, blank=True)
     display_order = models.PositiveIntegerField("並び順", default=0, help_text="0 なら追加した順で一番最後に並ぶ")
     note = models.TextField("備考", blank=True)
+    shift_input_mode = models.CharField(
+        "シフトの送り方", max_length=8, choices=[("work", "出勤日を送ってくる"), ("off", "休みの日を送ってくる")], default="work",
+        help_text="LINEで届く数字が出勤日か休みの日か（シフト入力画面で前回の選択を覚えます）",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

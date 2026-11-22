@@ -6,10 +6,10 @@
   </div>
 </div>
 <nav class="tabs">
-  <a class="{% if view == 'table' %}active{% endif %}" href="?month={{ month_param }}">表で入力</a>
-  <a class="{% if view == 'person' %}active{% endif %}" href="?month={{ month_param }}&view=person">人ごとに入力</a>
-  <a class="{% if view == 'day' %}active{% endif %}" href="?month={{ month_param }}&view=day">日ごとに見る</a>
-  <a href="{% url 'attendance:month' %}?month={{ month_param }}">勤怠の集計・遅刻欠勤</a>
+  <a class="{% if view == 'numbers' %}active{% endif %}" href="{% url 'shifts:numbers' %}?month={{ month_param }}">LINEの数字で入力</a>
+  <a class="{% if view == 'table' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}">表で見る・直す</a>
+  <a class="{% if view == 'person' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=person">カレンダーで直す</a>
+  <a class="{% if view == 'day' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=day">日ごとに見る</a>
 </nav>
 <div class="lockbar {% if lock %}locked{% endif %}">
   {% if lock %}

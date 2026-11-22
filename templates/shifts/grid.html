@@ -38,7 +38,7 @@
   <thead><tr>
     <th class="name">名前</th>
     {% for d in days %}<th class="day {{ d.cls }}{% if d.today %} today{% endif %}" data-col="{{ forloop.counter0 }}" title="{{ d.holiday }}">{{ d.date.day }}<br><small>{{ d.wd }}</small></th>{% endfor %}
-    <th class="num">予定日数</th><th class="num">基準</th><th class="num">差</th>
+    <th class="num">出勤日数</th>
   </tr></thead>
   <tbody>
   {% for row in rows %}
@@ -49,14 +49,12 @@
             {% if wt.short_label %}style="background:{{ wt.color }};color:{{ wt.text_color }}"{% endif %}>{% if wt %}{{ wt.short_label }}{% endif %}</td>
       {% endfor %}
       <td class="num strong js-planned">{{ row.planned_days.normalize }}</td>
-      <td class="num">{{ row.standard.normalize|default:"-" }}</td>
-      <td class="num js-diff {% if row.diff is not None and row.diff < 0 %}warn{% endif %}">{% if row.diff is None %}-{% elif row.diff == 0 %}±0{% else %}{{ row.diff.normalize|stringformat:"+g" }}{% endif %}</td>
     </tr>
   {% empty %}
     <tr><td colspan="40" class="muted">対象のメンバーがいません。メンバーを登録してください。</td></tr>
   {% endfor %}
   </tbody>
-  {% if rows %}<tfoot><tr><th class="name">出勤人数</th>{% for d in days %}<td class="count {{ d.cls }}{% if d.today %} today{% endif %}">{{ d.count }}</td>{% endfor %}<td colspan="3"></td></tr></tfoot>{% endif %}
+  {% if rows %}<tfoot><tr><th class="name">出勤人数</th>{% for d in days %}<td class="count {{ d.cls }}{% if d.today %} today{% endif %}">{{ d.count }}</td>{% endfor %}<td></td></tr></tfoot>{% endif %}
 </table>
 </div>
 
@@ -122,11 +120,11 @@
       for (const [mid, r] of Object.entries(data.rows)) {
         const tr = table.querySelector(`tr[data-member="${mid}"]`);
         tr.querySelector(".js-planned").textContent = r.planned;
-        const diff = tr.querySelector(".js-diff"); diff.textContent = r.diff ?? "-"; diff.classList.toggle("warn", r.short);
       }
       status.textContent = `保存しました（${data.changed}件変更）`; count();
     } catch (err) { status.textContent = ""; alert(err.message); }
   });
 })();
 </script>
+<p class="small muted" style="margin-top:12px">遅刻・早退・欠勤を記録したいときは <a href="{% url 'attendance:month' %}?month={{ month_param }}">勤怠の詳細</a> から。</p>
 {% endblock %}

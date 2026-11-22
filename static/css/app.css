@@ -255,3 +255,26 @@ table.shift tfoot th.name { background: #fafbfc; }
 .cal .day.today::after { content: none; }
 .hint-sp { display: none; }
 @media (max-width: 960px) { .hint-sp { display: inline; } .lockbar { padding: 8px 12px; } }
+
+/* ---- LINEの数字で入力 ---- */
+.num-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.num-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.num-card.err { border-color: #f1a7a7; background: #fffafa; }
+.num-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.num-count { margin-left: auto; font-weight: 700; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; overflow: hidden; }
+.seg label { cursor: pointer; } .seg input { display: none; }
+.seg span { display: inline-block; padding: 4px 12px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.seg input:checked + span { background: var(--primary); color: #fff; }
+.num-input { width: 100%; font-size: 16px; letter-spacing: .02em; }
+.mini { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; margin-top: 8px; }
+.mini span { font-size: 9px; text-align: center; line-height: 16px; border-radius: 3px; background: #f1f2f4; color: #9ca3af; }
+.mini span.sat { background: #eef3ff; } .mini span.sun { background: #fff0f0; }
+.mini span.on { background: #3b82f6; color: #fff; font-weight: 700; }
+.mini span.sp { background: #fde68a; color: #92400e; font-weight: 700; }
+.save-bar { position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
+@media (max-width: 960px) {
+  .num-list { grid-template-columns: 1fr; }
+  .save-bar { bottom: calc(60px + env(safe-area-inset-bottom)); }
+  .save-bar .btn { flex: 1; padding: 12px; font-size: 16px; }
+}

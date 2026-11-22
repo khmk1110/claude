@@ -208,3 +208,83 @@ def import_view(request):
                     "existing": ShiftEntry.objects.filter(date__year=month.year, date__month=month.month).count(),
                     "members": Member.objects.filter(status=Member.Status.ACTIVE)})
     return render(request, "shifts/import.html", ctx)
+
+
+@login_required
+def numbers(request):
+    """LINEで届く「出勤日」または「休みの日」の数字を、人ごとに貼り付けて入力する（従来のスプレッドシートと同じ入れ方）。
+
+    - 出勤日モード: 入れた日＝出勤、それ以外＝休み / 休みモード: 入れた日＝休み、それ以外＝出勤
+    - すでに半日・有給・半日＋半日有給にしている日はそのまま残す
+    """
+    from django.db import transaction
+
+    from apps.attendance.models import AttendanceMonthLock
+    from apps.core.months import month_end
+
+    from .legacy import DayListError, parse_day_list
+    from .models import ShiftEntry
+
+    month = month_from_request(request)
+    last = month_end(month).day
+    members = list(services.members_for_month(month))
+    entries = {}
+    for e in ShiftEntry.objects.filter(member__in=members, date__gte=month, date__lte=month_end(month)).select_related("work_type"):
+        entries.setdefault(e.member_id, {})[e.date.day] = e.work_type.code
+    locked = AttendanceMonthLock.objects.filter(month=month).exists()
+    special = {"half", "paid", "half_paid"}
+
+    def current_text(m, mode):
+        codes = entries.get(m.pk, {})
+        if not codes:
+            return ""
+        target = "work" if mode == "work" else "off"
+        return ",".join(str(d) for d in sorted(codes) if codes[d] == target)
+
+    rows, errors = [], {}
+    if request.method == "POST" and not locked:
+        plan = []
+        for m in members:
+            mode = request.POST.get(f"mode_{m.pk}", m.shift_input_mode)
+            text = request.POST.get(f"days_{m.pk}", "").strip()
+            initial = request.POST.get(f"initial_{m.pk}", "")
+            initial_mode = request.POST.get(f"initial_mode_{m.pk}", "")
+            if text == initial and mode == initial_mode:
+                continue  # 変更なし
+            try:
+                listed = set(parse_day_list(text, last))
+            except DayListError as e:
+                errors[m.pk] = str(e)
+                continue
+            plan.append((m, mode, listed))
+        if not errors and plan:
+            work, off = WorkType.objects.get(code="work"), WorkType.objects.get(code="off")
+            with transaction.atomic():
+                n = 0
+                for m, mode, listed in plan:
+                    work_days = listed if mode == "work" else set(range(1, last + 1)) - listed
+                    keep = {d for d, c in entries.get(m.pk, {}).items() if c in special}  # 半日・有給はそのまま
+                    dates = [month.replace(day=d) for d in range(1, last + 1) if d not in keep]
+                    n += services.set_shifts([m], [d for d in dates if d.day in work_days], work, user=request.user, reason="LINEの数字から入力")
+                    n += services.set_shifts([m], [d for d in dates if d.day not in work_days], off, user=request.user, reason="LINEの数字から入力")
+                    if m.shift_input_mode != mode:
+                        Member.objects.filter(pk=m.pk).update(shift_input_mode=mode)
+            messages.success(request, f"{len(plan)}人分のシフトを保存しました。")
+            return redirect(f"/shifts/numbers/?month={month:%Y-%m}")
+        if errors:
+            messages.error(request, "読み取れない数字があります。赤い行を直してから、もう一度保存してください（まだ何も保存していません）。")
+        elif not plan:
+            messages.info(request, "変更はありませんでした。")
+    for m in members:
+        mode = request.POST.get(f"mode_{m.pk}") if request.method == "POST" else None
+        mode = mode or m.shift_input_mode
+        init = current_text(m, mode)
+        text = request.POST.get(f"days_{m.pk}", init) if request.method == "POST" else init
+        specials = sorted(d for d, c in entries.get(m.pk, {}).items() if c in special)
+        rows.append({"member": m, "mode": mode, "text": text, "initial": init, "error": errors.get(m.pk, ""),
+                     "specials": specials, "has": bool(entries.get(m.pk))})
+    return render(request, "shifts/numbers.html", {
+        **month_context(month), "rows": rows, "last": last, "locked": locked, "view": "numbers",
+        "lock": AttendanceMonthLock.objects.filter(month=month).first(),
+        "first_weekday": (month.weekday() + 1) % 7,
+    })

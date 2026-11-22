@@ -7,7 +7,7 @@
 {% if sel %}
 <div class="card" style="margin-bottom:12px">
   <div class="page-head" style="margin:0 0 10px"><div><h2 style="margin:0">{{ sel.member.name }}</h2><div class="small muted">{{ sel.member.get_employment_type_display }}</div></div>
-    <div class="num"><span class="muted small">予定</span> <b class="big" id="planned">{{ sel.planned_days.normalize }}</b><span class="small">日</span>{% if sel.standard is not None %}<div class="small muted">基準 {{ sel.standard.normalize }}日</div>{% endif %}</div></div>
+    <div class="num"><span class="muted small">予定</span> <b class="big" id="planned">{{ sel.planned_days.normalize }}</b><span class="small">日</span></div></div>
   <p class="small muted" style="margin:0 0 10px">{% if lock %}この月は確定済みのため変更できません。{% else %}下で種類を選んでから、日付をタップしてください（もう一度タップで「未定」に戻ります）。{% endif %}</p>
   <div class="cal" id="cal" data-member="{{ sel.member.pk }}">
     {% for w in "日月火水木金土" %}<div class="wd {% if forloop.first %}sun{% elif forloop.last %}sat{% endif %}">{{ w }}</div>{% endfor %}

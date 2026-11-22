@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}シフト（LINEの数字で入力）{% endblock %}
+{% block topbar %}シフト・勤怠{% endblock %}
+{% block content %}
+{% include "shifts/_head.html" with view_query="" %}
+<p class="muted small" style="margin-top:0">LINEで届いた数字を、その人の欄に貼り付けて「保存」してください。「出勤日」か「休み」かは人ごとに覚えるので、来月からは数字を貼るだけです。区切りは「,」「、」「.」「空白」のどれでも大丈夫です。半日・有給にしている日はそのまま残ります。</p>
+<form method="post" id="numbers-form">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
+<div class="num-list">
+  {% for r in rows %}
+  <div class="num-card {% if r.error %}err{% endif %}" data-row>
+    <div class="num-head">
+      <span class="strong">{{ r.member.display_label }}</span>
+      <span class="seg">
+        <label><input type="radio" name="mode_{{ r.member.pk }}" value="work" {% if r.mode == "work" %}checked{% endif %} {% if locked %}disabled{% endif %}><span>出勤日</span></label>
+        <label><input type="radio" name="mode_{{ r.member.pk }}" value="off" {% if r.mode == "off" %}checked{% endif %} {% if locked %}disabled{% endif %}><span>休み</span></label>
+      </span>
+      <span class="num-count small muted" data-count></span>
+    </div>
+    <input class="num-input" name="days_{{ r.member.pk }}" value="{{ r.text }}" placeholder="例）1,4,8,12" inputmode="text" autocomplete="off" {% if locked %}disabled{% endif %}>
+    <input type="hidden" name="initial_{{ r.member.pk }}" value="{{ r.initial }}"><input type="hidden" name="initial_mode_{{ r.member.pk }}" value="{{ r.mode }}">
+    <div class="mini" data-mini data-special="{{ r.specials|join:',' }}"></div>
+    {% if r.error %}<div class="text-danger small">{{ r.error }}</div>{% endif %}
+    {% if r.specials %}<div class="small muted">半日・有給の日（そのまま残ります）: {{ r.specials|join:"、" }}日</div>{% endif %}
+  </div>
+  {% empty %}<p class="muted">対象のメンバーがいません。</p>{% endfor %}
+</div>
+{% if not locked and rows %}<div class="save-bar"><button class="btn btn-primary" type="submit">保存する</button><span class="small muted">変更した人だけ保存されます</span></div>{% endif %}
+</form>
+<script>
+(() => {
+  const last = {{ last }}, first = {{ first_weekday }};
+  const parse = t => {
+    const out = new Set(); let bad = false;
+    t.normalize("NFKC").split(/[,，、.．\s・/]+/).forEach(x => { if (!x) return; if (!/^\d+$/.test(x)) { bad = true; return; }
+      const n = +x; if (n < 1 || n > last) bad = true; else out.add(n); });
+    return {days: out, bad};
+  };
+  document.querySelectorAll("[data-row]").forEach(row => {
+    const input = row.querySelector(".num-input"), mini = row.querySelector("[data-mini]"), count = row.querySelector("[data-count]");
+    const special = new Set((mini.dataset.special || "").split(",").filter(Boolean).map(Number));
+    const render = () => {
+      const mode = row.querySelector("input[type=radio]:checked").value;
+      const {days, bad} = parse(input.value);
+      let html = "", work = 0;
+      for (let d = 1; d <= last; d++) {
+        const wd = (first + d - 1) % 7;
+        const isWork = special.has(d) ? null : (mode === "work" ? days.has(d) : !days.has(d));
+        if (isWork) work++;
+        const cls = special.has(d) ? "sp" : (isWork ? "on" : "") + (wd === 0 ? " sun" : wd === 6 ? " sat" : "");
+        html += `<span class="${cls}" title="${d}日">${d}</span>`;
+      }
+      mini.innerHTML = html;
+      count.textContent = `出勤 ${work}日` + (special.size ? `＋半日・有給 ${special.size}日` : "");
+      row.classList.toggle("err", bad);
+    };
+    input.addEventListener("input", render);
+    row.querySelectorAll("input[type=radio]").forEach(r => r.addEventListener("change", render));
+    render();
+  });
+})();
+</script>
+{% endblock %}

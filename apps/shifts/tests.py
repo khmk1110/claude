@@ -294,7 +294,7 @@ class PersonViewAndLockTests(TestCase):
         self.client.force_login(user)
         m = Member.objects.create(name="個人 太郎", employment_type="intern")
         res = self.client.get(f"/shifts/?month=2026-11&view=person&member={m.pk}")
-        self.assertContains(res, "人ごとに入力")
+        self.assertContains(res, "カレンダーで直す")
         self.assertContains(res, 'data-date="2026-11-01"')
         self.assertNotContains(res, "スマホ向け")
         api = lambda: self.client.post("/shifts/api/set/", data=json.dumps({"cells": [[m.pk, "2026-11-02"]], "work_type": "work"}),
@@ -306,3 +306,48 @@ class PersonViewAndLockTests(TestCase):
         r = api()
         self.assertEqual(r.status_code, 400)
         self.assertIn("確定済み", r.json()["detail"])
+
+
+class NumbersEntryTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("u", password="x-pass-12345")
+        self.client.force_login(self.user)
+        self.a = Member.objects.create(name="出勤 太郎", employment_type="contractor")  # 出勤日を送ってくる人
+        self.b = Member.objects.create(name="休み 花子", employment_type="employee", shift_input_mode="off")  # 休みを送ってくる人
+
+    def post(self, **rows):
+        data = {"month": "2026-11"}
+        for m in (self.a, self.b):
+            data.update({f"mode_{m.pk}": m.shift_input_mode, f"days_{m.pk}": "", f"initial_{m.pk}": "", f"initial_mode_{m.pk}": m.shift_input_mode})
+        data.update(rows)
+        return self.client.post("/shifts/numbers/?month=2026-11", data)
+
+    def work_days(self, m):
+        return sorted(e.date.day for e in ShiftEntry.objects.filter(member=m, work_type__code="work"))
+
+    def test_line_numbers_both_modes_and_keep_half_days(self):
+        services.set_shifts([self.a], [date(2026, 11, 7)], wt("half"))
+        res = self.post(**{f"days_{self.a.pk}": "4、5.6 7", f"days_{self.b.pk}": "1,2,3"})
+        self.assertRedirects(res, "/shifts/numbers/?month=2026-11", fetch_redirect_response=False)
+        self.assertEqual(self.work_days(self.a), [4, 5, 6])  # 7日は半日のまま残す
+        self.assertEqual(ShiftEntry.objects.get(member=self.a, date=date(2026, 11, 7)).work_type.code, "half")
+        self.assertEqual(ShiftEntry.objects.filter(member=self.a, work_type__code="off").count(), 26)
+        self.assertEqual(self.work_days(self.b), list(range(4, 31)))  # 休みモード: 書いた日以外が出勤
+        page = self.client.get("/shifts/numbers/?month=2026-11")
+        self.assertContains(page, 'value="4,5,6"')  # 入力済みの内容を表示
+
+    def test_error_saves_nothing_and_mode_is_remembered(self):
+        res = self.post(**{f"days_{self.a.pk}": "1,2", f"days_{self.b.pk}": "1,40"})
+        self.assertContains(res, "まだ何も保存していません")
+        self.assertFalse(ShiftEntry.objects.exists())
+        self.post(**{f"mode_{self.a.pk}": "off", f"days_{self.a.pk}": "1"})
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.shift_input_mode, "off")
+
+    def test_locked_month_is_read_only(self):
+        from apps.attendance import services as attendance
+
+        attendance.lock_month(date(2026, 11, 1))
+        self.assertContains(self.client.get("/shifts/numbers/?month=2026-11"), "確定済み")
+        self.post(**{f"days_{self.a.pk}": "1,2"})
+        self.assertFalse(ShiftEntry.objects.exists())
