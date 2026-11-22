@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}シフト（人ごと）{% endblock %}
+{% block title %}シフト（カレンダーで直す）{% endblock %}
 {% block topbar %}シフト・勤怠{% endblock %}
 {% block content %}
 {% include "shifts/_head.html" with view_query="&view=person" %}
@@ -51,4 +51,5 @@
 })();
 </script>
 {% else %}<p class="muted">対象のメンバーがいません。</p>{% endif %}
+{% include "shifts/_lockbar.html" %}
 {% endblock %}

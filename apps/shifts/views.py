@@ -270,7 +270,7 @@ def numbers(request):
                     if m.shift_input_mode != mode:
                         Member.objects.filter(pk=m.pk).update(shift_input_mode=mode)
             messages.success(request, f"{len(plan)}人分のシフトを保存しました。")
-            return redirect(f"/shifts/numbers/?month={month:%Y-%m}")
+            return redirect(f"/shifts/?month={month:%Y-%m}")
         if errors:
             messages.error(request, "読み取れない数字があります。赤い行を直してから、もう一度保存してください（まだ何も保存していません）。")
         elif not plan:

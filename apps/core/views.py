@@ -48,8 +48,8 @@ def monthly_flow(month):
 
     started = ShiftEntry.objects.filter(member__in=members, date__gte=month, date__lte=month_end(month)).values("member").distinct().count()
     steps = [_step("1日", f"{month.month}月のシフトを入力する", f"LINEで届いた数字を入力（{started} / {len(members)}人 入力済み）",
-                   reverse("shifts:numbers") + q, "シフトを入力", bool(members) and started >= len(members), started > 0,
-                   [("前月のシフトをコピー", reverse("shifts:grid") + q)])]
+                   reverse("shifts:grid") + q, "シフト表を開く", bool(members) and started >= len(members), started > 0,
+                   [("LINEの数字でまとめて入力", reverse("shifts:numbers") + q)])]
 
     locked = AttendanceMonthLock.objects.filter(month=pm).exists()
     acq = SalesCount.objects.filter(month=pm, kind="acquired", member__in=payroll_members).values("member").distinct().count()

@@ -1,27 +1,12 @@
-<div class="page-head">
+<div class="page-head shift-head">
   <div><p class="eyebrow">シフト・勤怠</p><h1>{{ month|date:"Y年n月" }}のシフト</h1></div>
   <div class="page-actions">
     {% include "includes/monthnav.html" with extra_query=view_query %}
-    <a class="btn btn-primary" href="{% url 'shifts:share' %}?month={{ month_param }}">LINE用の画像を作る</a>
+    <a class="btn" href="{% url 'shifts:share' %}?month={{ month_param }}">📷 <span class="hide-sp">LINE用の</span>画像</a>
   </div>
 </div>
 <nav class="tabs">
-  <a class="{% if view == 'numbers' %}active{% endif %}" href="{% url 'shifts:numbers' %}?month={{ month_param }}">LINEの数字で入力</a>
-  <a class="{% if view == 'table' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}">表で見る・直す</a>
+  <a class="{% if view == 'table' or view == 'numbers' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}">シフト表</a>
+  <a class="{% if view == 'day' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=day">日付別</a>
   <a class="{% if view == 'person' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=person">カレンダーで直す</a>
-  <a class="{% if view == 'day' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=day">日ごとに見る</a>
 </nav>
-<div class="lockbar {% if lock %}locked{% endif %}">
-  {% if lock %}
-    <span>✅ <b>{{ month|date:"n月" }}の勤怠は確定済み</b>（{{ lock.locked_at|date:"n/j H:i" }}）。シフトは変更できません。</span>
-    <form method="post" action="{% url 'attendance:lock' %}" class="inline" onsubmit="const r=prompt('確定を解除する理由を入力してください');if(!r)return false;this.reason.value=r;">{% csrf_token %}
-      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="reason">
-      <input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-sm" type="submit">確定を解除</button></form>
-  {% else %}
-    <span class="small hint-pc">シフト表がそのまま勤怠になります（半日・有給などもここで変更）。月が終わったら確定してください。確定した月の「出勤日数」が翌月の給与の単価判定に使われます。</span>
-    <span class="small hint-sp">月が終わったら勤怠を確定します</span>
-    <form method="post" action="{% url 'attendance:lock' %}" class="inline" onsubmit="return confirm('{{ month|date:"n月" }}の勤怠を確定します。確定後はシフトを変更できなくなります（解除はできます）。よろしいですか？')">{% csrf_token %}
-      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
-      <button class="btn btn-ok btn-sm" type="submit">この月の勤怠を確定</button></form>
-  {% endif %}
-</div>

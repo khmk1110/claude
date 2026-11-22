@@ -1,8 +1,10 @@
 {% extends "base.html" %}
-{% block title %}シフト（LINEの数字で入力）{% endblock %}
+{% block title %}シフト（LINEの数字でまとめて入力）{% endblock %}
 {% block topbar %}シフト・勤怠{% endblock %}
 {% block content %}
 {% include "shifts/_head.html" with view_query="" %}
+<p class="small" style="margin-top:0"><a href="{% url 'shifts:grid' %}?month={{ month_param }}">← シフト表に戻る</a></p>
+<h2 style="margin-top:4px">LINEの数字でまとめて入力</h2>
 <p class="muted small" style="margin-top:0">LINEで届いた数字を、その人の欄に貼り付けて「保存」してください。「出勤日」か「休み」かは人ごとに覚えるので、来月からは数字を貼るだけです。区切りは「,」「、」「.」「空白」のどれでも大丈夫です。半日・有給にしている日はそのまま残ります。</p>
 <form method="post" id="numbers-form">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
 <div class="num-list">
@@ -59,4 +61,5 @@
   });
 })();
 </script>
+{% include "shifts/_lockbar.html" %}
 {% endblock %}

@@ -278,3 +278,23 @@ table.shift tfoot th.name { background: #fafbfc; }
   .save-bar { bottom: calc(60px + env(safe-area-inset-bottom)); }
   .save-bar .btn { flex: 1; padding: 12px; font-size: 16px; }
 }
+details.more { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; }
+details.more summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--muted); }
+.lockbar { margin-top: 14px; }
+@media (max-width: 960px) {
+  .shift-head { margin-bottom: 8px; gap: 8px; }
+  .shift-head .eyebrow { display: none; }
+  .shift-head h1 { font-size: 17px; }
+  .shift-head .page-actions { width: 100%; flex-wrap: nowrap; }
+  .shift-head .monthnav { flex: 1; justify-content: space-between; }
+  .shift-head .monthnav input[type=month] { font-size: 14px; }
+  .shift-head .btn { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+  .tabs { margin-bottom: 10px; } .tabs a { padding: 8px 10px; }
+  .content .form-row .btn-primary { padding: 8px 12px; font-size: 14px; }
+}
+@media (max-width: 960px) {
+  .hide-sp { display: none; }
+  .shift-head .monthnav { min-width: 0; }
+  .shift-head .monthnav input[type=month] { width: 100%; min-width: 0; }
+  .content { overflow-x: hidden; }
+}

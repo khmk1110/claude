@@ -280,7 +280,7 @@ class ShiftViewModesTests(TestCase):
         services.set_shifts([m], [date(2026, 11, 3)], wt("off"))
         self.assertEqual(wt("off").short_label, "")  # 休みは空欄
         res = self.client.get("/shifts/?month=2026-11&view=day")
-        self.assertContains(res, "日ごとに見る")
+        self.assertContains(res, "日付別")
         self.assertContains(res, "表示 太郎")
         self.assertContains(self.client.get("/shifts/?month=2026-11"), "出勤人数")
         home = self.client.get("/")
@@ -328,7 +328,7 @@ class NumbersEntryTests(TestCase):
     def test_line_numbers_both_modes_and_keep_half_days(self):
         services.set_shifts([self.a], [date(2026, 11, 7)], wt("half"))
         res = self.post(**{f"days_{self.a.pk}": "4、5.6 7", f"days_{self.b.pk}": "1,2,3"})
-        self.assertRedirects(res, "/shifts/numbers/?month=2026-11", fetch_redirect_response=False)
+        self.assertRedirects(res, "/shifts/?month=2026-11", fetch_redirect_response=False)
         self.assertEqual(self.work_days(self.a), [4, 5, 6])  # 7日は半日のまま残す
         self.assertEqual(ShiftEntry.objects.get(member=self.a, date=date(2026, 11, 7)).work_type.code, "half")
         self.assertEqual(ShiftEntry.objects.filter(member=self.a, work_type__code="off").count(), 26)
@@ -351,3 +351,16 @@ class NumbersEntryTests(TestCase):
         self.assertContains(self.client.get("/shifts/numbers/?month=2026-11"), "確定済み")
         self.post(**{f"days_{self.a.pk}": "1,2"})
         self.assertFalse(ShiftEntry.objects.exists())
+
+
+class ShiftTabsTests(TestCase):
+    def test_tabs_order_and_numbers_button(self):
+        user = User.objects.create_user("u", password="x-pass-12345")
+        self.client.force_login(user)
+        html = self.client.get("/shifts/?month=2026-11").content.decode()
+        tabs = html[html.index('<nav class="tabs">'):]
+        tabs = tabs[:tabs.index("</nav>")]
+        self.assertLess(tabs.index("シフト表"), tabs.index("日付別"))
+        self.assertLess(tabs.index("日付別"), tabs.index("カレンダーで直す"))
+        self.assertNotIn("LINEの数字で入力", tabs)
+        self.assertIn("LINEの数字でまとめて入力", html)

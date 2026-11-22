@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}シフト（日ごと）{% endblock %}
+{% block title %}シフト（日付別）{% endblock %}
 {% block topbar %}シフト・勤怠{% endblock %}
 {% block content %}
 {% include "shifts/_head.html" with view_query="&view=day" %}
@@ -18,4 +18,5 @@
   // 今月を開いたときは今日の日付までスクロール
   (function(){ const t = document.querySelector(".day-card.today"); if (t) t.scrollIntoView({block: "center"}); })();
 </script>
+{% include "shifts/_lockbar.html" %}
 {% endblock %}

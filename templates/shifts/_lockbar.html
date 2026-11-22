@@ -1,0 +1,14 @@
+<div class="lockbar {% if lock %}locked{% endif %}">
+  {% if lock %}
+    <span>✅ <b>{{ month|date:"n月" }}の勤怠は確定済み</b>（{{ lock.locked_at|date:"n/j H:i" }}）。シフトは変更できません。</span>
+    <form method="post" action="{% url 'attendance:lock' %}" class="inline" onsubmit="const r=prompt('確定を解除する理由を入力してください');if(!r)return false;this.reason.value=r;">{% csrf_token %}
+      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="reason">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-sm" type="submit">確定を解除</button></form>
+  {% else %}
+    <span class="small hint-pc">シフト表がそのまま勤怠になります（半日・有給などもここで変更）。月が終わったら確定してください。確定した月の「出勤日数」が翌月の給与の単価判定に使われます。</span>
+    <span class="small hint-sp">月が終わったら勤怠を確定します</span>
+    <form method="post" action="{% url 'attendance:lock' %}" class="inline" onsubmit="return confirm('{{ month|date:"n月" }}の勤怠を確定します。確定後はシフトを変更できなくなります（解除はできます）。よろしいですか？')">{% csrf_token %}
+      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn btn-ok btn-sm" type="submit">この月の勤怠を確定</button></form>
+  {% endif %}
+</div>
