@@ -21,8 +21,12 @@ class MemberForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["shift_input_mode"].required = False  # 未選択なら「出勤日」
         if self.instance.pk:
             self.fields["aliases"].initial = "\n".join(self.instance.aliases.values_list("alias", flat=True))
+
+    def clean_shift_input_mode(self):
+        return self.cleaned_data.get("shift_input_mode") or "work"
 
     def clean(self):
         data = super().clean()
