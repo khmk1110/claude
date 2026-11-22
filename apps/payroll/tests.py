@@ -396,3 +396,109 @@ class CommonProductTests(TestCase):
         self.client.post(f"/payroll/{st.pk}/action/", {"action": "product_count", "product": "toshigas", "count": ""})
         self.assertFalse(st.lines.filter(code="product_toshigas").exists())
         self.assertContains(self.client.get("/payroll/sales/?month=2026-11"), "都市ガス")
+
+
+DASHBOARD = """【10月 最終実績】
+🔥 全体目標 500件 ｜ 実績 580件 🎉
+⸻
+【長谷＋田中・谷川】
+72/60（進捗 120.0%）🎉
+出勤 18/22日 ｜ AV 4.0
+谷川
+3日8件 ｜ AV 2.7
+田中
+3日4件 ｜ AV 1.3
+⸻
+【大石】
+131/90（進捗 145.6%）🎉
+出勤 20/20日 ｜ AV 6.6
+⸻
+【よしくん＋代表者】
+94/60（進捗 156.7%）🎉
+出勤 17/17日 ｜ AV 5.5
+よしくん：67件
+代表者：27件"""
+
+
+class IngestTests(TestCase):
+    def test_dashboard_blocks_and_team_split(self):
+        from apps.payroll.ingest import parse_dashboard
+
+        p = parse_dashboard(DASHBOARD)
+        got = {e.name: (e.count, e.attendance) for e in p.entries}
+        self.assertEqual(p.month, 10)
+        self.assertEqual(got["谷川"], (8, 3.0))
+        self.assertEqual(got["田中"], (4, 3.0))
+        self.assertEqual(got["長谷"], (72 - 8 - 4, 18.0))  # 書かれていない1人はブロック合計から引く
+        self.assertEqual(got["大石"], (131, 20.0))
+        self.assertEqual(got["よしくん"][0], 67)
+        self.assertEqual(got["代表者"][0], 27)
+
+    def test_count_table_and_total(self):
+        from apps.payroll.ingest import parse_count_table
+
+        p = parse_count_table("■ 営業別件数\n営業\t2月\t3月\t合計\n大石一郎\t0\t4\t4\n長谷花子\t1\t2\t3\n月合計\t1\t6\t7")
+        self.assertEqual([(e.name, e.count) for e in p.entries], [("大石一郎", 4), ("長谷花子", 3)])
+        self.assertEqual(p.total, 7)
+
+    def test_eneos_card_total_rule(self):
+        from apps.expenses.parsers import card_totals_from_amounts
+
+        codes = [(100, "0001"), (150, "0007"), (220, "0008"), (300, "0010")]
+        amounts = [(100, 34521), (150, 77660), (165, 4389), (180, 82049), (220, 47243), (235, 700), (250, 47943),
+                   (300, 37435), (330, 243086), (345, 4389), (360, 247475), (390, 700), (405, 202419)]
+        totals, grand = card_totals_from_amounts(codes, amounts)
+        # 「カード計」＝上の金額の合計と一致する金額。1行だけのカードはその金額
+        self.assertEqual(totals, {"0001": 34521, "0007": 82049, "0008": 47943, "0010": 37435})
+        self.assertEqual(grand, 247475)  # 最大の金額（この架空データでは合計と一致しない → 確認待ちになる）
+
+    def test_gasoline_text(self):
+        from apps.expenses.parsers import parse_gasoline_text
+
+        d = parse_gasoline_text("0007 82049\n〔R0008〕 47,943円\nメモ")
+        self.assertEqual([(r.card_code, r.amount) for r in d.rows], [("0007", 82049), ("0008", 47943)])
+
+
+class CountsImportFlowTests(TestCase):
+    def setUp(self):
+        make_tables()
+        self.user = User.objects.create_user("o", password="x-pass-12345", role=User.Role.OWNER)
+        stepup.set_password("payroll", "pay-pass")
+        self.client.force_login(self.user)
+        self.client.post("/stepup/payroll/", {"password": "pay-pass"})
+        self.oishi = Member.objects.create(name="大石 一郎", employment_type=C)
+        self.yoshi = Member.objects.create(name="吉野 健", employment_type=C)
+        self.tanaka = Member.objects.create(name="田中 次郎", employment_type=I)
+        self.tanigawa = Member.objects.create(name="谷川 三郎", employment_type=I)
+        self.hase = Member.objects.create(name="長谷 四郎", employment_type=EmploymentType.EMPLOYEE)
+
+    def test_dashboard_import_with_alias_and_ignore(self):
+        self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "acquired", "text": DASHBOARD})
+        plan = self.client.session["counts_import"]
+        self.assertEqual(plan["month"], "2026-10-01")  # 【10月 最終実績】→ 10月の獲得件数
+        rows = {r["name"]: r for r in plan["rows"]}
+        self.assertIsNone(rows["よしくん"]["member_id"])
+        page = self.client.get("/payroll/counts/?month=2026-11")
+        self.assertContains(page, "誰か選んでください")
+        data = {"step": "apply"}
+        for r in plan["rows"]:
+            data[f"count_{r['i']}"] = r["count"]
+            data[f"member_{r['i']}"] = r["member_id"] or "skip"
+        data[f"member_{rows['よしくん']['i']}"] = self.yoshi.pk
+        data[f"ignore_{rows['代表者']['i']}"] = "1"
+        self.client.post("/payroll/counts/?month=2026-11", data)
+        acq = {s.member.name: s.count for s in SalesCount.objects.filter(kind="acquired", month=OCT)}
+        self.assertEqual(acq, {"大石 一郎": 131, "吉野 健": 67, "田中 次郎": 4, "谷川 三郎": 8, "長谷 四郎": 60})
+        # 次回は「よしくん」は自動で特定、「代表者」は自動で取り込まない
+        self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "acquired", "text": DASHBOARD})
+        rows = {r["name"]: r for r in self.client.session["counts_import"]["rows"]}
+        self.assertEqual(rows["よしくん"]["member_id"], self.yoshi.pk)
+        self.assertTrue(rows["代表者"]["ignored"])
+
+    def test_confirmed_table_total_check_and_month_home(self):
+        text = "営業\t9月\t合計\n大石一郎\t1\t40\n吉野健\t0\t30\n月合計\t1\t70"
+        self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "text": text})
+        self.assertContains(self.client.get("/payroll/counts/?month=2026-11"), "一致しました")
+        page = self.client.get("/payroll/?month=2026-11")
+        self.assertContains(page, "件数を取り込む")
+        self.assertContains(page, "まとめて確定")

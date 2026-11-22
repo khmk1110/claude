@@ -298,3 +298,19 @@ details.more summary { cursor: pointer; font-weight: 600; font-size: 14px; color
   .shift-head .monthnav input[type=month] { width: 100%; min-width: 0; }
   .content { overflow-x: hidden; }
 }
+
+/* 今月の給与（ステップ） */
+.step { margin-bottom: 14px; }
+.step.done { border-color: #b7e2c6; }
+.step-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.step-head .no { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: var(--primary); color: #fff; flex: none; }
+.step.done .step-head .no { background: var(--ok); }
+ul.checks { list-style: none; padding: 0; margin: 6px 0 10px; }
+ul.checks li { padding: 3px 0 3px 26px; position: relative; font-size: 14px; }
+ul.checks li::before { content: "○"; position: absolute; left: 4px; color: var(--muted); }
+ul.checks li.ok::before { content: "✓"; color: var(--ok); font-weight: 700; }
+ul.checks li.ng::before { content: "！"; color: var(--warn); font-weight: 700; }
+button[disabled] { opacity: .5; cursor: not-allowed; }
+
+/* 給与ウィザードの表：名前を縦に折り返さない */
+.step .table td:first-child, .step .table th:first-child { white-space: nowrap; }

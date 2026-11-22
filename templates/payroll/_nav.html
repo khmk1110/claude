@@ -1,7 +1,8 @@
 {% with p=request.path %}
 <nav class="tabs">
-  <a href="{% url 'payroll:index' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/' or p|slice:':9' == '/payroll/' and p|slice:'9:10' in '0123456789' %}active{% endif %}">月次一覧</a>
-  <a href="{% url 'payroll:sales' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/sales/' %}active{% endif %}">営業件数の入力</a>
+  <a href="{% url 'payroll:index' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/' %}active{% endif %}">今月の給与</a>
+  <a href="{% url 'payroll:list' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/list/' or p|slice:'9:10' in '0123456789' and p|length > 9 %}active{% endif %}">一覧・明細</a>
+  <a href="{% url 'payroll:sales' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/sales/' or p == '/payroll/counts/' %}active{% endif %}">営業件数</a>
   <a href="{% url 'payroll:teams' %}" class="{% if p == '/payroll/teams/' %}active{% endif %}">チーム</a>
   <a href="{% url 'payroll:employees' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/employees/' %}active{% endif %}">正社員（基本給）</a>
   <a href="/admin/payroll/">給与項目・単価表</a>

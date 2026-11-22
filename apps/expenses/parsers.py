@@ -60,6 +60,7 @@ class ParsedDocument:
     used_ocr: bool = False
     headers: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    warnings_ok: str = ""  # 読み取りが確実だった理由（合計一致など）
 
 
 class NeedsMapping(Exception):
@@ -263,92 +264,29 @@ def summary_page_order(pages: list[str]) -> list[int]:
 
 
 def parse_eneos_card_summary(data: bytes, pages: list[str] | None = None) -> ParsedDocument:
-    """カード別の合計を OCR で読む。処理を軽くするため、合計版らしいページから1ページずつ読む。"""
+    """ENEOS の請求書PDF。請求明細表（合計版）らしいページを画像にして parse_eneos_image で読む。"""
     from . import ocr
 
-    doc = ParsedDocument("eneos_card_summary", used_ocr=True)
     if not ocr.ocr_available():
+        doc = ParsedDocument("eneos_card_summary", used_ocr=True)
         doc.warnings.append("OCR（Tesseract）が使えないため読み取れません。カード別の金額を手入力してください。")
         return doc
     if pages is None:
         pages = ocr.pdf_text_pages(data)
-    target = None
-    for idx in summary_page_order(pages) or [0]:
-        imgs = ocr.render_pages(data, dpi=300, first=idx + 1, last=idx + 1)
+    best = None
+    for idx in (summary_page_order(pages) or [0])[:2]:
+        imgs = ocr.render_pages(data, dpi=200, first=idx + 1, last=idx + 1)
         if not imgs:
             continue
-        img = imgs[0]
-        clean = ocr.remove_grid_lines(img)
-        words = ocr.ocr_words(clean)
-        text = " ".join(w.text for w in words)
-        if "合計版" in text or ("カード" in text and "R0" in text.upper().replace("O", "0")):
-            target = (img, clean, words, text)
-            break
-    if target is None:
-        doc.warnings.append("請求明細表（合計版）のページが見つかりませんでした。")
-        return doc
-    img, clean, words, text = target
-    m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*1\s*[日F]", text)
-    if m:
-        doc.document_month = date(int(m[1]), int(m[2]), 1)
-    # 金額列は数字の区切り線などで誤読しやすいので、前処理を変えて複数回読み、2回以上一致した値だけを候補にする
-    import numpy as np
-    from PIL import Image
-
-    W, H = img.size
-    gray = np.array(img.convert("L"))
-    dark = gray < 160
-    col = (int(0.50 * W), int(0.60 * W))
-    variants = []
-    for vmin in (40, 50, 60):
-        mask = ocr._long_runs(dark, 120) | ocr._long_runs(dark.T, vmin).T
-        g = gray.copy()
-        g[mask] = 255
-        crop = Image.fromarray(g).crop((col[0], 0, col[1], H))
-        nums = []
-        for w in ocr.ocr_words(crop, lang="eng", psm=6):
-            d = re.sub(r"[^0-9]", "", w.text)
-            if len(d) >= 3 and re.fullmatch(r"[\d,()]+", w.text.strip("|[]")):
-                nums.append((w.top + w.height / 2, int(d)))
-        variants.append(nums)
-
-    lines = ocr.group_lines(words)
-    marks = []  # (y, 種類, 行)
-    for line in lines:
-        t = line.text
-        tn = t.upper().replace("O", "0")
-        cm = CARD_IN_LINE.search(tn)
-        if cm and ("0566" in tn or "[" in t):
-            marks.append((line.top, "card", line, _norm_card(cm.group(1))))
-        elif "お客様" in t:
-            marks.append((line.top, "grand", line, None))
-        elif re.search(r"(^|\s)計(\s|\||$)", t) and "カード" not in t:
-            marks.append((line.top, "total", line, None))
-    marks.sort(key=lambda m: m[0])
-
-    def vote(y0, y1):
-        picks = []
-        for nums in variants:
-            inside = [n for y, n in nums if y0 - 10 <= y < y1 - 10]
-            if inside:
-                picks.append(inside[-1])  # 複数行のカードは一番下（カード計）
-        best = max(set(picks), key=picks.count) if picks else None
-        agree = picks.count(best) if best is not None else 0
-        return (best, 0.7) if agree >= 2 else (None, 0.3)
-
-    n = 0
-    for i, (y, kind, line, code) in enumerate(marks):
-        y_next = marks[i + 1][0] if i + 1 < len(marks) else H
-        if kind == "card":
-            amount, conf = vote(y, y_next)
-            n += 1
-            doc.rows.append(ParsedRow(row_number=n, raw={"OCR": line.text}, card_code=code,
-                                      description="ガソリン（カード別合計）", amount=amount, confidence=conf))
-        elif kind == "grand":
-            doc.source_total, _ = vote(y, y_next)
-    if not doc.rows:
-        doc.warnings.append("カード番号を読み取れませんでした。カード別の金額を手入力してください。")
-    return doc
+        doc = parse_eneos_image(imgs[0])
+        if doc.rows and (best is None or len(doc.rows) > len(best.rows)):
+            best = doc
+        if doc.warnings_ok:
+            return doc
+    if best is None:
+        best = ParsedDocument("eneos_card_summary", used_ocr=True)
+        best.warnings.append("請求明細表（合計版）のページが見つかりませんでした。カード別の金額を手入力してください。")
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -368,3 +306,216 @@ def guess_kind(text: str) -> str:
     scores = {k: sum(t.count(w.upper()) for w in words) for k, words in KIND_KEYWORDS}
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else DocumentKind.UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# ENEOS FC 請求明細表（合計版）— 画像（スクショ・PDFのページ画像）からの読み取り
+# ---------------------------------------------------------------------------
+def _ocr_tsv(img, *, lang="eng", psm=6, digits=False):
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".png") as t:
+        img.save(t.name)
+        args = ["tesseract", t.name, "stdout", "-l", lang, "--psm", str(psm)]
+        if digits:
+            args += ["-c", "tessedit_char_whitelist=0123456789"]
+        out = subprocess.run(args + ["tsv"], capture_output=True, timeout=120).stdout.decode("utf-8", "replace")
+    rows = []
+    for line in out.splitlines()[1:]:
+        c = line.split("\t")
+        if len(c) >= 12 and c[11].strip():
+            rows.append({"text": c[11].strip(), "left": int(c[6]), "top": int(c[7]), "w": int(c[8]), "h": int(c[9])})
+    return rows
+
+
+def card_totals_from_amounts(codes: list, amounts: list) -> tuple[dict, int | None]:
+    """カード識別4桁の位置（y）と金額列の値（y, 金額）から、カードごとの合計を決める。
+
+    表の線に頼らず、次のルールで決める（ご指示どおり「カード計」がその番号の人の合計）:
+    - その番号から次の番号までにある金額のうち、それより上の金額の合計と一致する金額＝「カード計」
+    - 見つからなければ、その番号の行の金額（1行だけのカード）
+    お客様計（請求の合計）は最も大きい金額。
+    """
+    codes = sorted(codes)
+    result = {}
+    for i, (y, code) in enumerate(codes):
+        y_next = codes[i + 1][0] if i + 1 < len(codes) else 10 ** 9
+        band = [v for (ay, v) in sorted(amounts) if y - 6 <= ay < y_next - 6]
+        if not band:
+            continue
+        total = band[0]
+        for j in range(2, len(band)):
+            if band[j] == sum(band[:j]):
+                total = band[j]
+                break
+        result[code] = total
+    grand = max((v for _, v in amounts), default=None)
+    return result, grand
+
+
+def parse_eneos_image(img) -> ParsedDocument:
+    """スクショやPDFのページ画像から、カードごとの合計を読む。
+
+    金額は誤読しやすいため、拡大率・白黒の境目・区切り線の除去の有無を変えて何度も読み、多数決で決める。
+    カード計の合計が請求の合計（お客様計）と一致したときだけ「読み取り確実」とし、そうでなければ確認待ちにする。
+    """
+    import collections
+
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    doc = ParsedDocument("eneos_card_summary", used_ocr=True)
+    gray = img.convert("L")
+    if gray.width > 2400:  # 300dpi のPDFページなどは縮小して処理を軽くする
+        r = 2400 / gray.width
+        gray = gray.resize((2400, int(gray.height * r)), Image.LANCZOS)
+    W, H = gray.size
+
+    # 1) カード識別4桁の位置。「0566-007-4 S [ R0007 ]」の真ん中の3桁と、［ ］内の R＋4桁の両方から読む
+    from . import ocr as _ocr
+
+    def norm(t):
+        t = nfkc(t).upper()
+        return t.translate(str.maketrans({"O": "0", "Q": "0", "D": "0", "!": "1", "|": "1", "I": "1", "L": "1"}))
+
+    found = []
+    left = gray.crop((0, 0, int(W * 0.5), H))  # カード番号は表の左側にある（処理を軽くする）
+    for s_, thr in ((3, 180), (2, 170), (3, 160), (4, 190), (2, 200)):
+        big = left.resize((left.width * s_, H * s_), Image.LANCZOS)
+        bw = Image.fromarray(np.where(np.array(big) < thr, 0, 255).astype("uint8"))
+        for psm in (4, 6):
+            words = [_ocr.Word(w["text"], w["left"], w["top"], w["w"], w["h"], 0) for w in _ocr_tsv(bw, lang="jpn+eng", psm=psm)]
+            for line in _ocr.group_lines(words, tolerance=10 * s_):
+                t = norm(line.text).replace(" ", "")
+                code = None
+                m = re.search(r"0566-?(\d{3})-?\d", t)
+                if m:
+                    code = "0" + m.group(1)
+                else:
+                    m = re.search(r"R(\d{4})", t)
+                    code = m.group(1) if m else None
+                if code == "0000":  # 「会社コード 3-50-4005-0566-000-9」の誤検出
+                    code = None
+                if code:
+                    y = sum(w.top + w.height / 2 for w in line.words) / len(line.words) / s_
+                    found.append((code, y))
+    codes = {}
+    for code, y in found:
+        codes.setdefault(code, []).append(y)
+    # 1回しか見つからない番号は誤読の可能性が高いので捨てる（3回中2回以上）
+    codes = {k: v for k, v in codes.items() if len(v) >= 2}
+    text_all = " ".join(w["text"] for w in _ocr_tsv(Image.fromarray(np.where(np.array(gray) < 170, 0, 255).astype("uint8")), lang="jpn+eng", psm=6))
+    m = re.search(r"(\d{4})\s*[年%]\s*(\d{1,2})\s*月", nfkc(text_all))
+    if m:
+        doc.document_month = date(int(m[1]), int(m[2]), 1)
+    code_pos = [(sorted(v)[len(v) // 2], k) for k, v in codes.items()]
+    if not code_pos:
+        doc.warnings.append("カード番号（〔R0007〕など）を読み取れませんでした。金額を手入力してください。")
+        return doc
+
+    # 2) 金額の列を探す（数字が縦に並んでいる一番右の列）
+    probe = gray.resize((W * 2, H * 2), Image.LANCZOS)
+    nums = [w for w in _ocr_tsv(Image.fromarray(np.where(np.array(probe) < 170, 0, 255).astype("uint8")), psm=6, digits=True)
+            if len(w["text"]) >= 3]
+    xs = sorted((((w["left"] + w["w"] / 2) / 2, w) for w in nums), key=lambda t: t[0])
+    columns = []
+    for x, w in xs:
+        if columns and x - columns[-1]["x"] < 40:
+            columns[-1]["items"].append(w)
+            columns[-1]["x"] = x
+        else:
+            columns.append({"x": x, "items": [w]})
+    columns = [c for c in columns if len(c["items"]) >= 3]
+    if columns:
+        col = columns[-1]
+        x0 = min(w["left"] for w in col["items"]) / 2 - 25
+        x1 = max(w["left"] + w["w"] for w in col["items"]) / 2 + 25
+    else:
+        x0, x1 = W * 0.70, W * 0.82
+    x0, x1 = max(0, int(x0)), min(W, int(x1))
+
+    # 3) 金額を多数決で読む
+    votes = collections.defaultdict(list)
+    crop = gray.crop((x0, 0, x1, H))
+    for s in (3, 4):
+        base = crop.resize((crop.width * s, crop.height * s), Image.LANCZOS)
+        for thr in (150, 170, 190):
+            for blur in (False, True):
+                im = base.filter(ImageFilter.MedianFilter(3)) if blur else base
+                a = np.array(im)
+                for remove in (False, True):
+                    b = a < thr
+                    if remove:  # 数字の間の縦の区切り線と、下線・罫線（横線）を消す
+                        dens = b[int(H * s * 0.2):].mean(axis=0)
+                        a2 = a.copy()
+                        a2[:, dens > 0.3] = 255
+                        b = a2 < thr
+                        hdens = b.mean(axis=1)
+                        a2[hdens > 0.55, :] = 255
+                        b = a2 < thr
+                    pic = Image.fromarray(np.where(b, 0, 255).astype("uint8"))
+                    for psm in (6, 11):
+                        for w in _ocr_tsv(pic, psm=psm, digits=True):
+                            if re.fullmatch(r"\d{3,7}", w["text"]):
+                                y = (w["top"] + w["h"] / 2) / s
+                                votes[round(y * 10)].append(int(w["text"]))
+    # 縦位置が近い票をまとめて（5px以内）、最も多い値を採用（票が少ないものは捨てる）
+    flat = sorted((k / 10, v) for k, vs in votes.items() for v in vs)
+    clusters = []
+    for y, v in flat:
+        if clusters and y - clusters[-1]["y"] <= 5:
+            clusters[-1]["vals"].append(v)
+            clusters[-1]["y"] = y
+        else:
+            clusters.append({"y": y, "y0": y, "vals": [v]})
+    rows, alts = [], {}
+    for c in clusters:
+        common = collections.Counter(c["vals"]).most_common(3)
+        val, n = common[0]
+        if n >= 4:
+            y = (c["y0"] + c["y"]) / 2
+            rows.append((y, val))
+            alts[y] = [v for v, k in common[1:] if k >= 2]
+    totals, grand = card_totals_from_amounts(code_pos, rows)
+    if grand is not None and sum(totals.values()) != grand:
+        # 合計が合わないとき: 1枚だけ別の読み方に置き換えると合計が一致するなら、それを採用する
+        diff = grand - sum(totals.values())
+        fixes = []
+        for y, val in rows:
+            for alt in alts.get(y, []):
+                if alt - val == diff:
+                    trial = [(yy, alt if yy == y else vv) for yy, vv in rows]
+                    t2, g2 = card_totals_from_amounts(code_pos, trial)
+                    if g2 == grand and sum(t2.values()) == grand:
+                        fixes.append(t2)
+        if len(fixes) == 1:
+            totals = fixes[0]
+    verified = grand is not None and sum(totals.values()) == grand and len(totals) == len(code_pos)
+    doc.source_total = grand
+    for i, (y, code) in enumerate(sorted(code_pos)):
+        doc.rows.append(ParsedRow(row_number=i + 1, raw={"OCR": f"〔R{code}〕 カード計 {totals.get(code, '?')}"}, card_code=code,
+                                  description="ガソリン（カード別合計）", amount=totals.get(code),
+                                  confidence=0.99 if verified else 0.6))
+    if verified:
+        doc.warnings_ok = f"カード計の合計 {grand:,}円 が請求の合計（お客様計）と一致しました。"
+    else:
+        doc.warnings.append("カード計の合計が請求の合計と一致しませんでした。画像と見比べて金額を確認してください。")
+    return doc
+
+
+def parse_gasoline_text(text: str) -> ParsedDocument:
+    """「0007 82049」「〔R0007〕82,049円」のような文から、カードごとの金額を読む。"""
+    doc = ParsedDocument("gasoline_text")
+    n = 0
+    for raw in text.splitlines():
+        t = nfkc(raw).upper().replace("O", "0")
+        m = re.search(r"R?\s*(\d{4})\D+?(-?[\d,]{3,})", t)
+        if not m:
+            continue
+        n += 1
+        doc.rows.append(ParsedRow(row_number=n, raw={"行": raw.strip()}, card_code=m.group(1),
+                                  description="ガソリン（カード別合計）", amount=parse_amount(m.group(2))))
+    if not doc.rows:
+        doc.warnings.append("「カード番号の4桁 金額」の形で入力してください（例: 0007 82049）。")
+    return doc

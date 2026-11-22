@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}{{ month|date:"n月" }}分の給与{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>{{ month|date:"Y年n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
+{% include "payroll/_nav.html" %}
+<p class="muted small" style="margin-top:0">上から順に進めてください。資料は貼り付け・スクショ・PDFで取り込み、数字の打ち直しをなくします。合計が合わない・先月と大きく違うなど、確認が必要なところだけ黄色で表示します。</p>
+
+<section class="step card {% if step1_done %}done{% endif %}">
+  <div class="step-head"><span class="no">{% if step1_done %}✓{% else %}1{% endif %}</span><div><b>件数を取り込む</b><div class="small muted">前月の出勤日数はシフトから自動で入ります</div></div></div>
+  <ul class="checks">
+    <li class="{% if acq >= members|length and members %}ok{% endif %}">{{ prev|date:"n月" }}の獲得件数（営業ダッシュボード）: <b>{{ acq }} / {{ members|length }}人</b></li>
+    <li class="{% if conf >= members|length and members %}ok{% endif %}">{{ month|date:"n月" }}の入金確定件数（入金確定シート）: <b>{{ conf }} / {{ members|length }}人</b></li>
+  </ul>
+  <div class="form-row"><a class="btn btn-primary" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">LINEの文・スクショ・表から取り込む</a>
+    <a class="btn" href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で手直し・都市ガス</a></div>
+</section>
+
+<section class="step card {% if expenses_ok and open_recs == 0 and files %}done{% endif %}">
+  <div class="step-head"><span class="no">{% if expenses_ok and open_recs == 0 and files %}✓{% else %}2{% endif %}</span><div><b>ガソリン代・交通費・経費を取り込む</b><div class="small muted">交通費は個人事業主だけ35,000円を引きます（自動）</div></div></div>
+  {% if not expenses_ok %}
+    <p class="small">経費は別のパスワードで守られています。</p>
+    <a class="btn btn-primary" href="{% url 'expenses:index' %}?month={{ month_param }}">経費を開く（パスワード）</a>
+  {% else %}
+    <form method="post" action="{% url 'expenses:upload' %}" enctype="multipart/form-data" class="form-row">{% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="target_month" value="{{ month_param }}">
+      <select name="kind"><option value="gasoline">ガソリン（ENEOSのスクショ・PDF）</option><option value="transport">交通費（請求書PDF・スクショ）</option><option value="">自動で判定</option></select>
+      <input type="file" name="files" multiple accept="image/*,.pdf,.xlsx,.xls,.csv" required>
+      <button class="btn btn-primary" type="submit">取り込む</button>
+    </form>
+    <details class="more"><summary>ガソリン代を文で入れる・LINEで届いた経費を入れる</summary>
+      <form method="post" action="{% url 'expenses:gasoline_text' %}" class="form-row">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="target_month" value="{{ month_param }}">
+        <textarea name="text" rows="3" style="flex:1;min-width:220px" placeholder="カード番号の4桁 金額&#10;0007 82049&#10;0008 47943"></textarea><button class="btn" type="submit">ガソリン代を取り込む</button>
+      </form>
+      <form method="post" action="{% url 'expenses:line_import' %}" class="form-row">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="target_month" value="{{ month_param }}">
+        <select name="category">{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select>
+        <textarea name="text" rows="3" style="flex:1;min-width:220px" placeholder="名前 金額（内容）&#10;関 600 交通費"></textarea><button class="btn" type="submit">経費を取り込む</button>
+      </form>
+    </details>
+    {% if files %}
+    <div class="table-wrap" style="margin-top:10px"><table class="table">
+      <thead><tr><th>資料</th><th>種類</th><th>状態</th><th class="num">確認待ち</th></tr></thead>
+      <tbody>{% for f in files %}<tr class="{% if f.open_count or f.status == 'error' %}row-attn{% endif %}">
+        <td><a href="{% url 'expenses:file' f.pk %}">{{ f.original_name }}</a></td><td>{{ f.get_document_kind_display }}</td>
+        <td>{% if f.status == "processing" %}<span class="badge badge-info">読み取り中…</span><script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},10000)</script>{% elif f.status == "error" %}<span class="badge badge-danger">エラー</span>{% else %}{{ f.get_status_display }}{% endif %}</td>
+        <td class="num">{% if f.open_count %}<a href="{% url 'expenses:file' f.pk %}">{{ f.open_count }}件 → 確認・承認</a>{% else %}0{% endif %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if open_recs %}<p class="small text-warn">確認・承認が済んでいない経費が {{ open_recs }}件 あります。承認した経費だけが給与に入ります。</p>{% endif %}
+    {% else %}<p class="small muted">この月の資料はまだありません。</p>{% endif %}
+  {% endif %}
+</section>
+
+<section class="step card {% if sts and errors == 0 %}done{% endif %}">
+  <div class="step-head"><span class="no">{% if sts and errors == 0 %}✓{% else %}3{% endif %}</span><div><b>計算して、結果を確認する</b><div class="small muted">単価・営業報酬・手当・ボーナス・アプリ手数料は自動で計算します</div></div></div>
+  <form method="post" action="{% url 'payroll:month_action' %}" class="form-row">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% if not sts %}<input type="hidden" name="action" value="prepare"><button class="btn btn-primary" type="submit">給与データを作る</button>
+    {% else %}<input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit">全員を計算する（取り込んだ数字で計算し直す）</button>{% endif %}
+  </form>
+  {% if rows %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>名前</th><th class="num">単価</th><th class="num">入金確定</th><th class="num">営業報酬</th><th class="num">交通費</th><th class="num">ガソリン</th><th class="num">差引支給額</th><th style="min-width:220px">状態・確認</th></tr></thead>
+    <tbody>{% for r in rows %}<tr class="{% if r.errors or r.warns %}row-attn{% endif %}">
+      <td class="strong"><a href="{% url 'payroll:detail' r.st.pk %}">{{ r.st.member.name }}</a></td>
+      <td class="num">{% if r.unit is not None %}{{ r.unit|floatformat:0|intcomma }}{% else %}-{% endif %}</td>
+      <td class="num">{% if r.conf is not None %}{{ r.conf|floatformat:0 }}{% else %}-{% endif %}</td>
+      <td class="num">{{ r.commission|intcomma }}</td><td class="num">{{ r.transport|intcomma }}</td><td class="num">{% if r.gas %}-{{ r.gas|intcomma }}{% else %}0{% endif %}</td>
+      <td class="num strong">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td>
+      <td class="small"><span class="badge st-{{ r.st.status }}">{{ r.st.get_status_display }}</span>
+        {% for e in r.errors %}<div class="text-danger">{{ e }}</div>{% endfor %}{% for w in r.warns %}<div class="text-warn">{{ w }}</div>{% endfor %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="small muted">プロパン・都市ガス・特別手当など、その月だけの項目は名前を押して追加できます。</p>
+  {% endif %}
+</section>
+
+<section class="step card {% if sts and confirmed == sts|length %}done{% endif %}">
+  <div class="step-head"><span class="no">{% if sts and confirmed == sts|length %}✓{% else %}4{% endif %}</span><div><b>確定して、明細を出す</b><div class="small muted">確定後は金額が変わりません（後から資料が変わったら「要確認」でお知らせ）</div></div></div>
+  <ul class="checks">{% for label, ok in checklist %}<li class="{% if ok %}ok{% else %}ng{% endif %}">{{ label }}</li>{% endfor %}</ul>
+  <div class="form-row">
+    <form method="post" action="{% url 'payroll:month_action' %}" class="inline" onsubmit="return confirm('確定できる {{ confirmable }}人分を確定します。確定後は金額を変更できません。よろしいですか？')">{% csrf_token %}
+      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn btn-ok" type="submit" {% if not confirmable %}disabled{% endif %}>まとめて確定（{{ confirmable }}人）</button></form>
+    <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDF（確定分を一括）</a>
+    <span class="small muted">確定 {{ confirmed }} / {{ sts|length }}人</span>
+  </div>
+</section>
+{% endblock %}

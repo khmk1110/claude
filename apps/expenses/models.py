@@ -84,9 +84,11 @@ class SourceFile(models.Model):
         GSHEET = "gsheet", "Googleスプレッドシート"
         PDF = "pdf", "PDF"
         MANUAL = "manual", "手入力（LINEなど）"
+        IMAGE = "image", "画像（スクショ・写真）"
 
     class Status(models.TextChoices):
         UPLOADED = "uploaded", "取り込み済み"
+        PROCESSING = "processing", "読み取り中"
         NEEDS_KIND = "needs_kind", "種類の選択待ち"
         NEEDS_MAPPING = "needs_mapping", "読み取りルールの確認待ち"
         PARSED = "parsed", "読み取り完了"

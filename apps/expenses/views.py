@@ -30,6 +30,25 @@ def expenses_view(view):
     return login_required(stepup_required("expenses")(view))
 
 
+def _next_or(request, default):
+    nxt = request.POST.get("next", "")
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
+    return default
+
+
+@expenses_view
+@require_POST
+def gasoline_text(request):
+    try:
+        sf = importer.import_gasoline_text(request.POST.get("text", ""), target_month=_month(request.POST.get("target_month")) or date.today().replace(day=1),
+                                           user=request.user)
+        messages.success(request, f"ガソリン代を {sf.row_count}件 取り込みました。")
+    except ValueError as e:
+        messages.error(request, str(e))
+    return _next_or(request, redirect("expenses:index"))
+
+
 def _int(text):
     t = unicodedata.normalize("NFKC", str(text or "")).replace(",", "").replace("円", "").strip()
     if t == "":
@@ -106,7 +125,10 @@ def upload(request):
         except (ValueError, importer.DuplicateFile) as e:
             messages.error(request, str(e))
     if done:
-        messages.success(request, f"{done}件の資料を取り込みました。内容を確認してください。")
+        messages.success(request, f"{done}件の資料を取り込みました。" + ("画像・PDFは裏で読み取っています（1〜3分）。" if any(
+            f.name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".pdf")) for f in request.FILES.getlist("files")) else "内容を確認してください。"))
+        if request.POST.get("next"):
+            return _next_or(request, None)
     if done == 1 and last:
         return redirect("expenses:file", pk=last.pk)
     return redirect(f"/expenses/?month={(target or date.today()).strftime('%Y-%m')}")
@@ -126,7 +148,7 @@ def line_import(request):
         messages.error(request, str(e))
         return redirect(f"/expenses/?month={request.POST.get('target_month') or ''}")
     messages.success(request, f"{sf.row_count}件を取り込みました。内容を確認して承認してください。")
-    return redirect("expenses:file", pk=sf.pk)
+    return _next_or(request, redirect("expenses:file", pk=sf.pk))
 
 
 @expenses_view

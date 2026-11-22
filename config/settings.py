@@ -146,6 +146,11 @@ STEPUP_PROTECTED_PREFIXES = {
     "/admin/expenses/": "expenses",
 }
 
+import sys as _sys
+
+# 画像・PDFの読み取り（OCR）を裏で行う（テスト中は同期で行う）
+OCR_IN_BACKGROUND = env.bool("OCR_IN_BACKGROUND", default="test" not in _sys.argv)
+
 COMPANY_NAME = env("COMPANY_NAME", default="（会社名を COMPANY_NAME に設定）")
 
 # 明細書の発行者欄（実際の値は環境変数で設定。リポジトリには書かない）

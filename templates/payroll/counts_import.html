@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}営業件数の取り込み{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:index' %}?month={{ month_param }}">{{ month|date:"n月" }}分の給与</a></p><h1>営業件数の取り込み</h1></div></div>
+
+{% if not plan %}
+<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
+  <form method="post" enctype="multipart/form-data" class="card">{% csrf_token %}
+    <input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="acquired"><input type="hidden" name="month" value="{{ month_param }}">
+    <p class="card-title">① 獲得件数（営業ダッシュボード）</p>
+    <p class="small muted">LINEで届く「【10月 最終実績】…」の文をそのまま貼り付けるか、スクショを選んでください。{{ prev|date:"n月" }}の獲得件数として、{{ month|date:"n月" }}分の単価の判定に使います。</p>
+    <textarea name="text" rows="6" style="width:100%" placeholder="【10月 最終実績】&#10;【堀田】&#10;131/90（進捗 145.6%）…"></textarea>
+    <div class="form-row"><input type="file" name="file" accept="image/*,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
+  </form>
+  <form method="post" enctype="multipart/form-data" class="card">{% csrf_token %}
+    <input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="confirmed"><input type="hidden" name="month" value="{{ month_param }}">
+    <p class="card-title">② 入金確定件数（入金確定シート）</p>
+    <p class="small muted">スプレッドシートの「営業別件数」の表を、名前から「月合計」まで選んでコピーして貼り付けるか、スクショ・Excel・CSVを選んでください。各行の一番右の数字（合計）を{{ month|date:"n月" }}の入金確定件数にします。</p>
+    <textarea name="text" rows="6" style="width:100%" placeholder="営業	2月	3月	…	合計&#10;天野烈斗	0	0	…	73&#10;月合計	…	400"></textarea>
+    <div class="form-row"><input type="file" name="file" accept="image/*,.xlsx,.xls,.csv,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
+  </form>
+</div>
+<p class="small muted">読み取った内容は、次の画面で確認してから保存します（まだ保存されません）。</p>
+
+{% else %}
+<div class="card">
+  <p><b>{{ target|date:"Y年n月" }}の{{ kind_label }}</b>を読み取りました。対象者と件数を確認して「保存する」を押してください。</p>
+  {% for w in plan.warnings %}<div class="notice">⚠️ {{ w }}</div>{% endfor %}
+  {% if plan.total is not None %}
+    {% if plan.total == total_sum %}<div class="notice info">✅ 資料の「月合計」{{ plan.total }}件と、読み取った件数の合計 {{ total_sum }}件が一致しました。</div>
+    {% else %}<div class="notice">⚠️ 資料の「月合計」{{ plan.total }}件と、読み取った件数の合計 {{ total_sum }}件が一致しません。資料と見比べてください。</div>{% endif %}
+  {% endif %}
+  <form method="post">{% csrf_token %}<input type="hidden" name="step" value="apply"><input type="hidden" name="month" value="{{ month_param }}">
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>資料の名前</th><th>対象者</th><th class="num">件数</th>{% if plan.kind == "acquired" %}<th class="num">出勤（資料／シフト）</th>{% endif %}<th class="num">保存済みの値</th><th>メモ</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr class="{% if not r.member_id and not r.ignored or r.att_mismatch %}row-attn{% endif %}">
+        <td class="strong">{{ r.name }}</td>
+        <td><select name="member_{{ r.i }}">
+            <option value="skip" {% if not r.member_id or r.ignored %}selected{% endif %}>取り込まない</option>
+            {% for m in members %}<option value="{{ m.pk }}" {% if m.pk == r.member_id and not r.ignored %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+          </select>
+          {% if not r.member_id %}<label class="check small"><input type="checkbox" name="ignore_{{ r.i }}" value="1" {% if r.ignored %}checked{% endif %}> 次回も取り込まない</label>{% endif %}
+          {% if r.method == "ambiguous" %}<div class="small text-warn">同じ名前の人が複数います。選んでください</div>{% elif not r.member_id and not r.ignored %}<div class="small text-warn">誰か選んでください（選ぶと次回から自動）</div>{% endif %}</td>
+        <td class="num"><input name="count_{{ r.i }}" value="{{ r.count }}" inputmode="numeric" style="width:80px;text-align:right"></td>
+        {% if plan.kind == "acquired" %}<td class="num {% if r.att_mismatch %}text-warn{% endif %}">{{ r.att|default_if_none:"-" }} ／ {{ r.sys_att|default_if_none:"-" }}</td>{% endif %}
+        <td class="num">{{ r.existing|default_if_none:"-" }}</td>
+        <td class="small muted">{{ r.note }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% if missing %}<div class="notice" style="margin-top:12px">⚠️ 資料に名前がなかった人: {% for m in missing %}{{ m.name }}{% if not forloop.last %}、{% endif %}{% endfor %}（0件なら問題ありません）</div>{% endif %}
+    {% if plan.kind == "acquired" %}<p class="small muted">出勤（資料／シフト）が違う行は黄色です。給与の単価判定にはシフト（確定した勤怠）の出勤日数を使います。</p>{% endif %}
+    <div class="form-actions"><button class="btn btn-primary" type="submit">保存する</button><button class="btn" type="submit" name="step" value="cancel" formnovalidate>やり直す</button></div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

@@ -6,6 +6,8 @@
   <div><a class="btn-light" href="{% url 'expenses:index' %}{% if sf.target_month %}?month={{ sf.target_month|date:'Y-m' }}{% endif %}">一覧</a>
   {% if sf.file %}<a class="btn-light" href="{% url 'expenses:download' sf.pk %}">元資料をダウンロード</a>{% endif %}</div></div>
 <p class="muted">{{ sf.get_file_format_display }}・{{ sf.get_status_display }}・取り込み {{ sf.uploaded_at|date:"Y-m-d H:i" }}（{{ sf.uploaded_by|default:"-" }}）{% if sf.profile %}・読み取りルール「{{ sf.profile.name }}」{% endif %}{% if sf.used_ocr %}・<b>OCR（画像からの読み取り）</b>{% endif %}</p>
+{% if sf.status == "processing" %}<div class="notice info">⏳ 画像を読み取っています（1〜2分かかることがあります）。この画面は自動で更新されます。</div>
+<script>setTimeout(function(){location.reload()},8000)</script>{% endif %}
 {% if sf.error_message %}<p class="warn">{{ sf.error_message }}</p>{% endif %}
 {% if sf.status == "needs_mapping" %}<div class="card attnbox">この形式の資料は初めてです（または見出しが変わりました）。<a href="{% url 'expenses:mapping' sf.pk %}">読み取りルールを設定</a>してください。</div>{% endif %}
 

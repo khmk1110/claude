@@ -4,9 +4,11 @@ from . import views
 
 app_name = "payroll"
 urlpatterns = [
-    path("", views.index, name="index"),
+    path("", views.month_home, name="index"),
+    path("list/", views.index, name="list"),
     path("action/", views.month_action, name="month_action"),
     path("sales/", views.sales, name="sales"),
+    path("counts/", views.counts_import, name="counts_import"),
     path("evidence/<int:pk>/", views.evidence_file, name="evidence"),
     path("employees/", views.employees, name="employees"),
     path("teams/", views.teams, name="teams"),

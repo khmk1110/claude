@@ -94,6 +94,57 @@ def index(request):
 
 
 @payroll_view
+def month_home(request):
+    """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""
+    from apps.accounts import stepup as _stepup
+    from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
+
+    month = month_from_request(request)
+    pm = prev_month(month)
+    members = list(members_for_month(month).filter(employment_type__in=calc.PAYROLL_TYPES))
+    acq = set(SalesCount.objects.filter(month=pm, kind="acquired", member__in=members).values_list("member", flat=True))
+    conf = set(SalesCount.objects.filter(month=month, kind="confirmed", member__in=members).values_list("member", flat=True))
+    sts = list(PayrollStatement.objects.filter(month=month).select_related("member").prefetch_related("lines", "inputs")
+               .order_by("member__display_order", "member_id"))
+    prev_net = dict(PayrollStatement.objects.filter(month=pm, status=S.CONFIRMED).values_list("member_id", "net_amount"))
+    rows = []
+    for st in sts:
+        lines = {l.code: l.amount for l in st.lines.all()}
+        inputs = {i.key: i.value for i in st.inputs.all()}
+        notes = [m["text"] for m in (st.calc_messages or []) if m.get("level") == "error"]
+        warns = [m["text"] for m in (st.calc_messages or []) if m.get("level") == "warning"]
+        pn = prev_net.get(st.member_id)
+        if pn and st.net_amount is not None and abs(st.net_amount - pn) > max(abs(pn) * 0.3, 30000):
+            warns.append(f"先月（{pn:,}円）から大きく変わっています")
+        commission = lines.get("sales_commission", 0) + sum(v for k, v in lines.items() if k.startswith("product_"))
+        rows.append({"st": st, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
+                     "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
+                     "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns})
+    expenses_ok = _stepup.is_verified(request, "expenses", touch=False)
+    files = list(SourceFile.objects.filter(target_month=month).order_by("-uploaded_at")) if expenses_ok else []
+    open_recs = ExpenseRecord.objects.filter(status__in=["imported", "unchecked", "pending", "modified"], auto_target_month=month).count()
+    for f in files:
+        f.open_count = f.records.filter(status__in=["imported", "unchecked", "pending", "modified"]).count()
+    errors = sum(1 for r in rows if r["errors"])
+    confirmable = [st for st in sts if st.status in (S.CALCULATED, S.REVIEW) and not st.blocking_errors]
+    contractors = [st for st in sts if st.employment_type == "contractor"]
+    checklist = [
+        ("全員分の給与データがある", bool(sts) and len(sts) >= len(members)),
+        ("全員の計算が終わり、入力不足がない", bool(sts) and errors == 0 and all(st.status != S.NOT_CALCULATED for st in sts)),
+        ("交通費から35,000円を引いた（個人事業主）", all("transport_contractor" in {l.code for l in st.lines.all()} for st in contractors)),
+        ("アプリ手数料4,000円を引いた（個人事業主）", all("app_fee" in {l.code for l in st.lines.all()} for st in contractors)),
+        ("ガソリン代・交通費の確認待ちがない", open_recs == 0),
+    ]
+    return render(request, "payroll/month_home.html", {
+        **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
+        "files": files, "open_recs": open_recs, "expenses_ok": expenses_ok, "errors": errors,
+        "confirmable": len(confirmable), "confirmed": sum(1 for st in sts if st.is_confirmed), "sts": sts,
+        "checklist": checklist, "step1_done": members and len(acq) >= len(members) and len(conf) >= len(members),
+        "categories": ExpenseCategory.objects.filter(is_active=True),
+    })
+
+
+@payroll_view
 @require_POST
 def month_action(request):
     month = month_from_request(request)
@@ -112,6 +163,15 @@ def month_action(request):
             messages.warning(request, msg + f"うち{errors}人は入力が足りないため「入力途中」です。")
         else:
             messages.success(request, msg)
+    elif action == "confirm_all":
+        ok, skipped = 0, []
+        for st in PayrollStatement.objects.filter(month=month, status__in=[S.CALCULATED, S.REVIEW]):
+            if st.blocking_errors:
+                skipped.append(st.member.name)
+                continue
+            calc.confirm(st, user=request.user)
+            ok += 1
+        messages.success(request, f"{ok}人分を確定しました。" + (f"（入力不足のため確定しなかった人: {'、'.join(skipped)}）" if skipped else ""))
     elif action == "payment_date":
         pm = calc.ensure_month(month)
         try:
@@ -124,6 +184,9 @@ def month_action(request):
             pm.payment_date = new
             pm.save()
             messages.success(request, "支払日を変更しました（確定済みの明細は確定時の支払日のままです）。")
+    nxt = request.POST.get("next", "")
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
     return redirect(f"/payroll/?month={month:%Y-%m}")
 
 
@@ -604,3 +667,117 @@ def parse_month_input(text):
     from apps.core.months import parse_month
 
     return parse_month(text) if text else None
+
+
+# ---------------------------------------------------------------------------
+# 営業件数の取り込み（LINEの文・スクショ・表のコピペ）→ 確認 → 保存
+# ---------------------------------------------------------------------------
+def _resolve_year(month_no: int, base: date) -> date:
+    y = base.year if month_no <= base.month else base.year - 1
+    return date(y, month_no, 1)
+
+
+@payroll_view
+def counts_import(request):
+    from django.utils import timezone
+
+    from apps.core.months import month_start
+    from apps.core.text import normalize_name
+
+    from . import ingest
+    from .models import IgnoredName
+
+    payroll_month = month_from_request(request)
+    plan = request.session.get("counts_import")
+    if request.method == "POST" and request.POST.get("step") == "parse":
+        kind = request.POST.get("kind", "acquired")
+        text = request.POST.get("text", "")
+        f = request.FILES.get("file")
+        try:
+            if f:
+                text = (text + "\n" if text else "") + ingest.text_from_upload(f)
+            parsed = ingest.parse_dashboard(text) if kind == "acquired" else ingest.parse_count_table(text)
+        except Exception as e:  # noqa: BLE001
+            messages.error(request, f"読み取れませんでした: {e}")
+            return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")
+        if kind == "acquired":
+            target = _resolve_year(parsed.month, payroll_month) if parsed.month else prev_month(payroll_month)
+        else:
+            target = payroll_month
+        ignored = set(IgnoredName.objects.values_list("name_normalized", flat=True))
+        rows = []
+        for i, e in enumerate(parsed.entries):
+            res = match_member(e.name, include_retired=False)
+            rows.append({"i": i, "name": e.name, "count": e.count, "att": e.attendance, "line": e.line, "note": e.note,
+                         "member_id": res.member.pk if res.ok else None, "method": res.method,
+                         "ignored": normalize_name(e.name) in ignored})
+        if f or text:
+            SalesEvidence.objects.create(month=target, kind=kind, text=text[:5000], uploaded_by=request.user,
+                                         file=f if f and not f.name.lower().endswith((".xlsx", ".xls", ".csv")) else "")
+        request.session["counts_import"] = {"kind": kind, "month": target.isoformat(), "payroll_month": payroll_month.isoformat(),
+                                            "rows": rows, "total": parsed.total, "warnings": parsed.warnings}
+        return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")
+    if request.method == "POST" and request.POST.get("step") == "cancel":
+        request.session.pop("counts_import", None)
+        return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")
+    if request.method == "POST" and request.POST.get("step") == "apply" and plan:
+        target = date.fromisoformat(plan["month"])
+        kind = plan["kind"]
+        saved = 0
+        with transaction.atomic():
+            for r in plan["rows"]:
+                choice = request.POST.get(f"member_{r['i']}", "skip")
+                if choice == "skip":
+                    if request.POST.get(f"ignore_{r['i']}"):
+                        IgnoredName.objects.get_or_create(name_normalized=normalize_name(r["name"]), defaults={"name": r["name"]})
+                    continue
+                m = get_object_or_404(Member, pk=int(choice))
+                count = _int_or_none(request.POST.get(f"count_{r['i']}"))
+                if count is None or count < 0:
+                    continue
+                if r["method"] != "exact" or r["member_id"] != m.pk:
+                    from apps.members.models import MemberAlias
+
+                    MemberAlias.objects.get_or_create(member=m, alias=r["name"], defaults={"note": "営業件数の資料の表記"})
+                row = SalesCount.objects.filter(member=m, month=target, kind=kind, product__isnull=True).first()
+                before = row.count if row else None
+                if row:
+                    row.count, row.source, row.updated_by = count, SalesCount.Source.IMAGE, request.user
+                    row.save()
+                else:
+                    SalesCount.objects.create(member=m, month=target, kind=kind, count=count, source=SalesCount.Source.IMAGE,
+                                              updated_by=request.user)
+                if before != count:
+                    label = SalesCount.Kind(kind).label
+                    audit.log("payroll.sales_count", target=m, before={"count": before}, after={"month": target, "kind": label, "count": count},
+                              user=request.user, reason="資料から取り込み")
+                    for am in ([target] if kind == SalesCount.Kind.CONFIRMED else [target, next_month(target)]):
+                        _flag_confirmed(m, am, f"{target:%Y年%m月}の{label}が {before} → {count} に変更", request.user)
+                saved += 1
+        request.session.pop("counts_import", None)
+        messages.success(request, f"{target:%Y年%m月}の{SalesCount.Kind(kind).label}を {saved}人分 保存しました。")
+        return redirect(f"/payroll/?month={payroll_month:%Y-%m}")
+
+    ctx = {**month_context(payroll_month), "prev": prev_month(payroll_month)}
+    if plan:
+        target = date.fromisoformat(plan["month"])
+        from apps.attendance import services as attendance_services
+
+        members = Member.objects.filter(status=Member.Status.ACTIVE)
+        existing = {s.member_id: s.count for s in SalesCount.objects.filter(month=target, kind=plan["kind"], product__isnull=True)}
+        rows = []
+        for r in plan["rows"]:
+            sys_att = None
+            if plan["kind"] == "acquired" and r["member_id"]:
+                m = Member.objects.filter(pk=r["member_id"]).first()
+                if m:
+                    d, _ = attendance_services.actual_attendance_days(m, target)
+                    sys_att = float(d) if d is not None else None
+            rows.append({**r, "existing": existing.get(r["member_id"]), "sys_att": sys_att,
+                         "att_mismatch": sys_att is not None and r["att"] is not None and abs(sys_att - r["att"]) >= 0.5})
+        listed = {r["member_id"] for r in plan["rows"] if r["member_id"]}
+        missing = [m for m in members.filter(employment_type__in=calc.PAYROLL_TYPES) if m.pk not in listed]
+        total_sum = sum(r["count"] for r in plan["rows"])
+        ctx.update({"plan": plan, "rows": rows, "members": members, "target": target, "missing": missing,
+                    "total_sum": total_sum, "kind_label": SalesCount.Kind(plan["kind"]).label})
+    return render(request, "payroll/counts_import.html", ctx)

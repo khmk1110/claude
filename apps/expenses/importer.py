@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import re
 import urllib.parse
 import urllib.request
 from datetime import date
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
@@ -31,7 +33,8 @@ from .models import DocumentKind, ExpenseCategory, ExpenseIssue, ExpenseRecord, 
 R = ExpenseRecord.Status
 Code = ExpenseIssue.Code
 MAX_BYTES = 20 * 1024 * 1024
-FORMATS = {".xlsx": "xlsx", ".xls": "xls", ".csv": "csv", ".pdf": "pdf"}
+FORMATS = {".xlsx": "xlsx", ".xls": "xls", ".csv": "csv", ".pdf": "pdf",
+           ".png": "image", ".jpg": "image", ".jpeg": "image", ".webp": "image"}
 LOW_CONFIDENCE = 0.8
 
 
@@ -62,7 +65,7 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
     elif ext in FORMATS:
         fmt = FORMATS[ext]
     else:
-        raise ValueError(f"{filename}: 対応していない形式です（Excel・CSV・PDF のみ）。")
+        raise ValueError(f"{filename}: 対応していない形式です（Excel・CSV・PDF・画像（PNG/JPEG）のみ）。")
     if len(data) > MAX_BYTES:
         raise ValueError(f"{filename}: ファイルが大きすぎます（20MBまで）。")
     sha = hashlib.sha256(data).hexdigest()
@@ -77,8 +80,33 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
         sf.document_kind = kind
     sf.save()
     audit.log("expenses.import", target=sf, after={"filename": filename, "format": fmt, "size": len(data)}, user=user)
+    if fmt in ("image", "pdf") and getattr(settings, "OCR_IN_BACKGROUND", True):
+        # 画像の読み取り（OCR）は時間がかかるため、保存後に裏で読み取る（画面は「読み取り中」と表示）
+        sf.status = SourceFile.Status.PROCESSING
+        sf.save(update_fields=["status"])
+        transaction.on_commit(lambda: _start_background(sf.pk))
+        return sf
     process(sf, data=data, user=user)
     return sf
+
+
+def _start_background(pk: int) -> None:
+    import threading
+
+    threading.Thread(target=_process_in_background, args=(pk,), daemon=True).start()
+
+
+def _process_in_background(pk: int) -> None:
+    from django.db import close_old_connections
+
+    close_old_connections()
+    try:
+        sf = SourceFile.objects.get(pk=pk)
+        process(sf)
+    except Exception as e:  # noqa: BLE001
+        SourceFile.objects.filter(pk=pk).update(status=SourceFile.Status.ERROR, error_message=f"読み取れませんでした: {e}")
+    finally:
+        close_old_connections()
 
 
 def import_google_sheet(url: str, *, user=None, kind=None, target_month=None) -> SourceFile:
@@ -148,6 +176,10 @@ def process(sf: SourceFile, *, data: bytes | None = None, user=None) -> SourceFi
     sf.save()
     for w in doc.warnings:
         ExpenseIssue.objects.create(source_file=sf, code=Code.LOW_CONFIDENCE, message=w[:255])
+    if getattr(doc, "warnings_ok", ""):
+        sf.error_message = ""
+        sf.save(update_fields=["error_message"])
+        audit.log("expenses.ocr_verified", target=sf, after={"note": doc.warnings_ok})
     _create_records(sf, doc, _category_for(sf, profile))
     check_file(sf)
     return sf
@@ -217,6 +249,24 @@ def import_line_text(text: str, *, category: ExpenseCategory, target_month: date
 
 
 @transaction.atomic
+def import_gasoline_text(text: str, *, target_month: date, user=None) -> SourceFile:
+    """「0007 82049」のような文からガソリン代を取り込む（カード識別4桁で担当者を判定）。"""
+    doc = parsers.parse_gasoline_text(text)
+    if not doc.rows:
+        raise ValueError(doc.warnings[0])
+    target_month = month_start(target_month)
+    now = timezone.now()
+    sha = hashlib.sha256(f"gas|{text}|{now.isoformat()}".encode()).hexdigest()
+    sf = SourceFile.objects.create(original_name=f"ガソリン代（文で入力）{target_month:%Y年%m月}（{now:%m/%d %H:%M}）", sha256=sha,
+                                   file_format=SourceFile.Format.MANUAL, document_kind=DocumentKind.GASOLINE,
+                                   document_kind_auto=DocumentKind.GASOLINE, target_month=target_month, parser="gasoline_text",
+                                   status=SourceFile.Status.PARSED, uploaded_by=user, row_count=len(doc.rows))
+    _create_records(sf, doc, ExpenseCategory.objects.get(code="gasoline"))
+    audit.log("expenses.import_gasoline_text", target=sf, after={"rows": len(doc.rows)}, user=user)
+    return sf
+
+
+@transaction.atomic
 def confirm_amounts(sf: SourceFile, amounts: dict, *, user=None, reason: str = "元資料と照合") -> int:
     """OCR などで読んだ行の金額を、元資料と見比べてまとめて確定する。"""
     n = 0
@@ -238,6 +288,26 @@ def _parse(sf: SourceFile, data: bytes):
             sf.document_kind_auto = profile.document_kind if profile else parsers.guess_kind(sf.original_name + " ".join(headers))
             sf.document_kind = sf.document_kind_auto
         return parsers.parse_table(rows, profile), profile
+
+    if sf.file_format == SourceFile.Format.IMAGE:
+        from PIL import Image
+
+        from . import ocr
+
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        if sf.document_kind in (DocumentKind.UNKNOWN, DocumentKind.GASOLINE):
+            sf.document_kind_auto = DocumentKind.GASOLINE
+            sf.document_kind = DocumentKind.GASOLINE
+            return parsers.parse_eneos_image(img), _builtin_profile("eneos_card_summary")
+        # 交通費などの請求書のスクショ: 文字を読み取って「交通費(8月分) 氏名 … 金額」の行を探す（必ず確認待ち）
+        words = ocr.ocr_words(img.convert("L").resize((img.width * 2, img.height * 2)), lang="jpn+eng", psm=6)
+        text = "\n".join(line.text for line in ocr.group_lines(words, tolerance=20))
+        doc = parsers.parse_transport_invoice([text], timezone.localdate())
+        doc.used_ocr = True
+        for r in doc.rows:
+            r.confidence = 0.6
+        return doc, _builtin_profile("transport_invoice")
 
     # PDF
     from . import ocr

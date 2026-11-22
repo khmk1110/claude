@@ -518,3 +518,18 @@ class PayrollLine(_StatementChild):
         if self.override_amount is not None:
             return self.override_amount
         return self.auto_amount or 0
+
+
+class IgnoredName(models.Model):
+    """資料に載っていても取り込まない名前（例: 代表など給与計算の対象外の人）。確認画面で選ぶと次回から自動で除外する。"""
+
+    name_normalized = models.CharField("名前（正規化）", max_length=100, unique=True)
+    name = models.CharField("名前", max_length=100)
+    note = models.CharField("メモ", max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = "取り込まない名前"
+        verbose_name_plural = "取り込まない名前"
+
+    def __str__(self):
+        return self.name
