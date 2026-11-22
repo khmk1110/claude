@@ -268,3 +268,41 @@ class TransportFormatVariantsTests(TestCase):
         doc = parse_transport_invoice([text], _d(2026, 11, 1))
         self.assertEqual([(r.name, r.amount) for r in doc.rows], [("大石", 52080), ("長谷川", 6822), ("吉野", 7184)])
         self.assertEqual(doc.document_month, _d(2026, 10, 1))
+
+
+@override_settings(OCR_IN_BACKGROUND=False)
+class TransportReimportTests(TestCase):
+    def _png(self):
+        import io
+
+        from PIL import Image, ImageDraw, ImageFont
+
+        f = ImageFont.truetype("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", 30)
+        img = Image.new("RGB", (1206, 500), "white")
+        d = ImageDraw.Draw(img)
+        d.text((40, 40), "品目                     単価     数量    価格", font=f, fill="black")
+        for i, (n, a) in enumerate([("大石", "52,080"), ("長谷川", "6,822")]):
+            y = 110 + 60 * i
+            d.text((40, y), f"交通費(8月分)  {n}", font=f, fill="black")
+            d.text((560, y), a, font=f, fill="black")
+            d.text((800, y), "1", font=f, fill="black")
+            d.text((1000, y), a, font=f, fill="black")
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        return buf.getvalue()
+
+    def test_same_file_as_gasoline_then_transport(self):
+        from datetime import date as _d
+
+        from apps.expenses import importer
+
+        data = self._png()
+        sf = importer.import_file(data, "inv.png", kind="gasoline", target_month=_d(2026, 11, 1))
+        self.assertEqual(sf.document_kind, "transport")  # ガソリン代として読めないので交通費として取り込む
+        self.assertEqual(sorted(r.effective_amount for r in sf.records.all()), [6822, 52080])
+        sf.records.all().delete()
+        sf.row_count = 0
+        sf.save()
+        again = importer.import_file(data, "inv.png", kind="transport", target_month=_d(2026, 11, 1))  # 重複でも読み直す
+        self.assertEqual(again.pk, sf.pk)
+        self.assertEqual(again.records.count(), 2)

@@ -228,6 +228,7 @@ def parse_transport_invoice(pages: list[str], today: date) -> ParsedDocument:
             # スクショの読み取りでは「交通 費 (8 月 分 ) 矢 木 淳之介」のように1文字ずつ空白が入るので詰める
             line = re.sub(r"(?<=[^\x00-\x7F¥￥]) +(?=[^\x00-\x7F¥￥])", "", line)
             line = re.sub(r"[(（]\s*(\d{1,2})\s*月\s*分\s*[)）]", r"(\1月分)", line)
+            line = re.sub(r"(\d)\s*[,.]\s+(\d{3})(?!\d)", r"\1,\2", line)  # 「52, 080」→「52,080」
             m = TRANSPORT_LINE.search(line)
             if m:
                 month_no, name, total = int(m[1]), m[2].strip(), m[5]

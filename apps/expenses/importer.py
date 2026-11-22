@@ -15,7 +15,7 @@ import os
 import re
 import urllib.parse
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -72,6 +72,28 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
     existing = SourceFile.objects.filter(sha256=sha).first()
     if existing:
         audit.log("expenses.duplicate_file", target=existing, after={"filename": filename}, user=user)
+        wrong_kind = kind in DocumentKind.values and kind != DocumentKind.UNKNOWN and existing.document_kind != kind
+        stuck = existing.status == SourceFile.Status.PROCESSING and existing.uploaded_at < timezone.now() - timedelta(minutes=10)
+        failed = stuck or existing.status == SourceFile.Status.ERROR or (existing.status == SourceFile.Status.PARSED and not existing.row_count)
+        locked = existing.records.exclude(status__in=[R.IMPORTED, R.UNCHECKED, R.PENDING]).exists()
+        if (wrong_kind or failed) and not locked:
+            # 同じファイルを別の種類（例: ガソリン代→交通費）で選び直した時や、前回読めなかった時は、読み直す
+            before = {"kind": existing.document_kind, "target_month": existing.target_month}
+            if wrong_kind:
+                existing.document_kind = kind
+                existing.document_kind_auto = kind
+            if target_month:
+                existing.target_month = target_month
+            existing.save()
+            audit.log("expenses.reimport", target=existing, before=before,
+                      after={"kind": existing.document_kind, "target_month": existing.target_month}, user=user)
+            if existing.file_format in ("image", "pdf") and getattr(settings, "OCR_IN_BACKGROUND", True):
+                existing.status = SourceFile.Status.PROCESSING
+                existing.save(update_fields=["status"])
+                transaction.on_commit(lambda: _start_background(existing.pk))
+                return existing
+            process(existing, data=data, user=user)
+            return existing
         raise DuplicateFile(existing)
     sf = SourceFile(original_name=filename[:255], sha256=sha, size=len(data), file_format=fmt, gsheet_url=gsheet_url,
                     uploaded_by=user, target_month=target_month)
@@ -302,9 +324,23 @@ def _parse(sf: SourceFile, data: bytes):
         img = Image.open(io.BytesIO(data))
         img.load()
         if sf.document_kind in (DocumentKind.UNKNOWN, DocumentKind.GASOLINE):
-            sf.document_kind_auto = DocumentKind.GASOLINE
-            sf.document_kind = DocumentKind.GASOLINE
-            return parsers.parse_eneos_image(img), _builtin_profile("eneos_card_summary")
+            doc = parsers.parse_eneos_image(img)
+            if doc.rows:
+                sf.document_kind_auto = DocumentKind.GASOLINE
+                sf.document_kind = DocumentKind.GASOLINE
+                return doc, _builtin_profile("eneos_card_summary")
+            # ガソリン代の明細として読めなかった時は、交通費の請求書として試す（枠を間違えて選んだ時のため）
+            text = _transport_text_from_image(img)
+            tdoc = parsers.parse_transport_invoice([text], timezone.localdate())
+            if tdoc.rows:
+                sf.document_kind_auto = sf.document_kind = DocumentKind.TRANSPORT
+                tdoc.extracted_text, tdoc.used_ocr = text, True
+                tdoc.warnings.append("ガソリン代として選ばれましたが、交通費の請求書だったので交通費として取り込みました。")
+                for r in tdoc.rows:
+                    r.confidence = 0.6
+                return tdoc, _builtin_profile("transport_invoice")
+            sf.document_kind_auto = sf.document_kind = DocumentKind.GASOLINE
+            return doc, _builtin_profile("eneos_card_summary")
         # 交通費などの請求書のスクショ: 文字を読み取って「交通費(8月分) 氏名 … 金額」の行を探す（必ず確認待ち）
         text = _transport_text_from_image(img)
         doc = parsers.parse_transport_invoice([text], timezone.localdate())
