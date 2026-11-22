@@ -2,5 +2,6 @@
   <a class="btn-light" href="{% url 'payroll:index' %}?month={{ month_param }}">月次一覧</a>
   <a class="btn-light" href="{% url 'payroll:sales' %}?month={{ month_param }}">営業件数の入力</a>
   <a class="btn-light" href="{% url 'payroll:employees' %}?month={{ month_param }}">正社員（基本給・参照）</a>
-  <a class="btn-light" href="/admin/payroll/">設定（給与項目・単価表・チーム）</a>
+  <a class="btn-light" href="{% url 'payroll:teams' %}">チーム</a>
+  <a class="btn-light" href="/admin/payroll/">設定（給与項目・単価表）</a>
 </div>

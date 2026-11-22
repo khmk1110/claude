@@ -54,6 +54,18 @@ def setup(request):
                 if not stepup.is_verified(request, "payroll"):
                     raise CommandError("単価表は給与のデータです。先に給与・報酬管理を開いて（追加パスワードを入力して）から実行してください。")
                 output = _run("import_legacy_payroll_setup", upload, "--effective-from", request.POST.get("effective_from", ""), apply=apply)
+            elif action == "setupfile":
+                if not stepup.is_verified(request, "payroll"):
+                    raise CommandError("チームや給与項目を含むため、先に給与・報酬管理を開いて（追加パスワードを入力して）から実行してください。")
+                import json
+
+                from apps.core.setup_file import apply_setup
+
+                try:
+                    data = json.loads(upload.read().decode("utf-8-sig"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                    raise CommandError(f"設定ファイルを読み取れません: {e}")
+                output = "\n".join(apply_setup(data, user=request.user, dry_run=not apply))
             elif action == "restore":
                 from apps.core.management.commands.restore_backup import restore
 

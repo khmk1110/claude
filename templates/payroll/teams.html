@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}チーム{% endblock %}
+{% block content %}
+<h1>チーム</h1>
+{% include "payroll/_nav.html" %}
+<p class="muted small">チーム達成ボーナス（営業チーム）とインターンリーダー手当（インターンチーム）の計算に使います。変更はその月以降の給与計算（未確定分）に自動で反映され、確定済みの給与は変わりません。メンバーは「加入月」「脱退月」で管理するので、過去の月の計算にも正しいメンバーが使われます。</p>
+
+{% for r in rows %}
+<div class="card" style="margin-bottom:16px;{% if not r.team.is_active %}opacity:.6{% endif %}">
+  <div class="pagehead" style="margin:0">
+    <b>{{ r.team.name }}</b> <span class="tag">{{ r.team.get_kind_display }}</span>{% if not r.team.is_active %} <span class="badge">停止中</span>{% endif %}
+    <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="team" value="{{ r.team.pk }}"><button class="btn-light" name="action" value="toggle">{% if r.team.is_active %}停止する{% else %}有効にする{% endif %}</button></form>
+  </div>
+  <form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="team" value="{{ r.team.pk }}">
+    リーダー <select name="leader" style="width:auto">{% for m in members %}<option value="{{ m.pk }}" {% if m == r.team.leader %}selected{% endif %}>{{ m.name }}</option>{% endfor %}</select>
+    <button class="btn-light" name="action" value="leader">リーダーを変更</button>
+  </form>
+  <table class="list"><tr><th>メンバー</th><th>区分</th><th>加入月</th><th>脱退</th></tr>
+    {% for ms in r.current %}<tr><td class="strong">{{ ms.member.name }}</td><td>{{ ms.member.get_employment_type_display }}</td><td>{{ ms.start_month|date:"Y年n月" }}〜{% if ms.end_month %}{{ ms.end_month|date:"Y年n月" }}{% endif %}</td>
+      <td><form method="post" class="inline" onsubmit="return confirm('{{ ms.member.name }}さんを指定の月までのメンバーにします。')">{% csrf_token %}<input type="hidden" name="team" value="{{ r.team.pk }}"><input type="hidden" name="membership" value="{{ ms.pk }}">
+        <input type="month" name="end_month" value="{{ month_param }}" style="width:auto"> まで <button class="btn-light" name="action" value="end">脱退</button></form></td></tr>
+    {% empty %}<tr><td colspan="4" class="muted">メンバーがいません。</td></tr>{% endfor %}
+    {% for ms in r.past %}<tr class="muted"><td>{{ ms.member.name }}</td><td>{{ ms.member.get_employment_type_display }}</td><td>{{ ms.start_month|date:"Y年n月" }}〜{{ ms.end_month|date:"Y年n月" }}</td><td>脱退済み</td></tr>{% endfor %}
+  </table>
+  <form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="team" value="{{ r.team.pk }}">
+    <select name="member" style="width:auto">{% for m in members %}{% if m != r.team.leader %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endif %}{% endfor %}</select>
+    <input type="month" name="start_month" value="{{ month_param }}" style="width:auto"> から <button class="btn-light" name="action" value="add">メンバーに追加</button>
+  </form>
+</div>
+{% empty %}<p class="muted">チームはまだありません。</p>{% endfor %}
+
+<h2>チームを作る</h2>
+<form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="create">
+  <select name="kind" style="width:auto">{% for v, l in kinds %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+  リーダー <select name="leader" style="width:auto">{% for m in members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select>
+  <input name="name" placeholder="チーム名（空欄なら「〇〇チーム」）" style="width:200px"> <button class="btn" type="submit">作る</button>
+</form>
+{% endblock %}

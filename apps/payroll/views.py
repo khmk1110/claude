@@ -481,3 +481,85 @@ def employees(request):
                      "base": bs, "third_month": third, "history": m.base_salaries.all()[:5]})
     audit.log("payroll.employees_view", target_type="payroll_month", target_id=month.isoformat(), user=request.user)
     return render(request, "payroll/employees.html", {**month_context(month), "rows": rows, "prev": pm})
+
+
+# ---------------------------------------------------------------------------
+# チーム（チーム達成ボーナス・インターンリーダー手当）
+# ---------------------------------------------------------------------------
+@payroll_view
+def teams(request):
+    from django.utils import timezone
+
+    from apps.core.months import month_start
+
+    from .models import Team, TeamMembership
+
+    this_month = month_start(timezone.localdate())
+    if request.method == "POST":
+        p, user = request.POST, request.user
+        action = p.get("action")
+        try:
+            with transaction.atomic():
+                if action == "create":
+                    leader = get_object_or_404(Member, pk=p.get("leader"))
+                    name = p.get("name", "").strip() or f"{leader.name.split()[0]}チーム"
+                    team = Team.objects.create(name=name, leader=leader, kind=p.get("kind", Team.Kind.SALES))
+                    audit.log("team.create", target=team, after={"leader": leader.name, "kind": team.get_kind_display()}, user=user)
+                    messages.success(request, f"チーム「{team.name}」を作りました。メンバーを追加してください。")
+                else:
+                    team = get_object_or_404(Team, pk=p.get("team"))
+                    if action == "leader":
+                        leader = get_object_or_404(Member, pk=p.get("leader"))
+                        audit.log("team.leader", target=team, before={"leader": team.leader.name}, after={"leader": leader.name}, user=user)
+                        team.leader = leader
+                        team.save()
+                        messages.success(request, f"リーダーを{leader.name}さんに変更しました（未確定の給与は再計算で反映されます）。")
+                    elif action == "add":
+                        m = get_object_or_404(Member, pk=p.get("member"))
+                        start = parse_month_input(p.get("start_month")) or this_month
+                        if TeamMembership.objects.filter(team=team, member=m, end_month__isnull=True).exists():
+                            raise ValueError(f"{m.name}さんはすでにメンバーです。")
+                        TeamMembership.objects.create(team=team, member=m, start_month=start)
+                        audit.log("team.member_add", target=team, after={"member": m.name, "start": start}, user=user)
+                        messages.success(request, f"{m.name}さんを{start:%Y年%m月}からメンバーにしました。")
+                    elif action == "end":
+                        ms = get_object_or_404(TeamMembership, pk=p.get("membership"), team=team)
+                        end = parse_month_input(p.get("end_month")) or this_month
+                        if end < ms.start_month:
+                            raise ValueError("脱退月は加入月以降にしてください。")
+                        ms.end_month = end
+                        ms.save()
+                        audit.log("team.member_end", target=team, after={"member": ms.member.name, "end": end}, user=user)
+                        messages.success(request, f"{ms.member.name}さんは{end:%Y年%m月}までのメンバーにしました。")
+                    elif action == "rename":
+                        audit.log("team.rename", target=team, before={"name": team.name}, after={"name": p.get("name")}, user=user)
+                        team.name = p.get("name", "").strip() or team.name
+                        team.save()
+                        messages.success(request, "チーム名を変更しました。")
+                    elif action == "toggle":
+                        team.is_active = not team.is_active
+                        team.save()
+                        audit.log("team.toggle", target=team, after={"is_active": team.is_active}, user=user)
+                        messages.success(request, "チームを" + ("有効" if team.is_active else "停止") + "にしました。")
+                    else:
+                        raise ValueError("不明な操作です。")
+        except ValueError as e:
+            messages.error(request, str(e))
+        return redirect("payroll:teams")
+
+    rows = []
+    for team in Team.objects.select_related("leader").order_by("-is_active", "kind", "name"):
+        current = [ms for ms in team.memberships.select_related("member").order_by("start_month")
+                   if ms.end_month is None or ms.end_month >= this_month]
+        past = [ms for ms in team.memberships.select_related("member") if ms.end_month and ms.end_month < this_month]
+        rows.append({"team": team, "current": current, "past": past})
+    return render(request, "payroll/teams.html", {
+        "rows": rows, "members": Member.objects.filter(status=Member.Status.ACTIVE), "kinds": Team.Kind.choices,
+        "month_param": f"{this_month:%Y-%m}",
+    })
+
+
+def parse_month_input(text):
+    from apps.core.months import parse_month
+
+    return parse_month(text) if text else None
