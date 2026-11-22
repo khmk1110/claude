@@ -15,11 +15,11 @@
       <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>
       <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>
     {% endif %}
-    {% for f in exp.gas.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」からガソリン代を読み取れませんでした。
+    {% for f in exp.gas.empty %}<div class="notice notice-block">⚠️ 「{{ f.original_name }}」からガソリン代を読み取れませんでした。
       <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
       <div class="small">読めない時は下の「文で入れる」で入力できます。</div></div>{% endfor %}
-    {% for f in exp.gas.errors %}<div class="notice">⚠️ 「{{ f.original_name }}」は読み取れませんでした。スクショで取り込むと確実です。
+    {% for f in exp.gas.errors %}<div class="notice notice-block">⚠️ 「{{ f.original_name }}」は読み取れませんでした。スクショで取り込むと確実です。
       <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="discard"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas">
         <button class="btn" type="submit">この資料を取り消す</button></form></div>{% endfor %}
 
@@ -75,13 +75,13 @@
       <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>
       <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>
     {% endif %}
-    {% for f in exp.tr.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」から交通費の行を読み取れませんでした。
+    {% for f in exp.tr.empty %}<div class="notice notice-block">⚠️ 「{{ f.original_name }}」から交通費の行を読み取れませんでした。
       <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
       <div class="small">読めない時は下の「文で入れる」で入力できます。</div>
       {% if f.error_message %}<details class="small" style="margin-top:6px"><summary>読み取った文字を見る（うまくいかない時はこの画面を送ってください）</summary><div style="word-break:break-all">{{ f.error_message }}</div></details>{% endif %}</div>{% endfor %}
-    {% for f in exp.tr.needs %}<div class="notice">⚠️ 「{{ f.original_name }}」は初めての形式の資料です。<a href="{% url 'payroll_expenses:mapping' f.pk %}">どの列が名前・金額かを1回だけ設定する</a>と、次回から自動で読み取ります。</div>{% endfor %}
-    {% for f in exp.tr.errors %}<div class="notice">⚠️ 「{{ f.original_name }}」を読み取れませんでした。
+    {% for f in exp.tr.needs %}<div class="notice notice-block">⚠️ 「{{ f.original_name }}」は初めての形式の資料です。<a href="{% url 'payroll_expenses:mapping' f.pk %}">どの列が名前・金額かを1回だけ設定する</a>と、次回から自動で読み取ります。</div>{% endfor %}
+    {% for f in exp.tr.errors %}<div class="notice notice-block">⚠️ 「{{ f.original_name }}」を読み取れませんでした。
       <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
         <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
       <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="notice-actions">{% csrf_token %}<input type="hidden" name="action" value="discard"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">

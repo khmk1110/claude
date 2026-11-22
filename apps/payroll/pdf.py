@@ -54,11 +54,16 @@ def slip_rows(snapshot: dict) -> list[tuple[str, str, int]]:
     return rows
 
 
+NAVY = colors.HexColor("#1e293b")
+LABEL = colors.HexColor("#6b7280")
+RULE = colors.HexColor("#c8c2a8")
+
+
 def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None:
+    """スプレッドシートの「個人別明細」と同じ構成：明細書/STATEMENT・宛名・支払日・内容/内訳/金額（税込）・合計・差引支払額・発行者。"""
     f = font_name()
     W, H = A4
-    left, right = 22 * mm, W - 22 * mm
-    month = date.fromisoformat(snap["month"])
+    left, right = 20 * mm, W - 20 * mm
     pay = date.fromisoformat(snap["payment_date"])
 
     if draft:
@@ -70,72 +75,98 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
         c.drawCentredString(0, 0, "未確定（確認用）")
         c.restoreState()
 
+    # 見出し
     y = H - 30 * mm
-    c.setFont(f, 24)
-    c.drawCentredString(W / 2, y, "明 細 書")
-    c.setFont(f, 10)
-    c.setFillColor(colors.HexColor("#6b7280"))
-    c.drawCentredString(W / 2, y - 7 * mm, "STATEMENT")
     c.setFillColor(colors.black)
-
-    y -= 22 * mm
-    c.setFont(f, 15)
-    c.drawString(left, y, f"{snap['member']['name']} 様")
+    c.setFont(f, 22)
+    c.drawString(left, y, "明 細 書")
+    c.setFont(f, 10)
+    c.setFillColor(LABEL)
+    c.drawRightString(right, y + 1 * mm, "STATEMENT")
+    c.setStrokeColor(RULE)
     c.setLineWidth(0.8)
-    c.line(left, y - 2.5 * mm, left + 85 * mm, y - 2.5 * mm)
-    c.setFont(f, 10.5)
-    c.drawRightString(right, y + 6 * mm, f"{month.year}年{month.month}月分")
-    c.drawRightString(right, y, f"支払日　{pay.year}年{pay.month}月{pay.day}日")
+    c.line(left, y - 5 * mm, right, y - 5 * mm)
+
+    # 宛名・支払日
+    y -= 18 * mm
+    c.setFont(f, 9)
+    c.setFillColor(LABEL)
+    c.drawString(left, y, "宛名")
+    c.drawString(left + 100 * mm, y, "支払日")
+    c.setFillColor(colors.black)
+    c.setFont(f, 12)
+    c.drawString(left + 22 * mm, y, f"{snap['member']['name']} 様")
+    c.drawRightString(right, y, f"{pay.year}年{pay.month}月{pay.day}日")
+    c.setStrokeColor(colors.HexColor("#e5e7eb"))
+    c.setLineWidth(0.5)
+    c.line(left, y - 3 * mm, right, y - 3 * mm)
 
     # 表
     rows = slip_rows(snap)
     total = sum(r[2] for r in rows)
-    y -= 16 * mm
-    col1, col2, col3 = left, left + 52 * mm, right
-    row_h = 9.5 * mm
-    c.setFillColor(colors.HexColor("#f3f4f6"))
-    c.rect(left, y - row_h, right - left, row_h, stroke=0, fill=1)
-    c.setFillColor(colors.black)
-    c.setFont(f, 10.5)
-    c.drawString(col1 + 3 * mm, y - 6.3 * mm, "内容")
-    c.drawString(col2 + 3 * mm, y - 6.3 * mm, "内訳")
-    c.drawRightString(col3 - 3 * mm, y - 6.3 * mm, "金額（税込）")
-    c.setStrokeColor(colors.HexColor("#9ca3af"))
-    c.line(left, y, right, y)
-    c.line(left, y - row_h, right, y - row_h)
-    y -= row_h
-    c.setStrokeColor(colors.HexColor("#d1d5db"))
+    y -= 14 * mm
+    col1, col2, col3 = left, left + 38 * mm, right
+    head_h, row_h = 10 * mm, 11 * mm
+    c.setFillColor(NAVY)
+    c.rect(left, y - head_h, right - left, head_h, stroke=0, fill=1)
+    c.setFillColor(colors.white)
+    c.setFont(f, 10)
+    c.drawString(col1 + 3 * mm, y - 6.6 * mm, "内容")
+    c.drawString(col2 + 3 * mm, y - 6.6 * mm, "内訳")
+    c.drawRightString(col3 - 3 * mm, y - 6.6 * mm, "金額（税込）")
+    y -= head_h
+    c.setStrokeColor(colors.HexColor("#e5e7eb"))
     for name, detail, amount in rows:
+        c.setFillColor(colors.black)
         c.setFont(f, 10.5)
-        c.drawString(col1 + 3 * mm, y - 6.3 * mm, name)
+        c.drawString(col1 + 3 * mm, y - 7 * mm, name)
         c.setFont(f, 9.5)
-        c.drawString(col2 + 3 * mm, y - 6.3 * mm, detail[:40])
-        c.setFont(f, 11)
-        c.drawRightString(col3 - 3 * mm, y - 6.3 * mm, _yen(amount))
+        c.drawString(col2 + 3 * mm, y - 7 * mm, detail[:42])
+        c.setFont(f, 10.5)
+        c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(amount)}円")
         y -= row_h
         c.line(left, y, right, y)
-    c.setStrokeColor(colors.HexColor("#9ca3af"))
-    for label, value, size in (("報酬額合計", total, 11.5), ("差引支払額", snap["totals"]["net"], 13)):
-        c.setFont(f, size)
-        c.drawString(col1 + 3 * mm, y - 6.6 * mm, label)
-        c.drawRightString(col3 - 3 * mm, y - 6.6 * mm, f"{_yen(value)} 円")
-        y -= row_h + 1 * mm
-        c.line(left, y, right, y)
-    c.setLineWidth(1.2)
+    # 報酬額合計
+    c.setFont(f, 10.5)
+    c.drawString(col1 + 3 * mm, y - 7 * mm, "報酬額合計")
+    c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(total)}円")
+    y -= row_h
     c.line(left, y, right, y)
+    # 差引支払額（黒帯）
+    y -= 4 * mm
+    bar_h = 9 * mm
+    c.setFillColor(colors.black)
+    c.rect(left, y - bar_h, right - left, bar_h, stroke=0, fill=1)
+    c.setFillColor(colors.white)
+    c.setFont(f, 12)
+    c.drawString(col1 + 3 * mm, y - 6.2 * mm, "差引支払額")
+    c.setFont(f, 14)
+    c.drawRightString(col3 - 3 * mm, y - 6.4 * mm, f"{_yen(snap['totals']['net'])}円")
+    y -= bar_h
 
     # 発行者
     issuer = snap.get("issuer", {})
-    y -= 18 * mm
-    c.setFont(f, 10)
-    c.drawString(left, y, f"発行者　{issuer.get('company', '')}")
-    if issuer.get("representative"):
-        c.drawString(left + 95 * mm, y, issuer["representative"])
-    y -= 6 * mm
-    if issuer.get("address"):
-        c.drawString(left, y, f"所在地　{issuer['address']}")
-    if issuer.get("tel"):
-        c.drawString(left + 95 * mm, y, f"TEL　{issuer['tel']}")
+    y -= 16 * mm
+    c.setStrokeColor(RULE)
+    c.setLineWidth(0.8)
+    c.line(left, y + 5 * mm, right, y + 5 * mm)
+    for label1, value1, label2, value2 in (
+        ("発行者", issuer.get("company", ""), "代表取締役" if issuer.get("representative") else "", issuer.get("representative", "")),
+        ("所在地", issuer.get("address", ""), "TEL" if issuer.get("tel") else "", issuer.get("tel", "")),
+    ):
+        if not value1 and not value2:
+            continue
+        c.setFont(f, 8.5)
+        c.setFillColor(LABEL)
+        c.drawString(left, y, label1)
+        if label2:
+            c.drawString(left + 100 * mm, y, label2)
+        c.setFillColor(colors.black)
+        c.setFont(f, 9.5)
+        c.drawString(left + 22 * mm, y, value1)
+        if label2:
+            c.drawString(left + 125 * mm, y, value2)
+        y -= 6 * mm
 
 
 def render_pdf(items: list[tuple[dict, bool]]) -> bytes:

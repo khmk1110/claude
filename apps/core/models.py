@@ -52,3 +52,20 @@ class StoredFile(models.Model):
     class Meta:
         verbose_name = "保存ファイル"
         verbose_name_plural = "保存ファイル"
+
+
+class SiteSetting(models.Model):
+    """画面から変更できる設定（明細書の発行者情報など）。"""
+
+    key = models.CharField("キー", max_length=64, unique=True)
+    value = models.TextField("値", blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "設定"
+        verbose_name_plural = "設定"
+
+    @classmethod
+    def get(cls, key: str, default: str = "") -> str:
+        row = cls.objects.filter(key=key).first()
+        return row.value if row and row.value else default

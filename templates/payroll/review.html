@@ -18,16 +18,13 @@
   {# ── 明細のプレビュー（PDFと同じ内容） ── #}
   <section class="slip {% if draft %}is-draft{% endif %}">
     {% if draft %}<div class="slip-stamp">確認用</div>{% else %}<div class="slip-stamp ok">確定済み</div>{% endif %}
-    <h2 class="slip-title">明 細 書</h2>
-    <div class="slip-head">
-      <div class="slip-name">{{ snap.member.name }} 様</div>
-      <div class="slip-meta">{{ month|date:"Y年n月" }}分<br><span class="muted small">支払日 {{ snap.payment_date }}</span></div>
-    </div>
+    <div class="slip-top"><h2 class="slip-title">明 細 書</h2><span class="slip-en">STATEMENT</span></div>
+    <div class="slip-row"><span class="lbl">宛名</span><b>{{ snap.member.name }} 様</b><span class="lbl">支払日</span><span>{{ pay_date|date:"Y年n月j日" }}</span></div>
     <table class="slip-table">
-      <thead><tr><th>内容</th><th class="num">金額</th></tr></thead>
+      <thead><tr><th>内容</th><th>内訳</th><th class="num">金額（税込）</th></tr></thead>
       <tbody>
       {% for r in rows %}
-        <tr><td><b>{{ r.name }}</b>{% if r.detail %}<div class="small muted">{{ r.detail }}</div>{% endif %}
+        <tr><td><b>{{ r.name }}</b></td><td class="small">{{ r.detail }}
             {% if r.editable %}
             <details class="slip-edit"><summary>金額を直す</summary>
               <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="form-row">{% csrf_token %}
@@ -41,14 +38,16 @@
             <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="action" value="adhoc_remove"><input type="hidden" name="line_id" value="{{ r.line.pk }}">
               <button class="linkbtn small" type="submit" onclick="return confirm('「{{ r.name }}」を消しますか？')">この項目を消す</button></form>
             {% endif %}
-        </td><td class="num {% if r.amount < 0 %}neg{% endif %}">{{ r.amount|intcomma }}</td></tr>
-      {% empty %}<tr><td colspan="2" class="muted">まだ計算していません。</td></tr>{% endfor %}
+        </td><td class="num {% if r.amount < 0 %}neg{% endif %}">{{ r.amount|intcomma }}円</td></tr>
+      {% empty %}<tr><td colspan="3" class="muted">まだ計算していません。</td></tr>{% endfor %}
+        <tr class="sum"><td colspan="2">報酬額合計</td><td class="num">{{ total|intcomma }}円</td></tr>
       </tbody>
-      <tfoot>
-        <tr><td>報酬額合計</td><td class="num">{{ total|intcomma }} 円</td></tr>
-        <tr class="net"><td>差引支払額</td><td class="num">{{ snap.totals.net|default_if_none:"-"|intcomma }} 円</td></tr>
-      </tfoot>
     </table>
+    <div class="slip-net"><span>差引支払額</span><b>{{ snap.totals.net|default_if_none:"-"|intcomma }}円</b></div>
+    <div class="slip-issuer">
+      <div><span class="lbl">発行者</span>{{ snap.issuer.company }}</div>{% if snap.issuer.representative %}<div><span class="lbl">代表取締役</span>{{ snap.issuer.representative }}</div>{% endif %}
+      {% if snap.issuer.address %}<div><span class="lbl">所在地</span>{{ snap.issuer.address }}</div>{% endif %}{% if snap.issuer.tel %}<div><span class="lbl">TEL</span>{{ snap.issuer.tel }}</div>{% endif %}
+    </div>
     <p class="small"><a href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る</a></p>
   </section>
 

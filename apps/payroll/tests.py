@@ -139,13 +139,13 @@ class CalcTests(TestCase):
         count(self.i, NOV, CONF, 23)
         st = calc.calculate(self.statement(self.i))
         self.assertEqual(self.line(st, "sales_commission").auto_amount, 23 * (3000 + 0))  # 8〜10日・〜23件
-        allowance = self.line(st, "allowance")
+        allowance = self.line(st, "team_bonus")  # 手当＝チームリーダーボーナス（リーダーでなくても0円で表示）
         with self.assertRaises(ValueError):
             calc.set_line_override(allowance, 30000, reason="")
         calc.set_line_override(allowance, 30000, reason="特別対応", user=self.user)
         calc.add_adhoc_line(st, name="プロパンガス", kind="earning", amount=12000, detail="当月のみ", user=self.user)
         st = calc.calculate(st)
-        self.assertEqual(self.line(st, "allowance").amount, 30000)
+        self.assertEqual(self.line(st, "team_bonus").amount, 30000)
         self.assertTrue(st.lines.filter(is_adhoc=True, name="プロパンガス").exists())
         self.assertEqual(st.net_amount, 23 * 3000 + 30000 + 12000)
         self.assertFalse(st.lines.filter(code="app_fee").exists())  # アプリ手数料は個人事業主のみ
@@ -787,3 +787,24 @@ class ReviewPageTests(TableScreenshotTests):
         line = st.lines.get(code="product_visit_elec")
         self.assertEqual(line.amount, 3 * 7250)
         self.assertFalse(any("商品別の件数" in m["text"] for m in st.calc_messages))
+
+
+class IssuerAndSlipOrderTests(TableScreenshotTests):
+    def test_issuer_setting_and_row_order(self):
+        from apps.core.models import SiteSetting
+
+        self.client.post("/settings/", {"action": "issuer", "issuer_company": "架空株式会社", "issuer_representative": "山田 太郎",
+                                     "issuer_address": "東京都架空区1-2-3", "issuer_tel": "000-0000-0000"})
+        self.assertEqual(SiteSetting.get("issuer_representative"), "山田 太郎")
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.filter(month=NOV, member=self.a).first()
+        self.assertIsNotNone(st)  # 「全員を計算し直す」で、まだない人の分も作られる
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "山田 太郎")
+        html = page.content.decode()
+        html = html[html.index('class="slip-table"'):]
+        order = [html.index(x) for x in ("営業報酬", "交通費精算", "チームリーダーボーナス", "ガソリン代", "アプリ手数料")]
+        self.assertEqual(order, sorted(order))
+        self.assertNotIn("<b>手当</b>", html)
+        pdf = self.client.get(f"/payroll/{st.pk}/pdf/")
+        self.assertEqual(pdf["Content-Type"], "application/pdf")

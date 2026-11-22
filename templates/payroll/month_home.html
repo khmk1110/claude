@@ -18,23 +18,32 @@
 
 {% include "payroll/_expenses_step.html" %}
 
-<section class="step card {% if sts and errors == 0 %}done{% endif %}">
-  <div class="step-head"><span class="no">{% if sts and errors == 0 %}✓{% else %}3{% endif %}</span><div><b>計算</b></div></div>
-  <form method="post" action="{% url 'payroll:month_action' %}" class="form-row">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
-    {% if not sts %}<input type="hidden" name="action" value="prepare"><button class="btn btn-primary" type="submit">計算する</button>
-    {% else %}<input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit">全員を計算し直す</button>{% endif %}
+<section class="step card {% if sts and errors == 0 %}done{% endif %}" id="step3">
+  <div class="step-head"><span class="no">{% if sts and errors == 0 %}✓{% else %}3{% endif %}</span><div><b>計算結果</b>{% if last_calc %}<div class="small muted">最終計算 {{ last_calc|date:"n/j H:i" }}</div>{% endif %}</div></div>
+  <form method="post" action="{% url 'payroll:month_action' %}" class="form-row">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#step3">
+    {% if not sts %}<input type="hidden" name="action" value="prepare"><button class="btn btn-primary" type="submit" onclick="this.textContent='計算中…'">計算する</button>
+    {% else %}<input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit" onclick="this.textContent='計算中…'">全員を計算し直す</button>{% endif %}
   </form>
   {% if rows %}
-  <ul class="plist">
+  <button type="button" class="linkbtn small" style="color:#2563eb" onclick="var c=document.querySelectorAll('.pay-card'),o=!c[0].open;c.forEach(function(d){d.open=o});this.textContent=o?'全部閉じる':'全部開く'">全部閉じる</button>
+  <div class="pay-cards">
     {% for r in rows %}
-    <li class="prow {% if r.errors %}prow-attn{% endif %}">
-      <div class="pmain"><a class="strong" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{{ r.st.member.name }}</a>
-        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}</div>
-      <div class="pamt">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></div>
+    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" open>
+      <summary>
+        <span class="pay-name">{{ r.st.member.name }}</span>
+        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}
+        <span class="pay-net">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></span>
+      </summary>
       {% for e in r.errors %}<div class="pnote">⚠ {{ e }}</div>{% endfor %}
-    </li>
+      <table class="pay-lines">
+        {% for l in r.slip %}<tr><td>{{ l.name }}{% if l.detail %}<div class="small muted">{{ l.detail }}</div>{% endif %}</td>
+          <td class="num {% if l.amount < 0 %}neg{% endif %}">{% if l.missing %}未入力{% else %}{{ l.amount|intcomma }}{% endif %}</td></tr>{% endfor %}
+        <tr class="net"><td>差引支払額</td><td class="num">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td></tr>
+      </table>
+      <a class="btn" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{% if r.st.is_confirmed %}明細を見る{% else %}入力・修正する{% endif %}</a>
+    </details>
     {% endfor %}
-  </ul>
+  </div>
   {% endif %}
 </section>
 

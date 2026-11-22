@@ -388,6 +388,7 @@ def review(request):
     return render(request, "payroll/review.html", {
         **month_context(month), "sts": sts, "st": cur, "i": i, "prev": sts[i - 1] if i > 0 else None,
         "next": sts[i + 1] if i + 1 < len(sts) else None, "snap": snap, "draft": draft, "rows": rows,
+        "pay_date": date.fromisoformat(snap["payment_date"]),
         "total": sum(r["amount"] for r in rows), "errors": errors, "warns": warns, "products": products,
         "is_product_member": calc.is_product_member(cur.member),
         "kind_choices": PayrollItemDefinition.Kind.choices, "confirmed_count": sum(1 for x in sts if x.is_confirmed),
@@ -494,7 +495,14 @@ def month_home(request):
         if pn and st.net_amount is not None and abs(st.net_amount - pn) > max(abs(pn) * 0.3, 30000):
             warns.append(f"先月（{pn:,}円）から大きく変わっています")
         commission = lines.get("sales_commission", 0) + sum(v for k, v in lines.items() if k.startswith("product_"))
-        rows.append({"st": st, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
+        slip = []
+        for l in sorted(st.lines.all(), key=lambda x: (x.display_order, x.pk)):
+            amt = l.amount or 0
+            if not l.show_on_slip or (amt == 0 and not l.always_show):
+                continue
+            slip.append({"name": l.name, "detail": l.detail, "amount": amt if l.kind == "earning" else -amt,
+                         "missing": l.amount is None})
+        rows.append({"st": st, "slip": slip, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
                      "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns})
     # 経費は給与の画面から扱う（給与のパスワードで守られている）
@@ -513,6 +521,7 @@ def month_home(request):
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
         "exp": exp, "open_recs": open_recs, "errors": errors,
+        "last_calc": max((st.calculated_at for st in sts if st.calculated_at), default=None),
         "confirmable": len(confirmable), "confirmed": sum(1 for st in sts if st.is_confirmed), "sts": sts,
         "checklist": checklist, "step1_done": members and len(acq) >= len(members) and len(conf) >= len(members),
         "categories": ExpenseCategory.objects.filter(is_active=True).exclude(code__in=["gasoline", "transport"]),
@@ -529,6 +538,7 @@ def month_action(request):
         n = calc.prepare_month(month, user=request.user)
         messages.success(request, f"{n}人分の給与データを作成しました。")
     elif action == "calculate_all":
+        calc.prepare_month(month, user=request.user)  # 後から加わった人の分も作る
         n = errors = 0
         for st in PayrollStatement.objects.filter(month=month).exclude(status=S.CONFIRMED):
             st = calc.calculate(st, user=request.user)

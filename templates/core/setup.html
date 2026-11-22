@@ -3,6 +3,18 @@
 {% block content %}
 <div class="page-head"><div><p class="eyebrow">管理（代表者のみ）</p><h1>設定・バックアップ</h1></div></div>
 
+<form method="post" class="card" style="margin-bottom:16px">{% csrf_token %}<input type="hidden" name="action" value="issuer">
+  <b>明細書の発行者</b>
+  <p class="small muted">明細書の下に表示されます。</p>
+  <div class="form-grid">
+    <label>会社名<input name="issuer_company" value="{{ issuer.company }}"></label>
+    <label>代表取締役<input name="issuer_representative" value="{{ issuer.representative }}"></label>
+    <label>所在地<input name="issuer_address" value="{{ issuer.address }}"></label>
+    <label>TEL<input name="issuer_tel" value="{{ issuer.tel }}" inputmode="tel"></label>
+  </div>
+  <button class="btn btn-primary" type="submit">保存</button>
+</form>
+
 <div class="card" style="margin-bottom:16px">
   <b>バックアップをダウンロード</b>
   <p class="small muted">全データ（シフト・勤怠・給与・経費・資料ファイル・操作履歴）を1つのファイルで保存します。<b>月に1回</b>保存し、パソコンなど安全な場所に保管してください。給与と経費の両方の追加パスワードを入力済みの場合のみ実行できます。</p>

@@ -429,3 +429,46 @@ details.xpanel > summary::-webkit-details-marker { display: none; }
 }
 .notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
 .notice-actions .btn { white-space: nowrap; }
+
+/* 計算結果：1人ずつの内訳 */
+.pay-cards { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.pay-card { border: 1px solid var(--line, #e5e7eb); border-radius: 12px; background: #fff; padding: 0 12px; }
+.pay-card.is-attn { border: 2px solid #f59e0b; background: #fffbeb; }
+.pay-card > summary { display: flex; align-items: center; gap: 8px; padding: 12px 0; cursor: pointer; list-style: none; }
+.pay-card > summary::-webkit-details-marker { display: none; }
+.pay-card > summary::before { content: "▸"; color: #94a3b8; }
+.pay-card[open] > summary::before { content: "▾"; }
+.pay-name { font-weight: 700; }
+.pay-net { margin-left: auto; font-weight: 800; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.pay-net small { font-size: 0.7em; margin-left: 2px; }
+.pay-lines { width: 100%; border-collapse: collapse; margin: 4px 0 10px; }
+.pay-lines td { padding: 7px 4px; border-top: 1px solid #eef2f7; vertical-align: top; }
+.pay-lines td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pay-lines td.neg { color: #b91c1c; }
+.pay-lines tr.net td { font-weight: 800; border-top: 2px solid #1e293b; }
+.pay-card .btn { margin-bottom: 12px; }
+.notice.notice-block { display: block; }
+/* 「円」「件」の単位と数字が重ならないように（後から書いた padding で右の余白が消えていた） */
+.prod .yen input, .adhoc-form .yen input, .fix-field .yen input, .slip-edit .yen input { padding-right: 42px; }
+.yen em { pointer-events: none; }
+
+/* 明細書（スプレッドシートの「個人別明細」と同じ構成） */
+.slip-top { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #c8c2a8; padding-bottom: 8px; margin-bottom: 14px; }
+.slip .slip-title { text-align: left; letter-spacing: 0.25em; margin: 0; font-size: 1.5rem; }
+.slip-en { color: #6b7280; font-size: 0.8rem; letter-spacing: 0.05em; }
+.slip-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px 12px; align-items: baseline; padding: 6px 0 10px; border-bottom: 1px solid #e5e7eb; margin-bottom: 12px; }
+.slip .lbl { color: #6b7280; font-size: 0.75rem; margin-right: 8px; }
+.slip-table th { background: #1e293b; color: #fff; }
+.slip-table td.small { color: #475569; }
+.slip-table tr.sum td { font-weight: 700; border-bottom: 1px solid #9ca3af; }
+.slip-net { display: flex; justify-content: space-between; align-items: center; background: #000; color: #fff; padding: 8px 10px; margin-top: 10px; font-weight: 700; }
+.slip-net b { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.slip-issuer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 18px; padding-top: 10px; border-top: 1px solid #c8c2a8; font-size: 0.8rem; }
+@media (max-width: 640px) {
+  .slip-row { grid-template-columns: auto 1fr; }
+  .slip-issuer { grid-template-columns: 1fr; }
+  .slip-table td, .slip-table th { padding: 8px 5px; }
+}
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: #475569; font-weight: 600; }
+.slip .slip-stamp { top: -12px; right: 16px; background: #fff; }

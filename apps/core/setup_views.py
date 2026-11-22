@@ -45,6 +45,23 @@ def setup(request):
     output, ok = "", None
     if request.method == "POST":
         action = request.POST.get("action")
+        if action == "issuer":
+            from apps.core import audit
+            from apps.core.models import SiteSetting
+
+            before, after = {}, {}
+            for key in ("issuer_company", "issuer_representative", "issuer_address", "issuer_tel"):
+                row, _ = SiteSetting.objects.get_or_create(key=key)
+                new = request.POST.get(key, "").strip()[:200]
+                if row.value != new:
+                    before[key], after[key] = row.value, new
+                    row.value = new
+                    row.save()
+            if after:
+                audit.log("core.issuer_update", target_type="core.SiteSetting", target_id="issuer", target_repr="明細書の発行者",
+                          before=before, after=after, user=request.user)
+            messages.success(request, "明細書の発行者情報を保存しました（確定済みの明細は確定時のままです）。")
+            return redirect("setup")
         apply = request.POST.get("apply") == "1"
         upload = request.FILES.get("file")
         pasted = request.POST.get("text", "").strip()
@@ -94,7 +111,9 @@ def setup(request):
     from apps.payroll.models import PayrollStatement
 
     can_restore = not Member.objects.exists() and not PayrollStatement.objects.exists()
-    return render(request, "core/setup.html", {"output": output, "ok": ok, "can_restore": can_restore,
+    from apps.payroll.calc import issuer_info
+
+    return render(request, "core/setup.html", {"output": output, "ok": ok, "can_restore": can_restore, "issuer": issuer_info(),
                                                "pasted": request.POST.get("text", "") if request.method == "POST" else "",
                                                "payroll_verified": stepup.is_verified(request, "payroll", touch=False),
                                                "expenses_verified": stepup.is_verified(request, "expenses", touch=False)})

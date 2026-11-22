@@ -274,6 +274,8 @@ def h_team_bonus(ctx: Ctx, item) -> list[LineSpec]:
                 per = amount
         detail = f"チーム平均{avg_txt}件 → {yen(per)} × {len(members)}名" if per else f"チーム平均{avg_txt}件（基準未達）"
         out.append(LineSpec(item, item.name, item.kind, per * len(members), Decimal(len(members)), per, detail, sub))
+    if not out and item.params.get("always_show"):
+        out.append(LineSpec(item, item.name, item.kind, 0))  # リーダーでない人も明細には0円で表示する
     return out
 
 
@@ -484,6 +486,18 @@ def remove_adhoc_line(line: PayrollLine, *, user=None, reason: str = ""):
     st.save()
 
 
+def issuer_info() -> dict:
+    """明細書の発行者情報（設定画面で入力した値。なければサーバーの設定値）。"""
+    from apps.core.models import SiteSetting
+
+    return {
+        "company": SiteSetting.get("issuer_company", settings.COMPANY_NAME),
+        "representative": SiteSetting.get("issuer_representative", getattr(settings, "ISSUER_REPRESENTATIVE", "")),
+        "address": SiteSetting.get("issuer_address", getattr(settings, "ISSUER_ADDRESS", "")),
+        "tel": SiteSetting.get("issuer_tel", getattr(settings, "ISSUER_TEL", "")),
+    }
+
+
 def build_snapshot(st: PayrollStatement) -> dict:
     """明細PDF・過去分の再出力に必要な情報をすべて含める（後から設定が変わっても同じ明細を出せるように）。"""
     pm = ensure_month(st.month)
@@ -494,12 +508,7 @@ def build_snapshot(st: PayrollStatement) -> dict:
                    "employment_type": st.employment_type, "employment_type_label": st.get_employment_type_display()},
         "month": st.month.isoformat(),
         "payment_date": pm.payment_date.isoformat(),
-        "issuer": {
-            "company": settings.COMPANY_NAME,
-            "representative": getattr(settings, "ISSUER_REPRESENTATIVE", ""),
-            "address": getattr(settings, "ISSUER_ADDRESS", ""),
-            "tel": getattr(settings, "ISSUER_TEL", ""),
-        },
+        "issuer": issuer_info(),
         "inputs": [
             {"key": i.key, "label": i.get_key_display(), "auto": None if i.auto_value is None else str(i.auto_value),
              "override": None if i.override_value is None else str(i.override_value),
