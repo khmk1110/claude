@@ -319,3 +319,46 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 .spinner { width: 44px; height: 44px; margin: 0 auto; border: 4px solid var(--line, #e5e7eb); border-top-color: var(--primary, #2563eb); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .badge-guess { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 1px 6px; font-size: 0.75rem; font-weight: 600; }
+
+/* ===== 給与の画面：経費の枠（ガソリン代・交通費・その他） ===== */
+.xpanel { border: 1px solid var(--line, #e5e7eb); border-radius: 14px; padding: 14px; margin-top: 14px; background: #fff; }
+details.xpanel > summary { list-style: none; cursor: pointer; }
+details.xpanel > summary::-webkit-details-marker { display: none; }
+.xpanel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.xpanel-title { display: flex; gap: 10px; align-items: flex-start; }
+.xicon { font-size: 1.5rem; line-height: 1; margin-top: 2px; }
+.chip { display: inline-block; white-space: nowrap; border-radius: 999px; padding: 3px 10px; font-size: 0.78rem; font-weight: 700; background: #f1f5f9; color: #475569; }
+.chip-ok { background: #dcfce7; color: #166534; }
+.chip-open { background: #dbeafe; color: #1e40af; }
+.chip-warn { background: #fef3c7; color: #92400e; white-space: normal; }
+.xsummary { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: flex-end; justify-content: space-between; margin: 14px 0 8px; padding: 12px 14px; border-radius: 12px; background: #f8fafc; }
+.xbig { font-size: 1.7rem; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.xbig small, .pamt small { font-size: 0.7em; font-weight: 600; margin-left: 2px; }
+.xchecks { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.plist { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line, #e5e7eb); }
+.prow { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line, #e5e7eb); }
+.prow .pmain { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; min-width: 0; }
+.prow .pamt { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; min-width: 90px; }
+.prow .pcalc { color: #64748b; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prow .pnote { grid-column: 1 / -1; font-size: 0.8rem; color: #92400e; }
+.prow.phead { padding-top: 12px; padding-bottom: 4px; }
+.prow-open { background: #f8fbff; }
+.prow-attn { background: #fffbeb; }
+.xactions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.xactions form { margin: 0; }
+.xprocessing { display: flex; gap: 12px; align-items: center; margin-top: 12px; padding: 12px; border-radius: 12px; background: #eff6ff; }
+.spinner.sm { width: 26px; height: 26px; border-width: 3px; margin: 0; flex: none; }
+.xupload { margin-top: 12px; }
+.drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 22px 12px; border: 2px dashed #93c5fd; border-radius: 14px; background: #f8fbff; cursor: pointer; text-align: center; }
+.drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop-icon { font-size: 1.8rem; }
+.drop-text { font-weight: 700; color: #1d4ed8; }
+.xupload.compact .drop { flex-direction: row; padding: 10px 12px; border-width: 1px; }
+.xupload.compact .drop-icon { font-size: 1.2rem; }
+.xpanel details.more { margin-top: 10px; }
+@media (max-width: 640px) {
+  .prow { grid-template-columns: 1fr auto; }
+  .prow .pstate { grid-column: 1 / -1; }
+  .prow .pcalc { grid-column: 1; text-align: left; grid-row: 2; }
+  .prow .pamt { grid-row: 1 / span 2; grid-column: 2; }
+}

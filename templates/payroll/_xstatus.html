@@ -1,0 +1,1 @@
+{% if st == "ok" %}<span class="chip chip-ok">✓ 完了</span>{% elif st == "open" %}<span class="chip chip-open">確認待ち {{ open }}件</span>{% elif st == "attn" %}<span class="chip chip-warn">要確認</span>{% elif st == "processing" %}<span class="chip chip-open">読み取り中</span>{% else %}<span class="chip">未取り込み</span>{% endif %}

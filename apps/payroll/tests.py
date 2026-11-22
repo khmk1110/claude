@@ -592,9 +592,9 @@ class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
         rec = ExpenseRecord.objects.get()
         self.assertEqual(rec.effective_amount, 82049)
         page = self.client.get("/payroll/?month=2026-11")
-        self.assertContains(page, "チェックした分を承認")
-        self.client.post(f"/payroll/expenses/files/{rec.source_file_id}/action/", {
-            "action": "approve", "records": [rec.pk], "next": "/payroll/?month=2026-11"})
+        self.assertContains(page, "まとめて承認（1件）")
+        self.assertContains(page, "82,049")
+        self.client.post("/payroll/expenses/approve-all/", {"month": "2026-11", "group": "gasoline"})
         rec.refresh_from_db()
         self.assertEqual(rec.status, "approved")
         # 経費メニュー（/expenses/）は今まで通り経費のパスワードが必要
@@ -661,3 +661,18 @@ class RankingScreenshotTests(TestCase):
         plan = build_counts_plan("acquired", text, _date(2026, 11, 1))
         self.assertEqual(plan["month"], "2026-10-01")  # 月の記載がないので前月の獲得件数
         self.assertEqual({r["member_id"]: r["count"] for r in plan["rows"]}, {a.pk: 115, c.pk: 68, b.pk: 21})
+
+
+class TransportPanelTests(TableScreenshotTests):
+    def test_transport_panel_shows_minus_35000(self):
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
+
+        cat = ExpenseCategory.objects.get(code="transport")
+        sf = SourceFile.objects.create(original_name="t.pdf", sha256="t" * 64, file_format="manual", document_kind="transport",
+                                       target_month=NOV, status="parsed")
+        ExpenseRecord.objects.create(source_file=sf, row_number=1, auto_member=self.a, auto_category=cat, auto_amount=52000,
+                                     auto_target_month=NOV, dedupe_key="t1")
+        page = self.client.get("/payroll/?month=2026-11")
+        self.assertContains(page, "52,000 − 35,000")
+        self.assertContains(page, "17,000")
+        self.assertContains(page, "0 − 35,000")  # 交通費がない個人事業主も表示（0円）

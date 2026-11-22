@@ -93,6 +93,147 @@ def index(request):
     })
 
 
+OPEN_EXPENSE = ["imported", "unchecked", "pending", "modified"]
+TRANSPORT_DEDUCTION = 35000
+
+
+def _month_expense_records(month, codes=None, exclude_codes=None):
+    """その月の給与に入る経費（修正後の値で判定）。"""
+    from django.db.models import Q
+
+    from apps.expenses.models import ExpenseRecord
+
+    qs = (ExpenseRecord.objects.filter(Q(target_month=month) | Q(target_month__isnull=True, auto_target_month=month))
+          .select_related("member", "auto_member", "category", "auto_category", "source_file").prefetch_related("issues"))
+    recs = list(qs.order_by("source_file_id", "row_number"))
+
+    def code(r):
+        c = r.effective_category
+        return c.code if c else ""
+
+    if codes is not None:
+        recs = [r for r in recs if code(r) in codes]
+    if exclude_codes:
+        recs = [r for r in recs if code(r) not in exclude_codes]
+    return recs
+
+
+def _person_rows(recs):
+    """経費を人ごとにまとめる（対象外は除く）。"""
+    by = {}
+    for r in recs:
+        if r.status == "excluded":
+            continue
+        m = r.effective_member
+        key = m.pk if m else f"?{r.card_code or r.name_text or r.pk}"
+        row = by.setdefault(key, {"member": m, "label": m.name if m else (r.name_text or (f"カード {r.card_code}" if r.card_code else "（不明）")),
+                                  "cards": set(), "amount": 0, "open": 0, "approved": 0, "issues": [], "records": []})
+        if r.card_code:
+            row["cards"].add(r.card_code)
+        row["amount"] += r.effective_amount or 0
+        row["records"].append(r)
+        if r.status in OPEN_EXPENSE:
+            row["open"] += 1
+        else:
+            row["approved"] += 1
+        row["issues"] += [i.message for i in r.issues.all() if not i.resolved]
+    rows = sorted(by.values(), key=lambda x: (x["member"] is None, getattr(x["member"], "display_order", 0), x["label"]))
+    for row in rows:
+        row["cards"] = "・".join(sorted(row["cards"]))
+        row["state"] = "attn" if (row["member"] is None or row["issues"]) else ("open" if row["open"] else "ok")
+    return rows
+
+
+def _expense_panels(month, members):
+    """給与の画面の「経費」ステップ用：ガソリン代・交通費・その他を分けてまとめる。"""
+    from apps.expenses.models import SourceFile
+
+    files = list(SourceFile.objects.filter(target_month=month).order_by("-uploaded_at"))
+    processing = [f for f in files if f.status == "processing"]
+    errors = [f for f in files if f.status == "error"]
+
+    gas_recs = _month_expense_records(month, codes={"gasoline"})
+    gas_rows = _person_rows(gas_recs)
+    gas_files = [f for f in files if f.document_kind == "gasoline"]
+    checks = []
+    for f in gas_files:
+        if f.status != "parsed" or f.source_total is None:
+            continue
+        got = sum(r.effective_amount or 0 for r in gas_recs if r.source_file_id == f.pk)
+        checks.append({"file": f, "ok": got == f.source_total, "got": got, "total": f.source_total})
+    unknown_cards = [r for r in gas_recs if r.status == "excluded" and r.card_code and not r.effective_member]
+
+    tr_recs = _month_expense_records(month, codes={"transport"})
+    tr_by = {row["member"].pk: row for row in _person_rows(tr_recs) if row["member"]}
+    contractors, interns = [], []
+    for m in members:
+        row = tr_by.pop(m.pk, None)
+        amount = row["amount"] if row else 0
+        item = {"member": m, "amount": amount, "row": row}
+        if m.employment_type == EmploymentType.CONTRACTOR:
+            item["deduct"] = TRANSPORT_DEDUCTION
+            item["net"] = max(amount - TRANSPORT_DEDUCTION, 0)
+            item["short"] = 0 < amount < TRANSPORT_DEDUCTION
+            contractors.append(item)
+        else:
+            item["net"] = amount
+            if amount:
+                interns.append(item)
+    tr_unknown = [row for row in _person_rows(tr_recs) if not row["member"]]
+
+    other_recs = _month_expense_records(month, exclude_codes={"gasoline", "transport"})
+    other_rows = _person_rows(other_recs)
+
+    def status(rows, has_any):
+        if not has_any:
+            return "empty"
+        if any(r["state"] == "attn" for r in rows):
+            return "attn"
+        if any(r["open"] for r in rows):
+            return "open"
+        return "ok"
+
+    gas = {"rows": gas_rows, "total": sum(r["amount"] for r in gas_rows), "checks": checks, "unknown_cards": unknown_cards,
+           "files": gas_files, "open": sum(r["open"] for r in gas_rows),
+           "processing": [f for f in processing if f.document_kind in ("gasoline", "unknown", "")],
+           "errors": [f for f in errors if f.document_kind in ("gasoline", "unknown", "")]}
+    gas["status"] = "processing" if gas["processing"] else status(gas_rows, bool(gas_rows))
+    tr = {"contractors": contractors, "interns": interns, "unknown": tr_unknown, "files": [f for f in files if f.document_kind == "transport"],
+          "open": sum(r["row"]["open"] for r in contractors + interns if r["row"]) + sum(r["open"] for r in tr_unknown),
+          "total": sum(r["amount"] for r in contractors + interns), "net_total": sum(r["net"] for r in contractors + interns),
+          "processing": [f for f in processing if f.document_kind == "transport"],
+          "errors": [f for f in errors if f.document_kind == "transport"]}
+    tr_rows = [r["row"] for r in contractors + interns if r["row"]] + tr_unknown
+    tr["status"] = "processing" if tr["processing"] else status(tr_rows, bool(tr_rows))
+    other = {"rows": other_rows, "total": sum(r["amount"] for r in other_rows), "open": sum(r["open"] for r in other_rows)}
+    other["status"] = status(other_rows, bool(other_rows))
+    return {"gas": gas, "tr": tr, "other": other, "open_total": gas["open"] + tr["open"] + other["open"]}
+
+
+@payroll_view
+@require_POST
+def expenses_approve_all(request):
+    """給与の画面から、ガソリン代・交通費・その他の確認待ちをまとめて承認する。"""
+    from apps.expenses import importer
+
+    month = month_from_request(request)
+    group = request.POST.get("group")
+    if group == "gasoline":
+        recs = _month_expense_records(month, codes={"gasoline"})
+    elif group == "transport":
+        recs = _month_expense_records(month, codes={"transport"})
+    else:
+        recs = _month_expense_records(month, exclude_codes={"gasoline", "transport"})
+    recs = [r for r in recs if r.status in OPEN_EXPENSE]
+    with transaction.atomic():
+        ok, skipped = importer.approve(recs, user=request.user)
+    if ok:
+        messages.success(request, f"{ok}件を承認しました。給与に入ります。")
+    for msg in skipped[:5]:
+        messages.warning(request, f"承認できませんでした：{msg}（「明細を直す」から直してください）")
+    return redirect(f"/payroll/?month={month:%Y-%m}#step2")
+
+
 @payroll_view
 def month_home(request):
     """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""
@@ -120,13 +261,8 @@ def month_home(request):
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
                      "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns})
     # 経費は給与の画面から扱う（給与のパスワードで守られている）
-    expenses_ok = True
-    open_status = ["imported", "unchecked", "pending", "modified"]
-    files = list(SourceFile.objects.filter(target_month=month).order_by("-uploaded_at"))
-    open_recs = ExpenseRecord.objects.filter(status__in=open_status, auto_target_month=month).count()
-    for f in files:
-        f.open_list = list(f.records.filter(status__in=open_status).select_related("member", "category").prefetch_related("issues").order_by("row_number"))
-        f.open_count = len(f.open_list)
+    exp = _expense_panels(month, members)
+    open_recs = exp["open_total"]
     errors = sum(1 for r in rows if r["errors"])
     confirmable = [st for st in sts if st.status in (S.CALCULATED, S.REVIEW) and not st.blocking_errors]
     contractors = [st for st in sts if st.employment_type == "contractor"]
@@ -139,10 +275,11 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "files": files, "open_recs": open_recs, "expenses_ok": expenses_ok, "errors": errors,
+        "exp": exp, "open_recs": open_recs, "errors": errors,
         "confirmable": len(confirmable), "confirmed": sum(1 for st in sts if st.is_confirmed), "sts": sts,
         "checklist": checklist, "step1_done": members and len(acq) >= len(members) and len(conf) >= len(members),
-        "categories": ExpenseCategory.objects.filter(is_active=True),
+        "categories": ExpenseCategory.objects.filter(is_active=True).exclude(code__in=["gasoline", "transport"]),
+        "transport_category": ExpenseCategory.objects.filter(code="transport").first(),
     })
 
 

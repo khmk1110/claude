@@ -17,55 +17,7 @@
     <a class="btn" href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で手直し・都市ガス</a></div>
 </section>
 
-<section class="step card {% if expenses_ok and open_recs == 0 and files %}done{% endif %}">
-  <div class="step-head"><span class="no">{% if expenses_ok and open_recs == 0 and files %}✓{% else %}2{% endif %}</span><div><b>ガソリン代・交通費・経費を取り込む</b><div class="small muted">交通費は個人事業主だけ35,000円を引きます（自動）</div></div></div>
-    <form method="post" action="{% url 'payroll_expenses:upload' %}" enctype="multipart/form-data" class="form-row">{% csrf_token %}
-      <input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="target_month" value="{{ month_param }}">
-      <select name="kind"><option value="gasoline">ガソリン（ENEOSのスクショ・PDF）</option><option value="transport">交通費（請求書PDF・スクショ）</option><option value="">自動で判定</option></select>
-      <input type="file" name="files" multiple accept="image/*,.pdf,.xlsx,.xls,.csv" required>
-      <button class="btn btn-primary" type="submit">取り込む</button>
-    </form>
-    <details class="more"><summary>ガソリン代を文で入れる・LINEで届いた経費を入れる</summary>
-      <form method="post" action="{% url 'payroll_expenses:gasoline_text' %}" class="form-row">{% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="target_month" value="{{ month_param }}">
-        <textarea name="text" rows="3" style="flex:1;min-width:220px" placeholder="カード番号の4桁 金額&#10;0007 82049&#10;0008 47943"></textarea><button class="btn" type="submit">ガソリン代を取り込む</button>
-      </form>
-      <form method="post" action="{% url 'payroll_expenses:line_import' %}" class="form-row">{% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="target_month" value="{{ month_param }}">
-        <select name="category">{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select>
-        <textarea name="text" rows="3" style="flex:1;min-width:220px" placeholder="名前 金額（内容）&#10;関 600 交通費"></textarea><button class="btn" type="submit">経費を取り込む</button>
-      </form>
-    </details>
-    {% if files %}
-    <div class="table-wrap" style="margin-top:10px"><table class="table">
-      <thead><tr><th>資料</th><th>種類</th><th>状態</th><th class="num">確認待ち</th></tr></thead>
-      <tbody>{% for f in files %}<tr class="{% if f.open_count or f.status == 'error' %}row-attn{% endif %}">
-        <td><a href="{% url 'payroll_expenses:file' f.pk %}">{{ f.original_name }}</a></td><td>{{ f.get_document_kind_display }}</td>
-        <td>{% if f.status == "processing" %}<span class="badge badge-info">読み取り中…</span><script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},10000)</script>{% elif f.status == "error" %}<span class="badge badge-danger">エラー</span>{% else %}{{ f.get_status_display }}{% endif %}</td>
-        <td class="num">{% if f.open_count %}<a href="{% url 'payroll_expenses:file' f.pk %}">{{ f.open_count }}件 → 確認・承認</a>{% else %}0{% endif %}</td></tr>{% endfor %}</tbody>
-    </table></div>
-    {% if open_recs %}<p class="small text-warn">確認・承認が済んでいない経費が {{ open_recs }}件 あります。承認した経費だけが給与に入ります。</p>{% endif %}
-    {% for f in files %}{% if f.open_list %}
-    <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" class="card" style="margin-top:10px;padding:10px">{% csrf_token %}
-      <input type="hidden" name="action" value="approve"><input type="hidden" name="next" value="{{ request.get_full_path }}">
-      <p class="small" style="margin:0 0 6px"><b>{{ f.original_name }}</b> の確認待ち</p>
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th></th><th>名前</th><th>内容</th><th class="num">金額</th><th>確認すること</th></tr></thead>
-        <tbody>{% for r in f.open_list %}<tr>
-          <td><input type="checkbox" name="records" value="{{ r.pk }}" {% if r.effective_member %}checked{% endif %}></td>
-          <td style="white-space:nowrap">{{ r.effective_member.name|default:"（不明）" }}</td>
-          <td class="small">{{ r.effective_category.name|default:"" }} {{ r.description|default:r.auto_description|default:"" }}</td>
-          <td class="num">{{ r.effective_amount|default_if_none:"-"|intcomma }}</td>
-          <td class="small text-warn">{% for i in r.issues.all %}{% if not i.resolved %}{{ i.message }} {% endif %}{% endfor %}</td>
-        </tr>{% endfor %}</tbody>
-      </table></div>
-      <div class="form-row"><button class="btn btn-primary" type="submit">チェックした分を承認</button>
-        <a class="btn" href="{% url 'payroll_expenses:file' f.pk %}">金額・名前を直す</a></div>
-    </form>
-    {% endif %}{% endfor %}
-    {% else %}<p class="small muted">この月の資料はまだありません。</p>{% endif %}
-    <p class="small"><a href="{% url 'payroll_expenses:index' %}?month={{ month_param }}">この月の経費をすべて見る・手で追加する</a></p>
-</section>
+{% include "payroll/_expenses_step.html" %}
 
 <section class="step card {% if sts and errors == 0 %}done{% endif %}">
   <div class="step-head"><span class="no">{% if sts and errors == 0 %}✓{% else %}3{% endif %}</span><div><b>計算して、結果を確認する</b><div class="small muted">単価・営業報酬・手当・ボーナス・アプリ手数料は自動で計算します</div></div></div>
