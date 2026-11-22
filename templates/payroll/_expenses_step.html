@@ -18,15 +18,7 @@
     {% for f in exp.gas.errors %}<div class="notice">⚠️ {{ f.original_name }} を読み取れませんでした。{{ f.error_message|truncatechars:80 }} <a href="{% url 'payroll_expenses:file' f.pk %}">詳しく</a></div>{% endfor %}
 
     {% if exp.gas.rows %}
-      <div class="xsummary">
-        <div><div class="small muted">{{ month|date:"n月" }}分のガソリン代</div><div class="xbig">{{ exp.gas.total|intcomma }}<small>円</small></div><div class="small muted">{{ exp.gas.rows|length }}人分</div></div>
-        <div class="xchecks">
-          {% for c in exp.gas.checks %}
-            {% if c.ok %}<span class="chip chip-ok">✓ 明細の合計（{{ c.total|intcomma }}円）と一致</span>
-            {% else %}<span class="chip chip-warn">⚠ 明細の合計 {{ c.total|intcomma }}円 と {{ c.got|intcomma }}円 が違います</span>{% endif %}
-          {% empty %}<span class="chip chip-warn">⚠ 合計の照合ができていません。金額を明細と見比べてください</span>{% endfor %}
-        </div>
-      </div>
+      {% for c in exp.gas.checks %}{% if not c.ok %}<div class="notice">⚠️ 読み取った金額が明細と合っていない可能性があります。金額を明細と見比べてください。</div>{% endif %}{% endfor %}
       <ul class="plist">
         {% for r in exp.gas.rows %}
         <li class="prow prow-{{ r.state }}">
