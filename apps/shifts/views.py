@@ -46,10 +46,25 @@ def grid(request):
                      "today": d == today, "working": working, "count": count})
     for r in rows:  # セルごとに土日祝・今日の色分け用のクラスを付ける
         r.view_cells = [(d, wt, days[i]["cls"] + (" today" if days[i]["today"] else "")) for i, (d, wt) in enumerate(r.cells)]
+    from apps.attendance.models import AttendanceMonthLock
+
+    extra = {"lock": AttendanceMonthLock.objects.filter(month=month).first()}
+    if view == "person":
+        sel = next((r for r in rows if str(r.member.pk) == request.GET.get("member")), rows[0] if rows else None)
+        cal = []
+        if sel:
+            lead = (days[0]["date"].weekday() + 1) % 7  # 日曜はじまり
+            cal = [None] * lead + [
+                {"date": d["date"], "wt": sel.cells[i][1], "cls": d["cls"], "holiday": d["holiday"], "today": d["today"]}
+                for i, d in enumerate(days)
+            ]
+        extra.update({"sel": sel, "cal": cal})
+    template = {"day": "shifts/day.html", "person": "shifts/person.html"}.get(view, "shifts/grid.html")
     return render(
         request,
-        "shifts/grid.html" if view != "day" else "shifts/day.html",
+        template,
         {
+            **extra,
             **month_context(month),
             "rows": rows,
             "days": days,
@@ -80,8 +95,13 @@ def api_set(request):
     if len(members) != len(cells):
         return JsonResponse({"detail": "存在しないメンバーが含まれています。"}, status=400)
     changed = 0
-    for mid, dates in cells.items():
-        changed += services.set_shifts([members[mid]], dates, work_type, user=request.user)
+    from apps.attendance.services import MonthLockedError
+
+    try:
+        for mid, dates in cells.items():
+            changed += services.set_shifts([members[mid]], dates, work_type, user=request.user)
+    except MonthLockedError as e:
+        return JsonResponse({"detail": str(e) + "変更するには、先に確定を解除してください。"}, status=400)
     # 変更後の行の集計を返す
     month = month_start(next(iter(cells.values()))[0])
     rows = {
@@ -101,8 +121,13 @@ def api_set(request):
 def copy_previous(request):
     month = month_from_request(request)
     overwrite = request.POST.get("overwrite") == "1"
-    n = services.copy_previous_month(month, user=request.user, overwrite=overwrite)
-    messages.success(request, f"前月のシフトをコピーしました（{n}件）。")
+    from apps.attendance.services import MonthLockedError
+
+    try:
+        n = services.copy_previous_month(month, user=request.user, overwrite=overwrite)
+        messages.success(request, f"前月のシフトをコピーしました（{n}件）。")
+    except MonthLockedError as e:
+        messages.error(request, str(e))
     return redirect(f"/shifts/?month={month:%Y-%m}")
 
 
@@ -164,7 +189,13 @@ def import_view(request):
                 item["member_id"] = int(choice)
             else:
                 item["member_id"] = None
-        n = apply_shift_rows(month, rows, user=request.user, save_alias=bool(request.POST.get("save_alias")))
+        from apps.attendance.services import MonthLockedError
+
+        try:
+            n = apply_shift_rows(month, rows, user=request.user, save_alias=bool(request.POST.get("save_alias")))
+        except MonthLockedError as e:
+            messages.error(request, str(e))
+            return redirect("shifts:import")
         request.session.pop("shift_import", None)
         messages.success(request, f"{month:%Y年%m月}のシフトを取り込みました（{n}件）。")
         return redirect(f"/shifts/?month={month:%Y-%m}")

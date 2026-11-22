@@ -69,7 +69,9 @@ class ShiftServiceTests(TestCase):
         d = date(2026, 11, 4)
         services.set_shifts([self.a], [d], wt("work"))
         attendance.lock_month(NOV)
-        services.set_shifts([self.a], [d], wt("off"))
+        with self.assertRaises(attendance.MonthLockedError):  # 確定した月はシフト（＝勤怠）も変更できない
+            services.set_shifts([self.a], [d], wt("off"))
+        self.assertEqual(ShiftEntry.objects.get(member=self.a, date=d).work_type.code, "work")
         day = AttendanceDay.objects.get(member=self.a, date=d)
         self.assertEqual(day.effective_work_type.code, "work")
         with self.assertRaises(attendance.MonthLockedError):
@@ -284,3 +286,23 @@ class ShiftViewModesTests(TestCase):
         home = self.client.get("/")
         self.assertNotContains(home, "差引支給額")
         self.assertContains(home, "25日頃")
+
+
+class PersonViewAndLockTests(TestCase):
+    def test_person_calendar_and_lock_from_shift_page(self):
+        user = User.objects.create_user("u", password="x-pass-12345")
+        self.client.force_login(user)
+        m = Member.objects.create(name="個人 太郎", employment_type="intern")
+        res = self.client.get(f"/shifts/?month=2026-11&view=person&member={m.pk}")
+        self.assertContains(res, "人ごとに入力")
+        self.assertContains(res, 'data-date="2026-11-01"')
+        self.assertNotContains(res, "スマホ向け")
+        api = lambda: self.client.post("/shifts/api/set/", data=json.dumps({"cells": [[m.pk, "2026-11-02"]], "work_type": "work"}),
+                                       content_type="application/json")
+        self.assertEqual(api().status_code, 200)
+        res = self.client.post("/attendance/lock/", {"month": "2026-11", "next": "/shifts/?month=2026-11"})
+        self.assertRedirects(res, "/shifts/?month=2026-11", fetch_redirect_response=False)
+        self.assertContains(self.client.get("/shifts/?month=2026-11"), "確定済み")
+        r = api()
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("確定済み", r.json()["detail"])

@@ -1,8 +1,15 @@
 {% extends "base.html" %}
 {% block title %}勤怠管理{% endblock %}
-{% block topbar %}勤怠{% endblock %}
+{% block topbar %}シフト・勤怠{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">勤怠</p><h1>{{ month|date:"Y年n月" }}の勤怠</h1></div>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">シフト・勤怠</p><h1>{{ month|date:"Y年n月" }}の勤怠の集計</h1></div>{% include "includes/monthnav.html" %}</div>
+<nav class="tabs">
+  <a href="{% url 'shifts:grid' %}?month={{ month_param }}">表で入力</a>
+  <a href="{% url 'shifts:grid' %}?month={{ month_param }}&view=person">人ごとに入力</a>
+  <a href="{% url 'shifts:grid' %}?month={{ month_param }}&view=day">日ごとに見る</a>
+  <a class="active" href="?month={{ month_param }}">勤怠の集計・遅刻欠勤</a>
+</nav>
+<p class="muted small">シフト表がそのまま勤怠になります。ここでは月の集計の確認と、遅刻・早退・欠勤などの記録ができます（名前を押すと日ごとの画面）。</p>
 <div class="toolbar">
   <form method="get" style="display:inline"><input type="hidden" name="month" value="{{ month_param }}">
     <select name="type" onchange="this.form.submit()" style="width:auto"><option value="">全員</option>{% for v, l in emp_choices %}<option value="{{ v }}" {% if v == emp %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></form>

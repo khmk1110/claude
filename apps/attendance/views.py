@@ -110,6 +110,9 @@ def lock_toggle(request):
             messages.success(request, f"{month:%Y年%m月}の勤怠を確定しました。")
     except (ValueError, services.MonthLockedError) as e:
         messages.error(request, str(e))
+    nxt = request.POST.get("next", "")
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
     return redirect(f"/attendance/?month={month:%Y-%m}")
 
 

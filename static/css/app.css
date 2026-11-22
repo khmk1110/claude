@@ -117,7 +117,8 @@ td.sat, th.sat { color: #1d4ed8; } td.sun, th.sun { color: var(--danger); }
 /* ---- シフト表 ---- */
 table.shift { border-collapse: collapse; user-select: none; font-size: 13px; background: #fff; }
 table.shift th, table.shift td { border: 1px solid var(--line); padding: 0; text-align: center; }
-table.shift th.name { text-align: left; padding: 6px 10px; min-width: 116px; position: sticky; left: 0; background: #fff; z-index: 1; cursor: pointer; white-space: nowrap; }
+table.shift th.name { text-align: left; padding: 6px 10px; min-width: 116px; position: sticky; left: 0; background: #fff; z-index: 1; cursor: pointer; white-space: nowrap;
+                      box-shadow: 1px 0 0 var(--line), 4px 0 6px -4px rgba(0,0,0,.12); }
 table.shift thead th { background: #fafbfc; padding: 6px 0; position: sticky; top: 0; z-index: 2; }
 table.shift thead th.name { z-index: 3; }
 table.shift th.day { width: 36px; cursor: pointer; }
@@ -183,7 +184,7 @@ table.shift td.num { padding: 0 8px; }
 table.shift td.cell.sat:not(.filled), table.shift td.count.sat { background: #f3f7ff; }
 table.shift td.cell.sun:not(.filled), table.shift td.count.sun { background: #fff4f4; }
 table.shift th.day.today { background: #1d4ed8; color: #fff; border-radius: 0; }
-table.shift td.cell.today { box-shadow: inset 2px 0 0 #1d4ed8, inset -2px 0 0 #1d4ed8; }
+table.shift td.cell.today:not(.filled) { background: #e8f0ff; }
 table.shift tfoot th, table.shift tfoot td { background: #fafbfc; font-size: 12px; font-weight: 700; color: var(--muted); height: 30px; }
 table.shift td.cell { font-size: 14px; }
 
@@ -200,3 +201,57 @@ table.shift td.cell { font-size: 14px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 14px; font-weight: 600; }
 .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; color: var(--muted); margin: 8px 0 14px; }
 .legend span i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--line); }
+
+
+/* ---- シフト表: 今日の列（線ではなく色と影で強調） ---- */
+table.shift th.day.today { background: #2563eb; color: #fff; box-shadow: 0 2px 6px rgba(37,99,235,.35); }
+table.shift td.cell.today.filled { filter: brightness(1.05); }
+
+/* ---- スマホのシフト表をコンパクトに ---- */
+@media (max-width: 960px) {
+  table.shift { font-size: 12px; }
+  table.shift th.name { min-width: 76px; max-width: 76px; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  table.shift th.name small { display: none; }
+  table.shift th.name br { display: none; }
+  table.shift th.day { width: 28px; min-width: 28px; font-size: 11px; padding: 3px 0; }
+  table.shift td.cell { width: 28px; min-width: 28px; height: 30px; font-size: 11px; }
+  table.shift td.num { padding: 0 4px; font-size: 12px; }
+  table.shift tfoot th, table.shift tfoot td { height: 24px; font-size: 11px; }
+}
+
+/* ---- 人ごとに入力（カレンダー） ---- */
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal .wd { text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); padding: 4px 0; }
+.cal .wd.sun { color: var(--danger); } .cal .wd.sat { color: #1d4ed8; }
+.cal .day { position: relative; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: flex;
+            flex-direction: column; align-items: center; justify-content: center; cursor: pointer; user-select: none; padding: 0; font: inherit; }
+.cal .day .n { font-size: 13px; font-weight: 700; line-height: 1; }
+.cal .day .lb { font-size: 15px; font-weight: 700; line-height: 1.2; min-height: 18px; }
+.cal .day.sun .n, .cal .day.hol .n { color: var(--danger); } .cal .day.sat .n { color: #1d4ed8; }
+.cal .day.sat:not(.filled) { background: #f6f9ff; } .cal .day.sun:not(.filled), .cal .day.hol:not(.filled) { background: #fff6f6; }
+.cal .day.filled .n { color: inherit; opacity: .9; }
+.cal .day.today { box-shadow: 0 0 0 3px #93b4f8, 0 4px 10px rgba(37,99,235,.25); border-color: #2563eb; }
+.cal .day.today::after { content: "今日"; position: absolute; top: 3px; right: 4px; font-size: 9px; font-weight: 700; color: #2563eb; }
+.cal .day.filled.today::after { color: #fff; }
+.cal .blank { visibility: hidden; }
+.person-pick { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 10px; }
+.person-pick a { white-space: nowrap; padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--fg); background: #fff; font-size: 14px; }
+.person-pick a.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 700; }
+.person-pick a:hover { text-decoration: none; }
+.lockbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: var(--radius); margin-bottom: 12px;
+           background: var(--surface); border: 1px solid var(--line); }
+.lockbar.locked { background: var(--ok-weak); border-color: #b7e2c6; }
+.palette .wt.on { outline: 3px solid #111827; outline-offset: 2px; }
+@media (max-width: 960px) { .cal { gap: 4px; } .cal .day .lb { font-size: 14px; } }
+.day-card.today { background: #f3f7ff; border-color: #2563eb; box-shadow: 0 0 0 3px #bcd0fb, 0 6px 14px rgba(37,99,235,.18); }
+
+/* 固定した名前の列の端からセルが透けて線に見えるのを防ぐ（罫線の描き方を separate に） */
+table.shift { border-collapse: separate; border-spacing: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+table.shift th, table.shift td { border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+table.shift th.name { background: #fff; background-clip: padding-box; }
+table.shift tfoot th.name { background: #fafbfc; }
+.table-scroll { border-left: 0; }
+/* カレンダーの「今日」は文字を重ねず、枠の色と影で示す */
+.cal .day.today::after { content: none; }
+.hint-sp { display: none; }
+@media (max-width: 960px) { .hint-sp { display: inline; } .lockbar { padding: 8px 12px; } }

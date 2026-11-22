@@ -37,6 +37,9 @@ def set_shifts(members, dates, work_type: WorkType | None, *, user=None, reason:
     """指定したメンバー×日付に勤務区分を設定する（None は未定に戻す）。変更があった件数を返す。"""
     changed = 0
     members = list(members)
+    dates = list(dates)
+    for m in {month_start(d) for d in dates}:
+        attendance.ensure_unlocked(m)  # 勤怠を確定した月のシフトは変更できない（シフト＝勤怠のため）
     existing = {
         (e.member_id, e.date): e
         for e in ShiftEntry.objects.select_for_update()
