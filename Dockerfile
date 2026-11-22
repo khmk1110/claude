@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 OMP_THREAD_LIMIT=1
 
 # OCR（画像PDF）・PDF の画像化・日本語フォント（明細PDF / シフト画像）
 RUN apt-get update && apt-get install -y --no-install-recommends \

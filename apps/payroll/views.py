@@ -787,7 +787,14 @@ def counts_import(request):
         if ev is None:
             return redirect(back)
         if ev.status == "processing":
-            return render(request, "payroll/counts_wait.html", {**month_context(payroll_month), "ev": ev})
+            elapsed = int((timezone.now() - ev.uploaded_at).total_seconds())
+            if elapsed > 240:
+                # サーバーの再起動などで読み取りが止まった時に、ずっと待ち画面にならないようにする
+                SalesEvidence.objects.filter(pk=ev.pk, status="processing").update(
+                    status="error", error_message="読み取りに時間がかかりすぎたため中止しました。もう一度選ぶか、LINEの文をコピーして貼り付けてください。")
+                ev.refresh_from_db()
+            else:
+                return render(request, "payroll/counts_wait.html", {**month_context(payroll_month), "ev": ev, "elapsed": elapsed})
         if ev.status == "error":
             messages.error(request, ev.error_message or "読み取れませんでした。")
             return redirect(back)

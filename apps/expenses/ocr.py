@@ -10,7 +10,11 @@ from __future__ import annotations
 import io
 import re
 import shutil
+import os
 import subprocess
+
+# 小さいCPU（無料サーバー）ではOCRの並列処理が逆に遅くなるので1スレッドにする
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path

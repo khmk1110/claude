@@ -232,10 +232,11 @@ def _open_image(data: bytes):
     from PIL import Image, ImageOps
 
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("L")
-    if img.width < 1600:
+    # スマホのスクショ（幅1000px以上）はそのままで十分読める。拡大すると時間だけかかる
+    if img.width < 1000:
         img = img.resize((img.width * 2, img.height * 2))
-    elif img.width > 2600:
-        img = img.resize((2600, int(img.height * 2600 / img.width)))
+    elif img.width > 2000:
+        img = img.resize((2000, int(img.height * 2000 / img.width)))
     return img
 
 
@@ -262,7 +263,10 @@ def table_text_from_image(data: bytes) -> str:
         if first_num > 0:
             top = max(0, min(w.top for w in ws) - 8)
             bot = max(w.top + w.height for w in ws) + 8
-            crop = ImageOps.expand(img.crop((0, top, max(1, ws[first_num].left - 5), bot)), border=20, fill=255)
+            crop = img.crop((0, top, max(1, ws[first_num].left - 5), bot))
+            if crop.height < 80:  # 名前の部分だけ拡大して読む（小さい範囲なので速い）
+                crop = crop.resize((crop.width * 2, crop.height * 2))
+            crop = ImageOps.expand(crop, border=20, fill=255)
             name = "".join(w.text for w in ocr.ocr_words(crop, lang="jpn", psm=7)) or "".join(w.text for w in ws[:first_num])
         out.append("\t".join([name] + nums))
     return "\n".join(out)
@@ -278,9 +282,12 @@ def dashboard_text_from_image(data: bytes) -> str:
     for im, psm in variants:
         words = ocr.ocr_words(im, lang="jpn+eng", psm=psm)
         text = "\n".join(_join_cjk(line.text) for line in ocr.group_lines(words, tolerance=18))
-        score = len(re.findall(r"(?m)^\s*\d+\s*/\s*\d+", nfkc(text))) * 2 + nfkc(text).count("件")
+        blocks = len(re.findall(r"(?m)^\s*\d+\s*/\s*\d+", nfkc(text)))
+        score = blocks * 2 + nfkc(text).count("件")
         if score > best_score:
             best, best_score = text, score
+        if blocks >= 2:  # 十分読めたら他の読み方は試さない（時間短縮）
+            break
     return best
 
 
