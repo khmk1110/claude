@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}シフト変更履歴{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>シフト変更履歴　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'shifts:grid' %}?month={{ month_param }}">シフト</a></p><h1>変更履歴（{{ month|date:"Y年n月" }}）</h1></div>{% include "includes/monthnav.html" %}</div>
 <table class="list">
   <tr><th>変更日時</th><th>変更者</th><th>対象</th><th>変更前</th><th>変更後</th><th>理由</th></tr>
   {% for l in logs %}

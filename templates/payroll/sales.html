@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}営業件数の入力{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>営業件数の入力　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>{{ month|date:"Y年n月" }}の営業件数</h1></div>{% include "includes/monthnav.html" %}</div>
 {% include "payroll/_nav.html" %}
 <div class="card" style="margin-bottom:16px">
   <b>写真・文面から入力</b>
@@ -41,7 +41,7 @@
   <input type="file" name="evidence" accept="image/*,application/pdf" style="width:auto">
   <textarea name="evidence_text" rows="2" style="width:100%;max-width:640px" placeholder="文面を貼り付け"></textarea>
 </div>
-<button class="btn" type="submit">保存</button>
+<button class="btn btn-primary" type="submit">保存</button>
 </form>
 
 {% if evidence %}<h2>保存した根拠</h2>

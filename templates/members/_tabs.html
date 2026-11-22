@@ -1,0 +1,5 @@
+<nav class="tabs">
+  <a href="{% url 'members:list' %}" class="{% if tab == 'list' %}active{% endif %}">メンバー一覧</a>
+  <a href="{% url 'members:order' %}" class="{% if tab == 'order' %}active{% endif %}">並び替え</a>
+  <a href="{% url 'members:cards' %}" class="{% if tab == 'cards' %}active{% endif %}">ガソリンカード</a>
+</nav>

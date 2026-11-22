@@ -1,8 +1,8 @@
-<div class="monthnav">
-  <a class="btn-light" href="?month={{ prev_param }}{{ extra_query }}">◀ 前月</a>
+<div class="monthnav" role="group" aria-label="月の切り替え">
+  <a href="?month={{ prev_param }}{{ extra_query }}" aria-label="前の月">◀</a>
   <form method="get" style="display:inline">
-    <input type="month" name="month" value="{{ month_param }}" onchange="this.form.submit()" style="width:auto">
+    <input type="month" name="month" value="{{ month_param }}" onchange="this.form.submit()" aria-label="月を選ぶ">
     {% if emp %}<input type="hidden" name="type" value="{{ emp }}">{% endif %}
   </form>
-  <a class="btn-light" href="?month={{ next_param }}{{ extra_query }}">翌月 ▶</a>
+  <a href="?month={{ next_param }}{{ extra_query }}" aria-label="次の月">▶</a>
 </div>

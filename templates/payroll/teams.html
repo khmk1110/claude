@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}チーム{% endblock %}
 {% block content %}
-<h1>チーム</h1>
+<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>チーム</h1></div></div>
 {% include "payroll/_nav.html" %}
 <p class="muted small">チーム達成ボーナス（営業チーム）とインターンリーダー手当（インターンチーム）の計算に使います。変更はその月以降の給与計算（未確定分）に自動で反映され、確定済みの給与は変わりません。メンバーは「加入月」「脱退月」で管理するので、過去の月の計算にも正しいメンバーが使われます。</p>
 
@@ -33,6 +33,6 @@
 <form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="create">
   <select name="kind" style="width:auto">{% for v, l in kinds %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
   リーダー <select name="leader" style="width:auto">{% for m in members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select>
-  <input name="name" placeholder="チーム名（空欄なら「〇〇チーム」）" style="width:200px"> <button class="btn" type="submit">作る</button>
+  <input name="name" placeholder="チーム名（空欄なら「〇〇チーム」）" style="width:200px"> <button class="btn btn-primary" type="submit">作る</button>
 </form>
 {% endblock %}

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}ガソリンカード{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">管理</p><h1>ガソリンカードの対応表</h1></div></div>
+{% include "members/_tabs.html" with tab="cards" %}
+<p class="muted small">ENEOSの請求書のカード番号の右側にある〔R0007〕などの4桁で担当者を決めます。この表にないカードは自動で無視されます。</p>
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>4桁</th><th>担当者</th><th>メモ</th><th>給与</th><th>状態</th><th></th></tr></thead>
+  <tbody>{% for c in cards %}<tr><td class="strong">{{ c.code }}</td><td>{{ c.member|default:"-" }}</td><td class="small">{{ c.label }}</td>
+    <td>{% if c.ignored %}<span class="badge">反映しない</span>{% else %}<span class="badge badge-ok">差し引く</span>{% endif %}</td>
+    <td>{{ c.is_active|yesno:"使用中,未使用" }}</td><td><a class="btn btn-sm" href="?edit={{ c.pk }}">編集</a></td></tr>
+  {% empty %}<tr><td colspan="6" class="muted">まだ登録がありません。</td></tr>{% endfor %}</tbody>
+</table></div>
+<h2>{% if editing %}カード〔{{ editing.code }}〕を編集{% else %}カードを追加{% endif %}</h2>
+<form method="post" class="card" style="max-width:520px">{% csrf_token %}
+  {% for field in form %}<div class="field">{% if field.field.widget.input_type == "checkbox" %}<label class="check">{{ field }} {{ field.label }}</label>{% else %}<label>{{ field.label }}</label>{{ field }}{% endif %}{% for e in field.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}</div>{% endfor %}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">保存する</button>{% if editing %}<a class="btn" href="{% url 'members:cards' %}">キャンセル</a>{% endif %}</div>
+</form>
+{% endblock %}

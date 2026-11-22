@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ member.name }}の勤怠{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>{{ member.name }}　{{ month|date:"Y年n月" }}の勤怠</h1>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'attendance:month' %}?month={{ month_param }}">勤怠</a></p><h1>{{ member.name }}（{{ month|date:"Y年n月" }}）</h1></div>{% include "includes/monthnav.html" %}</div>
 <div class="grid">
   <div class="card"><div class="muted">実出勤日数</div><div class="big">{{ s.attendance_days.normalize }}日</div><div class="muted small">基準 {{ standard.normalize|default:"-" }}日</div></div>
   <div class="card"><div class="muted">有給取得</div><div class="big">{{ s.paid_leave_days.normalize }}日</div></div>
@@ -35,7 +35,7 @@
 </table>
 </div>
 {% for d in days %}<form method="post" action="{% url 'attendance:member_update' member.pk %}" id="f{{ forloop.counter }}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="date" value="{{ d.date.isoformat }}"></form>{% endfor %}
-{% if not locked %}<p><button class="btn" type="submit" form="confirm-form">チェックした日を予定どおり確定</button></p>{% endif %}
+{% if not locked %}<p><button class="btn btn-primary" type="submit" form="confirm-form">チェックした日を予定どおり確定</button></p>{% endif %}
 <p><a href="{% url 'attendance:month' %}?month={{ month_param }}">← 勤怠一覧に戻る</a></p>
 <script>document.getElementById("chk-all")?.addEventListener("change", e => document.querySelectorAll(".chk").forEach(c => c.checked = e.target.checked));</script>
 {% endblock %}

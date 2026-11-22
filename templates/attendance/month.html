@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}勤怠管理{% endblock %}
+{% block topbar %}勤怠{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>勤怠管理　{{ month|date:"Y年n月" }}</h1>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">勤怠</p><h1>{{ month|date:"Y年n月" }}の勤怠</h1></div>{% include "includes/monthnav.html" %}</div>
 <div class="toolbar">
   <form method="get" style="display:inline"><input type="hidden" name="month" value="{{ month_param }}">
     <select name="type" onchange="this.form.submit()" style="width:auto"><option value="">全員</option>{% for v, l in emp_choices %}<option value="{{ v }}" {% if v == emp %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></form>
@@ -15,7 +16,7 @@
     <form method="post" action="{% url 'attendance:lock' %}" style="display:inline"
           onsubmit="return confirm('{{ month|date:"Y年n月" }}の勤怠を確定します。未確定の日は予定どおりの実績として確定されます。よろしいですか？')">
       {% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
-      <button class="btn" type="submit">この月の勤怠を確定</button></form>
+      <button class="btn btn-primary" type="submit">この月の勤怠を確定</button></form>
   {% endif %}
 </div>
 <p class="muted small">実出勤日数＝確定・修正済みの実績＋未確定日の予定。給与計算の「前月出勤日数」にはこの値が使われます。</p>

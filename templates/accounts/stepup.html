@@ -1,14 +1,15 @@
 {% extends "base.html" %}
-{% block title %}{{ scope_label }}｜パスワード{% endblock %}
+{% block title %}{{ scope_label }}{% endblock %}
 {% block content %}
-<div class="card" style="max-width:420px;margin:40px auto;">
-  <h1>{{ scope_label }}</h1>
-  <p class="muted">この機能を開くには専用パスワードが必要です。</p>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+<div class="card" style="max-width:440px;margin:24px auto">
+  <p class="eyebrow">🔒 パスワードが必要です</p>
+  <h1 style="margin-bottom:8px">{{ scope_label }}</h1>
+  <p class="muted small">給与・経費の金額を守るため、この画面は専用のパスワードで開きます。30分操作がないと再入力になります。</p>
+  {% if error %}<div class="msg msg-error">{{ error }}</div>{% endif %}
   <form method="post">{% csrf_token %}
-    <p><label>パスワード<br>{{ form.password }}</label></p>
+    <div class="field"><label for="id_password">パスワード</label><input id="id_password" type="password" name="password" required autofocus></div>
     <input type="hidden" name="next" value="{{ next }}">
-    <button type="submit">開く</button>
+    <button class="btn btn-primary" type="submit" style="width:100%">開く</button>
   </form>
 </div>
 {% endblock %}

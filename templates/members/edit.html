@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{% if member.pk %}{{ member.name }}{% else %}メンバーを追加{% endif %}{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'members:list' %}">メンバー</a></p>
+  <h1>{% if member.pk %}{{ member.name }}（番号 {{ member.member_no }}）{% else %}メンバーを追加{% endif %}</h1></div></div>
+<form method="post" class="card" style="max-width:640px">{% csrf_token %}
+  {% if form.non_field_errors %}<div class="msg msg-error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  {% for field in form %}
+  <div class="field">
+    {% if field.field.widget.input_type == "checkbox" %}<label class="check">{{ field }} {{ field.label }}</label>
+    {% else %}<label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>{{ field }}{% endif %}
+    {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+    {% for e in field.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+  </div>
+  {% endfor %}
+  {% if not member.pk %}<p class="muted small">メンバー番号は保存すると自動で付きます。</p>{% endif %}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">保存する</button><a class="btn" href="{% url 'members:list' %}">戻る</a></div>
+</form>
+{% if can_delete %}
+<form method="post" action="{% url 'members:delete' member.pk %}" style="margin-top:16px" onsubmit="return confirm('{{ member.name }}さんを削除します。元に戻せません。よろしいですか？')">{% csrf_token %}
+  <button class="btn btn-danger" type="submit">このメンバーを削除（記録がない人だけ）</button></form>
+{% endif %}
+{% endblock %}

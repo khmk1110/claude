@@ -115,3 +115,51 @@ def history(request):
         target_type="shift", target_id__contains=f":{month:%Y-%m}-"
     ).order_by("-at")[:500]
     return render(request, "shifts/history.html", {**month_context(month), "logs": logs})
+
+
+@login_required
+def import_view(request):
+    """既存シフト表（Excel）の取り込み。確認画面で、特定できない名前は対象者を選ぶか取り込まないかを決める。"""
+    from datetime import date as _date
+
+    from .legacy import DayListError, apply_shift_rows, read_shift_sheet
+    from .models import ShiftEntry
+
+    ctx = {}
+    if request.method == "POST" and request.POST.get("step") == "upload":
+        f = request.FILES.get("file")
+        if not f or not f.name.lower().endswith(".xlsx"):
+            messages.error(request, "シフト表の Excel（.xlsx）を選んでください。")
+            return redirect("shifts:import")
+        try:
+            month, rows = read_shift_sheet(f.read())
+        except DayListError as e:
+            messages.error(request, str(e))
+            return redirect("shifts:import")
+        request.session["shift_import"] = {"month": month.isoformat(), "rows": rows}
+        return redirect("shifts:import")
+    plan = request.session.get("shift_import")
+    if request.method == "POST" and request.POST.get("step") == "apply" and plan:
+        month = _date.fromisoformat(plan["month"])
+        rows = plan["rows"]
+        for item in rows:
+            choice = request.POST.get(f"member_{item['row']}", "skip")
+            if choice.isdigit():
+                # 自動で特定できなかった名前（姓だけ・別表記）を選んだ場合は、別名として覚える対象にする
+                item["chosen"] = item["method"] != "exact"
+                item["member_id"] = int(choice)
+            else:
+                item["member_id"] = None
+        n = apply_shift_rows(month, rows, user=request.user, save_alias=bool(request.POST.get("save_alias")))
+        request.session.pop("shift_import", None)
+        messages.success(request, f"{month:%Y年%m月}のシフトを取り込みました（{n}件）。")
+        return redirect(f"/shifts/?month={month:%Y-%m}")
+    if request.method == "POST" and request.POST.get("step") == "cancel":
+        request.session.pop("shift_import", None)
+        return redirect("shifts:import")
+    if plan:
+        month = _date.fromisoformat(plan["month"])
+        ctx.update({"month": month, "rows": plan["rows"],
+                    "existing": ShiftEntry.objects.filter(date__year=month.year, date__month=month.month).count(),
+                    "members": Member.objects.filter(status=Member.Status.ACTIVE)})
+    return render(request, "shifts/import.html", ctx)

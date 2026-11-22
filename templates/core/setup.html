@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}初期設定・バックアップ{% endblock %}
 {% block content %}
-<h1>初期設定・バックアップ（代表者のみ）</h1>
+<div class="page-head"><div><p class="eyebrow">管理（代表者のみ）</p><h1>設定・バックアップ</h1></div></div>
 
 <div class="card" style="margin-bottom:16px">
   <b>バックアップをダウンロード</b>
   <p class="small muted">全データ（シフト・勤怠・給与・経費・資料ファイル・操作履歴）を1つのファイルで保存します。<b>月に1回</b>保存し、パソコンなど安全な場所に保管してください。給与と経費の両方の追加パスワードを入力済みの場合のみ実行できます。</p>
   {% if payroll_verified and expenses_verified %}
-  <form method="post" action="{% url 'backup' %}">{% csrf_token %}<button class="btn" type="submit">バックアップをダウンロード</button></form>
+  <form method="post" action="{% url 'backup' %}">{% csrf_token %}<button class="btn btn-primary" type="submit">バックアップをダウンロード</button></form>
   {% else %}
   <p class="attn small">先に{% if not payroll_verified %}<a href="{% url 'payroll:index' %}">給与・報酬</a>{% endif %}{% if not payroll_verified and not expenses_verified %}と{% endif %}{% if not expenses_verified %}<a href="{% url 'expenses:index' %}">資料・経費</a>{% endif %}を開いて、追加パスワードを入力してください。</p>
   {% endif %}
@@ -21,7 +21,7 @@
     <div class="toolbar">
       <input type="file" name="file" accept=".json,application/json" style="width:auto">
       <label class="small"><input type="checkbox" name="apply" value="1" style="width:auto"> 登録する（チェックなしは確認のみ）</label>
-      <button class="btn" type="submit">実行</button>
+      <button class="btn btn-primary" type="submit">実行</button>
     </div>
   </form>
 </div>
@@ -53,7 +53,7 @@
   <b>バックアップから復元（データが空のときだけ表示）</b>
   <p class="small">ダウンロードしたバックアップファイル（kanri-backup-….json.gz）から、全データを元に戻します。途中で失敗した場合は何も変更されません。</p>
   <form method="post" enctype="multipart/form-data" class="toolbar" onsubmit="return confirm('バックアップから復元します。よろしいですか？')">{% csrf_token %}<input type="hidden" name="action" value="restore">
-    <input type="file" name="file" accept=".gz,.json" required style="width:auto"> <button class="btn" type="submit">復元する</button></form>
+    <input type="file" name="file" accept=".gz,.json" required style="width:auto"> <button class="btn btn-primary" type="submit">復元する</button></form>
 </div>
 {% endif %}
 

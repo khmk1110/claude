@@ -10,6 +10,6 @@
   <table class="list">{% for key, label in fields %}<tr><th>{{ label }}{% if key == "amount" %}（必須）{% endif %}</th><td>
     <select name="col_{{ key }}"><option value="">（使わない）</option>{% for h in sf.headers %}{% if h %}<option value="{{ h }}">{{ h }}</option>{% endif %}{% endfor %}</select></td></tr>{% endfor %}</table>
   <p><label>反映する給与の月（資料の利用月から何か月後か）<br><input name="offset" value="1" style="width:80px"> か月後</label></p>
-  <button class="btn" type="submit">保存して読み取る</button>
+  <button class="btn btn-primary" type="submit">保存して読み取る</button>
 </form>
 {% endblock %}

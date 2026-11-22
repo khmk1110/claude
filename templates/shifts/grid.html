@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}シフト管理{% endblock %}
+{% block topbar %}シフト{% endblock %}
 {% block content %}
-<div class="pagehead">
-  <h1>シフト管理　{{ month|date:"Y年n月" }}</h1>
-  {% include "includes/monthnav.html" with extra_query=emp|yesno:"&type=,"|add:emp %}
+<div class="page-head">
+  <div><p class="eyebrow">シフト</p><h1>{{ month|date:"Y年n月" }}のシフト</h1></div>
+  <div class="page-actions">
+    {% include "includes/monthnav.html" with extra_query=emp|yesno:"&type=,"|add:emp %}
+    <a class="btn btn-primary" href="{% url 'shifts:share' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}">LINE用の画像を作る</a>
+  </div>
 </div>
 
 <div class="toolbar">
@@ -14,7 +18,7 @@
       {% for v, l in emp_choices %}<option value="{{ v }}" {% if v == emp %}selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
   </form>
-  <a class="btn-light" href="{% url 'shifts:share' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}">画像を作成（LINE共有）</a>
+  <a class="btn-light" href="{% url 'shifts:import' %}">Excelから取り込む</a>
   <a class="btn-light" href="{% url 'shifts:history' %}?month={{ month_param }}">変更履歴</a>
   <a class="btn-light" href="{% url 'members:order' %}">並び替え</a>
   <form method="post" action="{% url 'shifts:copy_previous' %}" style="display:inline"
@@ -26,15 +30,15 @@
 </div>
 
 <div class="palette" id="palette">
-  <span class="muted">選択したセルに：</span>
+  <span class="muted">選んだ日に：</span>
   {% for wt in work_types %}
     <button type="button" class="wt" data-code="{{ wt.code }}" data-label="{{ wt.short_label }}"
-            style="background:{{ wt.color }};color:{{ wt.text_color }}">{{ wt.short_label }} {{ wt.name }}</button>
+            style="background:{{ wt.color }};color:{{ wt.text_color }}" title="{{ wt.name }}">{{ wt.short_label }}<span class="wt-name"> {{ wt.name }}</span></button>
   {% endfor %}
-  <button type="button" class="wt" data-code="" data-label="" style="background:#fff;color:#374151;border:1px solid #d1d5db">未定に戻す</button>
+  <button type="button" class="wt clear" data-code="" data-label="" style="background:#fff;color:#374151;border:1px solid #d1d5db">未定に戻す</button>
   <span class="muted" id="sel-count"></span>
 </div>
-<p class="muted small">セルをクリックで選択（Shift＋クリックで範囲・ドラッグで複数）。日付をクリックでその日の全員、名前をクリックでその人の全日を選択します。土日祝日も通常どおり入力できます。</p>
+<p class="muted small hint-pc">セルをクリックで選択（Shift＋クリックで範囲・ドラッグで複数）。日付をクリックでその日の全員、名前をクリックでその人の全日を選択します。土日祝日も通常どおり入力できます。</p>
 
 <div class="table-scroll">
 <table class="shift" id="shift-table">

@@ -21,10 +21,10 @@
 
 <div class="toolbar">
   {% if not st.is_confirmed %}
-    <form method="post" action="{% url 'payroll:detail_action' st.pk %}">{% csrf_token %}<button class="btn" name="action" value="calculate">再計算</button></form>
+    <form method="post" action="{% url 'payroll:detail_action' st.pk %}">{% csrf_token %}<button class="btn btn-primary" name="action" value="calculate">再計算</button></form>
     {% if st.status == "calculated" %}<form method="post" action="{% url 'payroll:detail_action' st.pk %}">{% csrf_token %}<button class="btn-light" name="action" value="review">確認待ちにする</button></form>{% endif %}
     {% if st.status == "calculated" or st.status == "review" %}
-    <form method="post" action="{% url 'payroll:detail_action' st.pk %}" onsubmit="return confirm('この内容で確定します。確定後は金額を変更できません。よろしいですか？')">{% csrf_token %}<button class="btn" name="action" value="confirm" style="background:#15803d">確定する</button></form>
+    <form method="post" action="{% url 'payroll:detail_action' st.pk %}" onsubmit="return confirm('この内容で確定します。確定後は金額を変更できません。よろしいですか？')">{% csrf_token %}<button class="btn btn-ok" name="action" value="confirm">確定する</button></form>
     {% endif %}
   {% else %}
     <form method="post" action="{% url 'payroll:detail_action' st.pk %}" onsubmit="const r=prompt('確定を取り消す理由を入力してください');if(!r)return false;this.reason.value=r;">{% csrf_token %}<input type="hidden" name="reason"><button class="btn-light" name="action" value="reopen">確定を取り消す</button></form>

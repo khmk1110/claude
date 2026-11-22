@@ -10,4 +10,5 @@ urlpatterns = [
     path("share/", views.share, name="share"),
     path("image.png", views.image_png, name="image"),
     path("history/", views.history, name="history"),
+    path("import/", views.import_view, name="import"),
 ]

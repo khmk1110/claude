@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% load humanize %}
 {% block title %}給与・報酬管理{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>給与・報酬管理　{{ month|date:"Y年n月" }}分</h1>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>{{ month|date:"Y年n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
 {% include "payroll/_nav.html" %}
 
 <div class="grid">
@@ -17,11 +18,11 @@
 <div class="toolbar">
   {% if pending_members %}
   <form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="prepare">
-    <button class="btn" type="submit">給与データを作成（{{ pending_members }}人）</button></form>
+    <button class="btn btn-primary" type="submit">給与データを作成（{{ pending_members }}人）</button></form>
   {% endif %}
   {% if rows %}
   <form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('確定済みを除く全員を計算します。手動で修正した値はそのまま残ります。よろしいですか？')">{% csrf_token %}
-    <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="calculate_all"><button class="btn" type="submit">全員を計算</button></form>
+    <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit">全員を計算</button></form>
   <a class="btn-light" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDF（確定分を一括）</a>
   <a class="btn-light" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}&all=1" target="_blank">確認用PDF（未確定を含む）</a>
   <a class="btn-light" href="{% url 'payroll:export' 'csv' %}?month={{ month_param }}">CSV</a>

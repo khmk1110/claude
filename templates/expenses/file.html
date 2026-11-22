@@ -2,7 +2,7 @@
 {% load humanize %}
 {% block title %}{{ sf.original_name }}{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>{{ sf.original_name }}</h1>
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'expenses:index' %}{% if sf.target_month %}?month={{ sf.target_month|date:'Y-m' }}{% endif %}">経費・資料</a></p><h1>{{ sf.original_name }}</h1></div>
   <div><a class="btn-light" href="{% url 'expenses:index' %}{% if sf.target_month %}?month={{ sf.target_month|date:'Y-m' }}{% endif %}">一覧</a>
   {% if sf.file %}<a class="btn-light" href="{% url 'expenses:download' sf.pk %}">元資料をダウンロード</a>{% endif %}</div></div>
 <p class="muted">{{ sf.get_file_format_display }}・{{ sf.get_status_display }}・取り込み {{ sf.uploaded_at|date:"Y-m-d H:i" }}（{{ sf.uploaded_by|default:"-" }}）{% if sf.profile %}・読み取りルール「{{ sf.profile.name }}」{% endif %}{% if sf.used_ocr %}・<b>OCR（画像からの読み取り）</b>{% endif %}</p>
@@ -36,14 +36,14 @@
       {% for r in to_confirm %}<tr><td>{{ r.row_number }}</td><td>{% if r.card_code %}〔{{ r.card_code }}〕{% endif %}{{ r.name_text }}</td><td>{{ r.effective_member|default:"未設定" }}</td>
         <td class="num"><input name="amount_{{ r.pk }}" value="{{ r.effective_amount|default_if_none:'' }}" inputmode="numeric" style="width:120px;text-align:right" placeholder="金額"></td></tr>{% endfor %}
     </table>
-    <button class="btn" type="submit">金額を確定</button>
+    <button class="btn btn-primary" type="submit">金額を確定</button>
   </form>
 </div>
 {% endif %}
 
 <form method="post" action="{% url 'expenses:file_action' sf.pk %}" id="bulk">{% csrf_token %}<input type="hidden" name="reason"></form>
 <div class="toolbar">
-  <button class="btn" form="bulk" name="action" value="approve">チェックした行を承認</button>
+  <button class="btn btn-primary" form="bulk" name="action" value="approve">チェックした行を承認</button>
   <button class="btn-light" form="bulk" name="action" value="exclude" onclick="const r=prompt('対象外にする理由');if(!r)return false;document.querySelector('#bulk [name=reason]').value=r;">チェックした行を対象外</button>
   <span class="muted small">承認済みの経費だけが給与計算に反映されます。</span>
 </div>

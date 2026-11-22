@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}シフト表の取り込み{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">シフト</p><h1>Excelのシフト表を取り込む</h1></div></div>
+{% if not rows %}
+<div class="card">
+  <ol class="steps-simple">
+    <li>これまで使っていたシフト表（Excel）を選んで「読み取る」を押します</li>
+    <li>次の画面で、名前が誰に当たるかを確認します（特定できない名前は選ぶか、取り込まないを選べます）</li>
+    <li>「取り込む」を押すとシフト表に反映されます</li>
+  </ol>
+  <form method="post" enctype="multipart/form-data" class="form-row">{% csrf_token %}<input type="hidden" name="step" value="upload">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button class="btn btn-primary" type="submit">読み取る</button>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <p><b>{{ month|date:"Y年n月" }}</b>のシフトを読み取りました。名前ごとの対象者を確認して「取り込む」を押してください。</p>
+  {% if existing %}<p class="text-warn">この月にはすでに {{ existing }} 件のシフトがあります。取り込むと、取り込む人の分は上書きされます。</p>{% endif %}
+  <form method="post">{% csrf_token %}<input type="hidden" name="step" value="apply">
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>シフト表の名前</th><th>対象者</th><th class="num">出勤日数</th><th>状態</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr class="{% if not r.member_id or r.error %}row-attn{% endif %}">
+        <td class="strong">{{ r.name }}</td>
+        <td>{% if r.error %}<span class="muted">取り込めません</span>{% else %}
+          <select name="member_{{ r.row }}">
+            <option value="skip" {% if not r.member_id %}selected{% endif %}>取り込まない</option>
+            {% for m in members %}<option value="{{ m.pk }}" {% if m.pk == r.member_id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+          </select>{% endif %}</td>
+        <td class="num">{{ r.work_days|length }}</td>
+        <td class="small">{% if r.error %}<span class="text-danger">{{ r.error }}</span>
+          {% elif r.member_id %}<span class="badge badge-ok">自動で特定</span>
+          {% elif r.method == "ambiguous" %}<span class="text-warn">同じ姓の人が複数います。選んでください</span>
+          {% else %}<span class="text-warn">登録されていない名前です（退職者なら「取り込まない」）</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <label class="check"><input type="checkbox" name="save_alias" value="1" checked> 選んだ対応を覚えて、次回から自動で特定する</label>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">取り込む</button>
+      <button class="btn" type="submit" name="step" value="cancel" formnovalidate>やり直す</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

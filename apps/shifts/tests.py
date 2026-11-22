@@ -202,3 +202,68 @@ class MemberNumberingTests(TestCase):
         for i in range(5, 12):
             Member.objects.create(name=f"メンバー{i}", employment_type="intern")
         self.assertEqual(Member.objects.create(name="最後", employment_type="intern").member_no, "12")
+
+
+class ShiftImportFlowTests(TestCase):
+    def make_book(self):
+        import io
+
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "シフト入力"
+        ws["A1"], ws["B1"], ws["D1"], ws["E1"] = "年", 2026, "月", 11
+        rows = [("青木", "休み", "1.4.8"), ("退職", "休み", "1,5"), ("矢野", "出勤日", "4、5、6"), ("井上", "出勤日", 21.22)]
+        for i, r in enumerate(rows, start=4):
+            for j, v in enumerate(r, start=1):
+                ws.cell(i, j, v)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    def test_unknown_and_ambiguous_names_can_be_resolved_on_screen(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        user = User.objects.create_user("u", password="x-pass-12345")
+        self.client.force_login(user)
+        aoki = Member.objects.create(name="青木 一郎", employment_type="employee")
+        yano1 = Member.objects.create(name="矢野 一郎", employment_type="contractor")
+        Member.objects.create(name="矢野 次郎", employment_type="contractor")
+        inoue = Member.objects.create(name="井上 三郎", employment_type="intern")
+        self.client.post("/shifts/import/", {"step": "upload", "file": SimpleUploadedFile("s.xlsx", self.make_book())})
+        page = self.client.get("/shifts/import/")
+        self.assertContains(page, "同じ姓の人が複数います")
+        self.assertContains(page, "登録されていない名前です")
+        rows = {r["name"]: r for r in self.client.session["shift_import"]["rows"]}
+        self.assertEqual(rows["青木"]["member_id"], aoki.pk)
+        self.assertIsNone(rows["矢野"]["member_id"])
+        res = self.client.post("/shifts/import/", {
+            "step": "apply", "save_alias": "1",
+            f"member_{rows['青木']['row']}": str(aoki.pk), f"member_{rows['退職']['row']}": "skip",
+            f"member_{rows['矢野']['row']}": str(yano1.pk), f"member_{rows['井上']['row']}": str(inoue.pk)})
+        self.assertRedirects(res, "/shifts/?month=2026-11", fetch_redirect_response=False)
+        self.assertEqual(ShiftEntry.objects.filter(member=aoki, work_type__code="work").count(), 30 - 3)
+        self.assertEqual(ShiftEntry.objects.filter(member=yano1, work_type__code="work").count(), 3)
+        self.assertEqual(sorted(e.date.day for e in ShiftEntry.objects.filter(member=inoue, work_type__code="work")), [21, 22])
+        self.assertTrue(MemberAlias.objects.filter(member=yano1, alias="矢野").exists())  # 次回から自動
+        from apps.members.matching import match_member
+
+        self.assertEqual(match_member("矢野").member, yano1)
+
+
+class MemberFormTests(TestCase):
+    def test_add_edit_and_delete_in_app(self):
+        user = User.objects.create_user("u", password="x-pass-12345")
+        self.client.force_login(user)
+        self.client.post("/members/new/", {"name": "追加 太郎", "employment_type": "intern", "status": "active",
+                                          "aliases": "追加\nついか たろう"})
+        m = Member.objects.get(name="追加 太郎")
+        self.assertEqual(m.member_no, "1")
+        self.assertEqual(set(m.aliases.values_list("alias", flat=True)), {"追加", "ついか たろう"})
+        res = self.client.post(f"/members/{m.pk}/edit/", {"name": "追加 太郎", "employment_type": "intern", "status": "retired"})
+        self.assertContains(res, "退職日を入力してください")
+        self.client.post(f"/members/{m.pk}/delete/")
+        self.assertFalse(Member.objects.filter(pk=m.pk).exists())
+        for url in ["/members/", "/members/new/", "/members/cards/", "/members/order/", "/shifts/import/", "/"]:
+            self.assertEqual(self.client.get(url).status_code, 200, url)

@@ -1,28 +1,35 @@
 {% extends "base.html" %}
 {% load humanize %}
+{% block title %}ホーム{% endblock %}
+{% block topbar %}ホーム{% endblock %}
 {% block content %}
-<h1>ダッシュボード　{{ month|date:"Y年n月" }}</h1>
-<div class="grid">
-  <div class="card"><div class="muted">対象メンバー</div><div class="big">{{ member_count }}人</div></div>
-  <div class="card"><div class="muted">シフト入力状況</div><div class="big">{{ shift_members_started }} / {{ member_count }}人</div><div class="muted small">入力済み {{ shift_filled }} / {{ shift_total }}セル</div></div>
-  <div class="card"><div class="muted">本日の出勤予定</div><div class="big">{{ today_work }}人</div></div>
-  <div class="card"><div class="muted">今月の出勤実績（確定分）</div><div class="big">{{ attendance_actual_total.normalize }}日</div></div>
-  <div class="card"><div class="muted">勤怠の確認が必要な人</div><div class="big {% if needs_check %}attn{% endif %}">{{ needs_check }}人</div><div class="muted small">過去日に未確定の勤怠あり</div></div>
-  <div class="card"><div class="muted">有給の承認待ち</div><div class="big {% if pending_leave %}attn{% endif %}">{{ pending_leave }}件</div></div>
-  <div class="card"><div class="muted">給与・報酬（{{ month|date:"n月" }}分）</div>{% if payroll %}<div class="big {% if payroll.unconfirmed %}attn{% endif %}">未確定 {{ payroll.unconfirmed }} / {{ payroll.count }}人</div><div class="muted small">差引合計 {{ payroll.net|intcomma }}円{% if payroll.errors %}・入力途中 {{ payroll.errors }}人{% endif %}{% if payroll.needs_review %}・要確認 {{ payroll.needs_review }}人{% endif %}</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
-  <div class="card"><div class="muted">資料・経費</div>{% if expenses %}<div class="big {% if expenses.pending %}attn{% endif %}">確認待ち {{ expenses.pending }}件</div><div class="muted small">未確認 {{ expenses.unchecked }}件・確認事項 {{ expenses.issues }}件・給与未反映 {{ expenses.unreflected|intcomma }}円</div>{% else %}<p class="muted small">🔒 金額の表示には追加パスワードが必要です</p>{% endif %}</div>
+<div class="page-head">
+  <div><p class="eyebrow">{{ today|date:"Y年n月j日" }}</p><h1>{{ month|date:"n月" }}にやること</h1></div>
 </div>
 
-<h2>出勤基準に届いていない人（シフトの予定ベース）</h2>
-<table class="list"><tr><th>名前</th><th class="num">予定日数</th><th class="num">基準</th><th class="num">不足</th></tr>
-{% for m, planned, std, short in under %}<tr><td><a href="{% url 'shifts:grid' %}">{{ m.name }}</a></td><td class="num">{{ planned.normalize }}</td><td class="num">{{ std.normalize }}</td><td class="num warn">{{ short.normalize }}</td></tr>
-{% empty %}<tr><td colspan="4" class="muted">該当者はいません。</td></tr>{% endfor %}</table>
+<div class="stats">
+  <div class="card stat"><div class="label">在籍メンバー</div><div class="value">{{ member_count }}人</div></div>
+  <div class="card stat"><div class="label">今日の出勤予定</div><div class="value">{{ today_work }}人</div></div>
+  <div class="card stat"><div class="label">勤怠の確認が必要</div><div class="value {% if needs_check %}text-warn{% endif %}">{{ needs_check }}人</div><div class="sub">過去の日に未確定あり</div></div>
+  <div class="card stat"><div class="label">{{ month|date:"n月" }}分の差引支給額</div>
+    {% if payroll %}<div class="value">{{ payroll.net|intcomma }}円</div><div class="sub">{{ payroll.count }}人分</div>
+    {% else %}<div class="value">🔒</div><div class="sub">給与・報酬を開くと表示</div>{% endif %}</div>
+</div>
 
-<h2>有給の注意</h2>
-<table class="list"><tr><th>名前</th><th class="num">残日数</th><th>付与の登録</th><th>年5日取得義務</th><th>期限が近い残日数</th></tr>
-{% for m, st in leave_alerts %}<tr><td><a href="{% url 'attendance:leave_member' m.pk %}">{{ m.name }}</a></td><td class="num">{{ st.remaining.normalize }}</td>
-  <td>{% if st.missing_statutory %}<span class="warn">未登録 {{ st.missing_statutory|length }}件</span>{% else %}-{% endif %}</td>
-  <td>{% if st.obligation and not st.obligation.achieved %}<span class="warn">あと{{ st.obligation.shortfall.normalize }}日の予定が必要（期限 {{ st.obligation.deadline|date:"Y-m-d" }}）</span>{% else %}-{% endif %}</td>
-  <td>{% for e in st.expiring_soon %}{{ e.1.normalize }}日（{{ e.0|date:"Y-m-d" }}まで） {% empty %}-{% endfor %}</td></tr>
-{% empty %}<tr><td colspan="5" class="muted">注意が必要な人はいません。</td></tr>{% endfor %}</table>
+{% if notices %}
+<h2>お知らせ</h2>
+{% for text, url in notices %}<a class="notice" href="{{ url }}" style="text-decoration:none">⚠️ <span>{{ text }}</span></a>{% endfor %}
+{% endif %}
+
+<h2>今月の流れ</h2>
+<p class="muted small">上から順に進めると、毎月の給与計算と明細の発行まで終わります。いま進めるべき手順を青で表示しています。</p>
+<ol class="flow">
+  {% for s in flow %}
+  <li class="{{ s.state }}">
+    <span class="no">{% if s.done %}✓{% else %}{{ s.no }}{% endif %}</span>
+    <div><div class="title">{{ s.title }}</div><div class="desc">{{ s.desc }}</div></div>
+    <a class="btn {% if s.state == 'doing' %}btn-primary{% endif %} go" href="{{ s.url }}">{{ s.button }}</a>
+  </li>
+  {% endfor %}
+</ol>
 {% endblock %}

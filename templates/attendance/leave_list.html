@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}有給管理{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>有給管理</h1><span class="muted">基準日 {{ today|date:"Y-m-d" }}</span></div>
+<div class="page-head"><div><p class="eyebrow">有給（基準日 {{ today|date:"Y/n/j" }}）</p><h1>有給の残日数と取得状況</h1></div></div>
 {% if pending %}
 <div class="card attnbox"><b>承認待ちの申請 {{ pending|length }}件</b>
   <ul>{% for r in pending %}<li><a href="{% url 'attendance:leave_member' r.member.pk %}">{{ r.member.name }}</a> {{ r.date|date:"Y-m-d" }}（{{ r.days.normalize }}日）</li>{% endfor %}</ul></div>

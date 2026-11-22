@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ member.name }}の有給{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>{{ member.name }}の有給</h1><a href="{% url 'attendance:leave_list' %}">← 有給一覧</a></div>
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'attendance:leave_list' %}">有給</a></p><h1>{{ member.name }}の有給</h1></div></div>
 <div class="grid">
   <div class="card"><div class="muted">残日数</div><div class="big">{{ st.remaining.normalize }}日</div><div class="muted small">予定分を引くと {{ st.remaining_after_planned.normalize }}日</div></div>
   <div class="card"><div class="muted">取得済み / 取得予定 / 申請中</div><div class="big">{{ st.taken.normalize }} / {{ st.planned.normalize }} / {{ st.requested.normalize }}</div></div>
@@ -30,7 +30,7 @@
 <table class="list"><tr><th>取得日</th><th class="num">日数</th><th>状態</th><th>メモ</th><th></th></tr>
 {% for r in requests %}<tr><td>{{ r.date|date:"Y-m-d" }}</td><td class="num">{{ r.days.normalize }}</td><td>{{ r.get_status_display }}</td><td>{{ r.note }}</td>
   <td>{% if r.status == "requested" %}<form method="post" action="{% url 'attendance:leave_action' member.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="request_id" value="{{ r.pk }}">
-    <button class="btn" name="action" value="approve" type="submit">承認（シフトに反映）</button> <button class="btn-light" name="action" value="reject" type="submit">却下</button></form>{% endif %}</td></tr>
+    <button class="btn btn-primary" name="action" value="approve" type="submit">承認（シフトに反映）</button> <button class="btn-light" name="action" value="reject" type="submit">却下</button></form>{% endif %}</td></tr>
 {% empty %}<tr><td colspan="5" class="muted">申請はありません。</td></tr>{% endfor %}</table>
 
 <h2>取得履歴（シフト・勤怠から自動集計）</h2>

@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% load humanize %}
 {% block title %}資料・経費管理{% endblock %}
+{% block topbar %}経費・資料{% endblock %}
 {% block content %}
-<div class="pagehead"><h1>資料・経費管理　{{ month|date:"Y年n月" }}の給与に反映する分</h1>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">経費・資料</p><h1>{{ month|date:"Y年n月" }}の給与に反映する経費</h1></div>{% include "includes/monthnav.html" %}</div>
 
 <div class="grid">
   <div class="card"><div class="muted">取り込んだ資料</div><div class="big">{{ files|length }}件</div><div class="muted small">未確認の資料 {{ unchecked_files }}件</div></div>
@@ -17,7 +18,7 @@
     <input type="file" name="files" multiple accept=".xlsx,.xls,.csv,.pdf" style="width:auto">
     <select name="kind" style="width:auto"><option value="">種類：自動判定</option>{% for v, l in kinds %}{% if v != "unknown" %}<option value="{{ v }}">{{ l }}</option>{% endif %}{% endfor %}</select>
     <label class="small">反映する給与の月 <input type="month" name="target_month" style="width:auto"></label>
-    <button class="btn" type="submit">取り込む</button>
+    <button class="btn btn-primary" type="submit">取り込む</button>
   </form>
   <form method="post" action="{% url 'expenses:upload' %}" class="toolbar">{% csrf_token %}
     <input name="gsheet_url" placeholder="GoogleスプレッドシートのURL（リンク共有されたもの）" style="max-width:480px">
