@@ -14,12 +14,15 @@
 </div>
 
 <div class="card" style="margin-bottom:16px">
-  <b>初期設定ファイルの取り込み</b>
-  <p class="small muted">メンバー（番号・並び順・追加・削除）、カード対応表、チーム、個人別の給与項目をまとめて登録します（.json）。給与・報酬の追加パスワードを入力してから実行してください。</p>
-  <form method="post" enctype="multipart/form-data" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="setupfile">
-    <input type="file" name="file" accept=".json,application/json" required style="width:auto">
-    <label class="small"><input type="checkbox" name="apply" value="1" style="width:auto"> 登録する（チェックなしは確認のみ）</label>
-    <button class="btn-light" type="submit">実行</button>
+  <b>初期設定の取り込み</b>
+  <p class="small muted">メンバー（番号・並び順・追加・削除）、カード対応表、チーム、個人別の給与項目をまとめて登録します。受け取った設定の文字を下の欄に貼り付けるか、ファイル（.json）を選んでください。給与・報酬の追加パスワードを入力してから実行してください。</p>
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="action" value="setupfile">
+    <textarea name="text" rows="5" style="width:100%" placeholder="ここに貼り付け">{{ pasted }}</textarea>
+    <div class="toolbar">
+      <input type="file" name="file" accept=".json,application/json" style="width:auto">
+      <label class="small"><input type="checkbox" name="apply" value="1" style="width:auto"> 登録する（チェックなしは確認のみ）</label>
+      <button class="btn" type="submit">実行</button>
+    </div>
   </form>
 </div>
 

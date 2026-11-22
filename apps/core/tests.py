@@ -123,3 +123,25 @@ class TeamPageTests(TestCase):
         st = calc.calculate(st)
         self.assertEqual(st.lines.get(code="team_bonus").amount, 40000 * 2)  # 平均80件 → 4万円 × 2名
         self.assertEqual(self.client.get("/payroll/teams/").status_code, 200)
+
+
+class SetupPasteTests(TestCase):
+    def test_paste_text_on_setup_page(self):
+        import json as _json
+
+        from apps.accounts import stepup
+        from apps.accounts.models import User
+        from apps.members.models import Member
+
+        owner = User.objects.create_user("o", password="x-pass-12345", role=User.Role.OWNER)
+        stepup.set_password("payroll", "pay-pass")
+        self.client.force_login(owner)
+        text = _json.dumps({"members": [{"name": "貼付 太郎", "employment_type": "intern", "member_no": "1"}]}, ensure_ascii=False)
+        res = self.client.post("/settings/", {"action": "setupfile", "text": text})
+        self.assertContains(res, "給与・報酬管理を開いて")  # 追加認証が先
+        self.client.post("/stepup/payroll/", {"password": "pay-pass"})
+        res = self.client.post("/settings/", {"action": "setupfile", "text": text})
+        self.assertContains(res, "確認のみ")
+        self.assertFalse(Member.objects.exists())
+        self.client.post("/settings/", {"action": "setupfile", "text": text, "apply": "1"})
+        self.assertEqual(Member.objects.get().member_no, "1")

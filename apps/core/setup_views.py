@@ -47,8 +47,9 @@ def setup(request):
         action = request.POST.get("action")
         apply = request.POST.get("apply") == "1"
         upload = request.FILES.get("file")
+        pasted = request.POST.get("text", "").strip()
         try:
-            if not upload:
+            if not upload and not (action == "setupfile" and pasted):
                 raise CommandError("ファイルを選んでください。")
             if action == "payroll":
                 if not stepup.is_verified(request, "payroll"):
@@ -62,7 +63,7 @@ def setup(request):
                 from apps.core.setup_file import apply_setup
 
                 try:
-                    data = json.loads(upload.read().decode("utf-8-sig"))
+                    data = json.loads(pasted if pasted else upload.read().decode("utf-8-sig"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as e:
                     raise CommandError(f"設定ファイルを読み取れません: {e}")
                 output = "\n".join(apply_setup(data, user=request.user, dry_run=not apply))
@@ -82,7 +83,8 @@ def setup(request):
             else:
                 raise CommandError("不明な操作です。")
             ok = True
-            audit.log(f"setup.{action}", target_type="setup", target_repr=upload.name, after={"apply": apply}, request=request)
+            audit.log(f"setup.{action}", target_type="setup", target_repr=upload.name if upload else "貼り付け",
+                      after={"apply": apply}, request=request)
             messages.success(request, "取り込みました。" if apply else "確認しました（まだ取り込んでいません）。内容を確認して「取り込む」にチェックして再実行してください。")
         except Exception as e:  # noqa: BLE001 — 失敗内容を画面に表示する（復元は全体がロールバックされる）
             ok = False
@@ -93,6 +95,7 @@ def setup(request):
 
     can_restore = not Member.objects.exists() and not PayrollStatement.objects.exists()
     return render(request, "core/setup.html", {"output": output, "ok": ok, "can_restore": can_restore,
+                                               "pasted": request.POST.get("text", "") if request.method == "POST" else "",
                                                "payroll_verified": stepup.is_verified(request, "payroll", touch=False),
                                                "expenses_verified": stepup.is_verified(request, "expenses", touch=False)})
 
