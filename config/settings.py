@@ -21,6 +21,11 @@ DEBUG = env("DEBUG")
 SECRET_KEY = env("SECRET_KEY", default="dev-only-insecure-key" if DEBUG else environ.Env.NOTSET)
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+# Render は公開アドレスを RENDER_EXTERNAL_HOSTNAME で渡すので、手入力しなくてよいように自動で追加する
+_render_host = env("RENDER_EXTERNAL_HOSTNAME", default="")
+if _render_host:
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, _render_host]
+    CSRF_TRUSTED_ORIGINS = [*CSRF_TRUSTED_ORIGINS, f"https://{_render_host}"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",

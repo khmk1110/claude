@@ -16,10 +16,8 @@ services:
         generateValue: true
       - key: DATABASE_URL
         sync: false          # Neon の接続文字列（postgresql://...?sslmode=require）
-      - key: ALLOWED_HOSTS
-        sync: false          # 例: kanri-xxxx.onrender.com
-      - key: CSRF_TRUSTED_ORIGINS
-        sync: false          # 例: https://kanri-xxxx.onrender.com
+      # 公開アドレス（xxx.onrender.com）は Render が自動で渡すため設定不要。独自ドメインを使うときだけ
+      # ALLOWED_HOSTS と CSRF_TRUSTED_ORIGINS を追加する。
       - key: COMPANY_NAME
         sync: false
       - key: ISSUER_REPRESENTATIVE
