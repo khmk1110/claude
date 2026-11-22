@@ -166,3 +166,19 @@ class MatchingTests(TestCase):
         MemberAlias.objects.create(member=a, alias="矢野")
         self.assertEqual(match_member("矢野").member, a)
         self.assertEqual(match_member("矢野　一郎").member, a)
+
+
+class MemberDeleteTests(TestCase):
+    def test_only_members_without_history_can_be_deleted(self):
+        admin = User.objects.create_superuser("root", password="x-pass-12345")
+        self.client.force_login(admin)
+        fresh = Member.objects.create(member_no="N1", name="新規 太郎", employment_type="contractor")
+        used = Member.objects.create(member_no="N2", name="記録 次郎", employment_type="contractor")
+        services.set_shifts([used], [date(2026, 11, 2)], wt("work"))
+        self.assertFalse(fresh.has_history())
+        self.assertTrue(used.has_history())
+        self.assertEqual(self.client.post(f"/admin/members/member/{used.pk}/delete/", {"post": "yes"}).status_code, 403)
+        self.client.post(f"/admin/members/member/{fresh.pk}/delete/", {"post": "yes"})
+        self.assertFalse(Member.objects.filter(pk=fresh.pk).exists())
+        self.assertTrue(Member.objects.filter(pk=used.pk).exists())
+        self.assertTrue(AuditLog.objects.filter(action="member.delete").exists())

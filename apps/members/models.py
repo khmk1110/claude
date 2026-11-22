@@ -64,6 +64,23 @@ class Member(models.Model):
         self.name_normalized = normalize_name(self.name)
         super().save(*args, **kwargs)
 
+    def has_history(self) -> bool:
+        """シフト・勤怠・有給・営業件数・給与・経費のいずれかの記録があるか（あれば削除せず退職扱いにする）。"""
+        from apps.attendance.models import AttendanceDay, PaidLeaveGrant, PaidLeaveRequest
+        from apps.expenses.models import ExpenseRecord
+        from apps.payroll.models import BaseSalary, PayrollStatement, SalesCount, TeamMembership
+        from apps.shifts.models import ShiftEntry
+
+        checks = [
+            ShiftEntry.objects.filter(member=self), AttendanceDay.objects.filter(member=self),
+            PaidLeaveGrant.objects.filter(member=self), PaidLeaveRequest.objects.filter(member=self),
+            SalesCount.objects.filter(member=self), PayrollStatement.objects.filter(member=self),
+            BaseSalary.objects.filter(member=self), TeamMembership.objects.filter(member=self),
+            ExpenseRecord.objects.filter(member=self) | ExpenseRecord.objects.filter(auto_member=self),
+            self.led_teams.all(), self.cards.all(),
+        ]
+        return any(q.exists() for q in checks)
+
     @property
     def display_label(self) -> str:
         return self.short_name or self.name

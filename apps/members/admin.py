@@ -21,8 +21,20 @@ class MemberAdmin(admin.ModelAdmin):
     search_fields = ("name", "name_kana", "member_no", "aliases__alias")
     inlines = [MemberAliasInline, MonthlyStandardInline]
 
+    actions = None  # 一括削除は使わない
+
     def has_delete_permission(self, request, obj=None):
-        return False  # 退職者も削除しない（退職処理で対応）
+        # 記録が1件もない人（登録の誤りなど）だけ削除できる。記録がある人は退職処理で履歴を残す
+        if obj is None:
+            return False
+        return not obj.has_history() and super().has_delete_permission(request, obj)
+
+    def delete_model(self, request, obj):
+        from apps.core import audit
+
+        audit.log("member.delete", target=obj, before={"name": obj.name, "member_no": obj.member_no,
+                                                         "employment_type": obj.get_employment_type_display()}, request=request)
+        super().delete_model(request, obj)
 
 
 @admin.register(CardCode)
