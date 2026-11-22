@@ -22,6 +22,7 @@ class Entry:
     attendance: float | None = None
     line: str = ""
     note: str = ""
+    readings: list = field(default_factory=list)  # OCRの読み方違いの候補（名前の推定に使う）
 
 
 @dataclass
@@ -190,27 +191,32 @@ def parse_count_table(text: str) -> Parsed:
     return p
 
 
-def guess_member(name: str, candidates: list[tuple[int, str]], taken: set | None = None):
+def guess_member(name, candidates: list[tuple[int, str]], taken: set | None = None):
     """OCRで1〜2文字違った名前を、登録メンバーの名前・別名から推定する。
 
+    name: 読み取った名前（読み方を変えた複数の結果を渡してもよい）。
     candidates: (member_id, 名前または別名) の一覧。はっきり1人に決まる時だけ member_id を返す。
     """
     from difflib import SequenceMatcher
 
     from apps.core.text import normalize_name
 
-    key = normalize_name(name)
-    if len(key) < 2:
+    readings = [normalize_name(n) for n in ([name] if isinstance(name, str) else name)]
+    readings = [k for k in readings if len(k) >= 2]
+    if not readings:
         return None
     best: dict[int, float] = {}
+    first_ok: dict[int, bool] = {}
     for mid, cand in candidates:
         c = normalize_name(cand)
         if not c:
             continue
-        r = SequenceMatcher(None, key, c).ratio()
-        if c in key or key in c:
-            r = max(r, 0.75)
-        best[mid] = max(best.get(mid, 0), r)
+        for key in readings:
+            r = SequenceMatcher(None, key, c).ratio()
+            if c in key or key in c:
+                r = max(r, 0.75)
+            best[mid] = max(best.get(mid, 0), r)
+            first_ok[mid] = first_ok.get(mid, False) or key[0] == c[0]
     ranked = sorted(((r, mid) for mid, r in best.items() if not taken or mid not in taken), reverse=True)
     if not ranked:
         return None
@@ -218,7 +224,9 @@ def guess_member(name: str, candidates: list[tuple[int, str]], taken: set | None
     r2 = ranked[1][0] if len(ranked) > 1 else 0
     if r1 >= 0.6 and r1 - r2 >= 0.15:
         return mid
-    if r1 >= 0.3 and r1 - r2 >= 0.25 and key[0] == normalize_name([c for m, c in candidates if m == mid][0])[:1]:
+    if r1 >= 0.3 and r1 - r2 >= 0.25 and first_ok.get(mid):
+        return mid
+    if r1 >= 0.35 and r1 - r2 >= 0.3:
         return mid
     return None
 
@@ -272,11 +280,197 @@ def table_text_from_image(data: bytes) -> str:
     return "\n".join(out)
 
 
-def dashboard_text_from_image(data: bytes) -> str:
+RANKING_MARK = "#ランキング表"
+
+_GLYPH_N = 32
+_glyph_cache: dict = {}
+
+
+def _glyph_font():
+    from PIL import ImageFont
+
+    for path in ("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+                 "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"):
+        try:
+            return ImageFont.truetype(path, 64)
+        except OSError:
+            continue
+    return None
+
+
+def _norm_glyph(mask):
+    import numpy as np
+    from PIL import Image
+
+    ys, xs = np.where(mask)
+    if len(ys) == 0:
+        return None
+    a = mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    h, w = a.shape
+    side = max(h, w)
+    pad = np.zeros((side, side), bool)
+    pad[(side - h) // 2:(side - h) // 2 + h, (side - w) // 2:(side - w) // 2 + w] = a
+    v = np.array(Image.fromarray((pad * 255).astype("uint8")).resize((_GLYPH_N, _GLYPH_N), Image.BILINEAR), float)
+    v -= v.mean()
+    n = np.linalg.norm(v)
+    return v / n if n else None
+
+
+def _glyph(ch: str):
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    if ch not in _glyph_cache:
+        font = _glyph_font()
+        im = Image.new("L", (100, 100), 0)
+        if font:
+            ImageDraw.Draw(im).text((10, 5), ch, font=font, fill=255)
+        _glyph_cache[ch] = _norm_glyph(np.array(im) > 127)
+    return _glyph_cache[ch]
+
+
+def _char_segments(crop):
+    """縦書きの名前の画像を1文字ずつに切り分ける（上から順）。"""
+    import numpy as np
+
+    mask = np.array(crop) < 140
+    ink = mask.sum(axis=1) > 0
+    runs, start = [], None
+    for i, v in enumerate(list(ink) + [False]):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            runs.append((start, i))
+            start = None
+    merged = []
+    for r in runs:  # 「三」のように字の中に隙間がある時はまとめる
+        if merged and r[0] - merged[-1][1] < 6 and (r[1] - merged[-1][0]) < 60:
+            merged[-1] = (merged[-1][0], r[1])
+        else:
+            merged.append(r)
+    return [(s0, s1, mask[s0:s1]) for s0, s1 in merged if s1 - s0 >= 8]
+
+
+def match_name_by_shape(crop, known: list[str]) -> str | None:
+    """登録済みの名前を同じような字体で描いて、1文字ずつ形を比べる（OCRより確実）。はっきり決まる時だけ返す。"""
+    import numpy as np
+
+    segs = [_norm_glyph(m) for _, _, m in _char_segments(crop)]
+    if not segs or any(s is None for s in segs):
+        return None
+    scores = []
+    for name in {k.replace(" ", "").replace("\u3000", "") for k in known}:
+        if len(name) != len(segs):
+            continue
+        gs = [_glyph(c) for c in name]
+        if any(g is None for g in gs):
+            continue
+        scores.append((float(np.mean([(s * g).sum() for s, g in zip(segs, gs)])), name))
+    scores.sort(reverse=True)
+    if scores and scores[0][0] >= 0.45 and (len(scores) == 1 or scores[0][0] - scores[1][0] >= 0.15):
+        return scores[0][1]
+    return None
+
+
+def _read_vertical_name(crop) -> list[str]:
+    """縦に1文字ずつ並んだ名前をOCRで読む。1文字ずつ読んだ結果と、まとめて読んだ結果の2通りを返す。"""
+    from PIL import ImageOps
+
+    from apps.expenses import ocr
+
+    chars = []
+    for s0, s1, _ in _char_segments(crop):
+        c = crop.crop((0, max(0, s0 - 3), crop.width, s1 + 3))
+        c = ImageOps.expand(c.resize((c.width * 2, c.height * 2)), border=30, fill=255)
+        chars.append("".join(w.text for w in ocr.ocr_words(c, lang="jpn", psm=10))[:1])
+    whole = ImageOps.expand(crop.resize((crop.width * 2, crop.height * 2)), border=20, fill=255)
+    return ["".join(chars), "".join(w.text for w in ocr.ocr_words(whole, lang="jpn", psm=6))]
+
+
+def _read_faint_number(crop) -> str:
+    """薄い文字の数字を、濃さの境目を変えながら読む。"""
+    from PIL import ImageOps
+
+    from apps.expenses import ocr
+
+    crop = ImageOps.autocontrast(crop)
+    for thr in (200, 225, 160, 240):
+        c = crop.point(lambda v, t=thr: 0 if v < t else 255)
+        c = ImageOps.expand(c.resize((c.width * 2, c.height * 2)), border=20, fill=255)
+        d = ocr.ocr_digits(c).replace(",", "")
+        if d.isdigit():
+            return d
+    return ""
+
+
+def ranking_text_from_image(img, words, known: list[str] | None = None) -> str | None:
+    """営業数値進捗管理（月別ランキング）の画面のスクショを読む。
+
+    1行ごとに「125pt」と「関東」の位置から行を見つけ、名前（縦書き）と「獲得計」（薄い数字）を読む。
+    画面の端で切れている行は読まない（もう1枚のスクショに写っている前提）。
+    """
+    W, H = img.size
+    anchors = []
+    for w in words:
+        t = nfkc(w.text)
+        if re.search(r"pt$", t):
+            anchors.append(w.top + w.height / 2)
+        elif t == "関東":
+            anchors.append(w.top + w.height / 2 + 0.063 * W)
+    if len(anchors) < 2:
+        return None
+    tabs = [w.top for w in words if re.search(r"ランキング|デイリー|リー|ング", nfkc(w.text))]
+    content_top = (max(tabs) + 0.16 * W) if tabs else 0
+    clusters = []
+    for a in sorted(anchors):
+        if clusters and abs(a - clusters[-1][-1]) < 0.04 * W:
+            clusters[-1].append(a)
+        else:
+            clusters.append([a])
+    ys = [sum(c) / len(c) for c in clusters]
+    gaps = [b - a for a, b in zip(ys, ys[1:])]
+    half = min(gaps) / 2 if gaps else 0.12 * W
+    lines = [RANKING_MARK]
+    for y in ys:
+        top, bot = int(y - half), int(y + half)
+        if top < content_top or bot > H - 5:
+            continue
+        name_crop = img.crop((int(W * 0.235), top, int(W * 0.325), bot))
+        shape = match_name_by_shape(name_crop, known or [])
+        names = [shape] if shape else _read_vertical_name(name_crop)
+        count = _read_faint_number(img.crop((int(W * 0.70), int(y - 0.033 * W), int(W * 0.86), int(y + 0.033 * W))))
+        lines.append("\t".join(["／".join(n for n in names if n) or "?", count or "?"]))
+    return "\n".join(lines) if len(lines) > 1 else None
+
+
+def parse_ranking_text(text: str) -> Parsed:
+    """ranking_text_from_image の結果（名前の読み方候補／…<TAB>獲得計）を読む。"""
+    p = Parsed()
+    for ln in text.splitlines():
+        if ln.startswith("#") or "\t" not in ln:
+            continue
+        name, count = ln.rsplit("\t", 1)
+        e = Entry(name.split("／")[0] or name, int(count) if count.isdigit() else 0, line=ln)
+        e.readings = [n for n in name.split("／") if n]
+        if not count.isdigit():
+            e.note = "獲得計が読めませんでした（手入力）"
+        p.entries.append(e)
+    if not p.entries:
+        p.warnings.append("ランキング表の行が見つかりませんでした。")
+    return p
+
+
+def dashboard_text_from_image(data: bytes, known: list[str] | None = None) -> str:
     """LINEのスクショ（吹き出しの背景・絵文字あり）を読む。読み方を何通りか試し、「131/90」の行が一番多く読めた結果を使う。"""
     from apps.expenses import ocr
 
     img = _open_image(data)
+    # 「営業数値進捗管理」のランキング画面（名前が縦書き・獲得計が薄い字）かどうかを先に確かめる
+    sparse = ocr.ocr_words(img, lang="jpn+eng", psm=11)
+    if sum(1 for w in sparse if re.search(r"pt$", nfkc(w.text))) >= 2 or any("獲得" in w.text for w in sparse):
+        ranking = ranking_text_from_image(img, sparse, known)
+        if ranking:
+            return ranking
     variants = [(img, 6), (img.point(lambda v: 255 if v > 175 else 0), 6), (img, 4)]
     best, best_score = "", -1
     for im, psm in variants:
@@ -299,14 +493,14 @@ def is_slow_upload(name: str) -> bool:
     return name.lower().endswith(IMAGE_EXT + (".pdf",))
 
 
-def text_from_upload(f, kind: str = "confirmed") -> str:
+def text_from_upload(f, kind: str = "confirmed", known: list[str] | None = None) -> str:
     """スクショ（画像）は文字を読み取り、Excel/CSV は表を文にする。"""
     name = f.name.lower()
     data = f.read()
     if name.endswith(IMAGE_EXT):
         if kind == "confirmed":
             return table_text_from_image(data)
-        return dashboard_text_from_image(data)
+        return dashboard_text_from_image(data, known)
     if name.endswith((".xlsx", ".xls", ".csv")):
         from apps.expenses.parsers import read_table_rows
 

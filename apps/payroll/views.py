@@ -680,6 +680,16 @@ def _resolve_year(month_no: int, base: date) -> date:
 
 
 
+def _known_names():
+    """在籍メンバーと別名（資料の表記）。名前の読み取り・照合に使う。"""
+    from apps.members.models import MemberAlias
+
+    active = list(Member.objects.filter(status=Member.Status.ACTIVE))
+    aliases = list(MemberAlias.objects.filter(member__in=active))
+    known = [m.name for m in active] + [m.name.split()[0] for m in active if " " in m.name] + [a.alias for a in aliases]
+    return active, aliases, known
+
+
 def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
     """読み取った文から、確認画面の内容（誰に何件か）を作る。名前は自動で照合し、OCRの1〜2文字違いも推定する。"""
     from apps.core.text import normalize_name
@@ -688,10 +698,14 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
     from . import ingest
     from .models import IgnoredName
 
-    active = list(Member.objects.filter(status=Member.Status.ACTIVE))
-    aliases = list(MemberAlias.objects.filter(member__in=active))
-    known = [m.name for m in active] + [m.name.split()[0] for m in active if " " in m.name] + [a.alias for a in aliases]
-    parsed = ingest.parse_dashboard(text, known) if kind == "acquired" else ingest.parse_count_table(text)
+    active, aliases, known = _known_names()
+    is_ranking = kind == "acquired" and ingest.RANKING_MARK in text
+    if is_ranking:
+        parsed = ingest.parse_ranking_text(text)  # 月別ランキングの画面には月が書かれていないので前月として扱う
+    elif kind == "acquired":
+        parsed = ingest.parse_dashboard(text, known)
+    else:
+        parsed = ingest.parse_count_table(text)
     if kind == "acquired":
         target = _resolve_year(parsed.month, payroll_month) if parsed.month else prev_month(payroll_month)
     else:
@@ -715,10 +729,15 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
         member_id, method, note = (res.member.pk if res.ok else None), res.method, e.note
         is_ignored = normalize_name(e.name) in ignored
         if member_id is None and not is_ignored and res.method != "ambiguous":
-            member_id = ingest.guess_member(e.name, candidates, taken)
+            member_id = ingest.guess_member(e.readings or e.name, candidates, None if is_ranking else taken)
             if member_id:
                 method = "guess"
                 note = (note + "・" if note else "") + "名前を推定しました（合っているか確認）"
+        if member_id and member_id in taken:
+            prev = next(r for r in rows if r["member_id"] == member_id)
+            if prev["count"] == e.count:
+                continue  # 2枚のスクショに同じ人が写っている
+            note = (note + "・" if note else "") + "同じ人がもう1行あります（どちらか選ぶ）"
         if member_id:
             taken.add(member_id)
         rows.append({"i": i, "name": e.name, "count": e.count, "att": e.attendance, "line": e.line, "note": note,
@@ -758,7 +777,7 @@ def _counts_ocr(pk: int, payroll_month: date) -> None:
 
         texts = [ev.text] if ev.text else []
         for e in [ev, *ev.parts.order_by("pk")]:
-            texts.append(ingest.text_from_upload(_F(e.file), ev.kind))
+            texts.append(ingest.text_from_upload(_F(e.file), ev.kind, _known_names()[2]))
         text = "\n".join(texts)
         plan = build_counts_plan(ev.kind, text, payroll_month)
         SalesEvidence.objects.filter(pk=pk).update(status="done", plan=plan, text=text[:5000],
@@ -827,7 +846,7 @@ def counts_import(request):
             return redirect(f"{back}&ev={ev.pk}")
         try:
             for x in files:
-                text = (text + "\n" if text else "") + ingest.text_from_upload(x, kind)
+                text = (text + "\n" if text else "") + ingest.text_from_upload(x, kind, _known_names()[2])
             new_plan = build_counts_plan(kind, text, payroll_month)
         except Exception as e:  # noqa: BLE001
             messages.error(request, f"読み取れませんでした: {e}")

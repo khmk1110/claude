@@ -608,3 +608,56 @@ class DashboardOcrRobustnessTests(TestCase):
         text = "[9 月最終実績]\n|長谷十田中谷川|\n・\n72/60( 進捗 120.0%)\n出勤 18/22 日\n谷川\n3 日 8 件\n田中\n3日4件\nxX\n大石\n131/90( 進捗 145.6%)\n出勤 20/20 日"
         p = parse_dashboard(text, ["長谷", "田中", "谷川", "大石"])
         self.assertEqual({e.name: e.count for e in p.entries}, {"谷川": 8, "田中": 4, "長谷": 60, "大石": 131})
+
+
+def _ranking_png(rows):
+    """「月別ランキング」の画面に似せた画像（架空の名前。名前は縦書き、獲得計は薄い字）。"""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    W = 1206
+    f = ImageFont.truetype("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", 36)
+    img = Image.new("RGB", (W, 900 + 300 * len(rows) + 200), "white")
+    d = ImageDraw.Draw(img)
+    d.text((74, 700), "総合ランキング", font=f, fill="black")
+    d.text((560, 700), "月別ランキング", font=f, fill="black")
+    d.text((960, 700), "デイリー", font=f, fill="black")
+    for i, (name, pt, acq) in enumerate(rows):
+        y = 1100 + 300 * i
+        d.line((70, y - 150, 1130, y - 150), fill=(225, 225, 225), width=2)
+        d.text((120, y - 18), str(i + 1), font=f, fill="black")
+        for j, ch in enumerate(name):
+            d.text((316, y - len(name) * 23 + j * 46), ch, font=f, fill="black")
+        d.text((477, y - 90), "関東", font=ImageFont.truetype("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", 28), fill="black")
+        d.text((675, y - 18), f"{pt}pt", font=f, fill=(200, 120, 0))
+        d.text((900, y - 18), str(acq), font=f, fill=(215, 222, 230))
+        d.text((1075, y - 18), str(acq - 3), font=f, fill="black")
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+class RankingScreenshotTests(TestCase):
+    def test_vertical_names_and_faint_counts(self):
+        from datetime import date as _date
+
+        from apps.payroll import ingest
+        from apps.payroll.views import build_counts_plan, _known_names
+
+        a = Member.objects.create(name="大石 一郎", employment_type=C)
+        b = Member.objects.create(name="吉野 健太", employment_type=C)
+        c = Member.objects.create(name="長谷川 花子", employment_type=C)
+        png = _ranking_png([("大石一郎", 125, 115), ("長谷川花子", 70, 68), ("吉野健太", 21, 21)])
+
+        class F:
+            name = "rank.png"
+
+            @staticmethod
+            def read():
+                return png
+
+        text = ingest.text_from_upload(F, "acquired", _known_names()[2])
+        plan = build_counts_plan("acquired", text, _date(2026, 11, 1))
+        self.assertEqual(plan["month"], "2026-10-01")  # 月の記載がないので前月の獲得件数
+        self.assertEqual({r["member_id"]: r["count"] for r in plan["rows"]}, {a.pk: 115, c.pk: 68, b.pk: 21})
