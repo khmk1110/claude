@@ -15,7 +15,10 @@
       <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中です</b><div class="small muted">1〜2分かかることがあります。終わると自動で表示されます。</div></div></div>
       <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>
     {% endif %}
-    {% for f in exp.gas.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」からガソリン代を読み取れませんでした。選び直すか、下の「カード番号と金額を文で入れる」で入力してください。</div>{% endfor %}
+    {% for f in exp.gas.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」からガソリン代を読み取れませんでした。
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#gas">
+        <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
+      <div class="small">それでも読めない時は、下の「カード番号と金額を文で入れる」で入力してください。</div></div>{% endfor %}
     {% for f in exp.gas.errors %}<div class="notice">⚠️ {{ f.original_name }} を読み取れませんでした。{{ f.error_message|truncatechars:80 }} <a href="{% url 'payroll_expenses:file' f.pk %}">詳しく</a></div>{% endfor %}
 
     {% if exp.gas.rows %}
@@ -70,7 +73,10 @@
       <div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中です</b><div class="small muted">終わると自動で表示されます。</div></div></div>
       <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>
     {% endif %}
-    {% for f in exp.tr.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」から交通費の行を読み取れませんでした。「交通費(8月分) 名前 … 金額」が写っているか確認して選び直すか、下の「LINEで届いた交通費を文で入れる」で入力してください。</div>{% endfor %}
+    {% for f in exp.tr.empty %}<div class="notice">⚠️ 「{{ f.original_name }}」から交通費の行を読み取れませんでした。
+      <form method="post" action="{% url 'payroll_expenses:file_action' f.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="reprocess"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#transport">
+        <button class="btn btn-primary" type="submit" onclick="this.textContent='読み取り中…'">もう一度読み取る</button></form>
+      <div class="small">それでも読めない時は、下の「LINEで届いた交通費を文で入れる」で入力してください。</div></div>{% endfor %}
     {% for f in exp.tr.needs %}<div class="notice">⚠️ 「{{ f.original_name }}」は初めての形式の資料です。<a href="{% url 'payroll_expenses:mapping' f.pk %}">どの列が名前・金額かを1回だけ設定する</a>と、次回から自動で読み取ります。</div>{% endfor %}
     {% for f in exp.tr.errors %}<div class="notice">⚠️ {{ f.original_name }} を読み取れませんでした。<a href="{% url 'payroll_expenses:file' f.pk %}">詳しく</a></div>{% endfor %}
 
