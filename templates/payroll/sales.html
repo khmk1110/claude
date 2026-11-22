@@ -23,14 +23,16 @@
 <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="save">
 <p class="muted small">
   <b>獲得件数</b>＝この月に獲得した件数（営業ダッシュボード）。<b>翌月</b>の単価判定（前月獲得件数）に使います。<br>
-  <b>入金確定件数</b>＝この月の入金確定シートの総合件数。<b>この月</b>の営業報酬（件数×単価）に使います。空欄にすると削除されます。
+  <b>入金確定件数</b>＝この月の入金確定シートの総合件数。<b>この月</b>の営業報酬（件数×単価）に使います。空欄にすると削除されます。<br>
+  <b>都市ガス</b>は、取った人だけ件数を入れてください。その月の給与に「都市ガス 件数×単価（電気と同じ自動単価）」の行が付きます。空欄にすれば付きません。
 </p>
 <div class="table-scroll"><table class="list">
-  <tr><th>氏名</th><th>区分</th><th class="num">獲得件数</th><th class="num">入金確定件数</th><th>商材別の入金確定件数（個人別報酬）</th></tr>
+  <tr><th>氏名</th><th>区分</th><th class="num">獲得件数</th><th class="num">入金確定件数</th>{% for p in common_products %}<th class="num">{{ p.name }}</th>{% endfor %}<th>商材別（個人別報酬）</th></tr>
   {% for r in rows %}
   <tr><td class="strong">{{ r.member.name }}</td><td>{{ r.member.get_employment_type_display }}</td>
     <td class="num"><input name="acq_{{ r.member.pk }}" value="{{ r.acq }}" inputmode="numeric" style="width:80px;text-align:right"></td>
-    <td class="num">{% if r.products %}<span class="muted small">商材別の合計</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric" style="width:80px;text-align:right">{% endif %}</td>
+    <td class="num">{% if r.product_based %}<span class="muted small">商材別の合計</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric" style="width:80px;text-align:right">{% endif %}</td>
+    {% for p, v, editable in r.common %}<td class="num">{% if editable %}<input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric" style="width:70px;text-align:right" placeholder="-">{% else %}<span class="muted small">右の欄</span>{% endif %}</td>{% endfor %}
     <td>{% for p, v in r.products %}<label class="small">{{ p.name }} <input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric" style="width:64px;text-align:right"></label> {% endfor %}</td></tr>
   {% empty %}<tr><td colspan="5" class="muted">対象のメンバーがいません。</td></tr>{% endfor %}
 </table></div>

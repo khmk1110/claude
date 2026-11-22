@@ -173,3 +173,30 @@ table.shift td.num { padding: 0 8px; }
 }
 
 .palette .wt { white-space: nowrap; }
+
+.flow .when { display: inline-block; font-size: 11px; font-weight: 700; color: var(--primary-dark); background: var(--primary-weak);
+              border-radius: 999px; padding: 1px 8px; margin-right: 8px; vertical-align: 2px; }
+.flow .extra { margin-top: 4px; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
+.stats { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+
+/* シフト表: 休み・未定は白、土日祝は列をうっすら色分け、今日は枠で強調 */
+table.shift td.cell.sat:not(.filled), table.shift td.count.sat { background: #f3f7ff; }
+table.shift td.cell.sun:not(.filled), table.shift td.count.sun { background: #fff4f4; }
+table.shift th.day.today { background: #1d4ed8; color: #fff; border-radius: 0; }
+table.shift td.cell.today { box-shadow: inset 2px 0 0 #1d4ed8, inset -2px 0 0 #1d4ed8; }
+table.shift tfoot th, table.shift tfoot td { background: #fafbfc; font-size: 12px; font-weight: 700; color: var(--muted); height: 30px; }
+table.shift td.cell { font-size: 14px; }
+
+/* 日ごとの表示（スマホ向け） */
+.daylist { display: grid; gap: 10px; }
+.day-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.day-card.sat { border-left: 4px solid #60a5fa; } .day-card.sun { border-left: 4px solid #f87171; }
+.day-card.today { box-shadow: 0 0 0 3px var(--primary-weak); border-color: #93b4f8; }
+.day-card .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.day-card .date { font-size: 18px; font-weight: 700; } .day-card .wd { font-weight: 700; }
+.day-card.sat .wd { color: #1d4ed8; } .day-card.sun .wd { color: var(--danger); }
+.day-card .count { margin-left: auto; font-size: 13px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; color: var(--muted); margin: 8px 0 14px; }
+.legend span i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--line); }

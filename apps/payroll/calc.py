@@ -53,13 +53,26 @@ def num(v) -> str:
 # ---------------------------------------------------------------------------
 # 営業件数の取得
 # ---------------------------------------------------------------------------
+def is_product_member(member) -> bool:
+    """商材別に報酬を計算する人（通常の「営業報酬」の対象外にしている人）。"""
+    item = PayrollItemDefinition.objects.filter(code="sales_commission").first()
+    return bool(item and item.excluded_members.filter(pk=member.pk).exists())
+
+
 def sales_total(member, month, kind) -> int | None:
-    """件数の合計。商材を指定しない行があればそれを、なければ商材別の合計を使う。未入力なら None。"""
+    """件数の合計。未入力なら None。
+
+    - 獲得件数: 商材を指定しない行があればそれを、なければ商材別の合計
+    - 入金確定件数: 通常の人は「商材を指定しない行」だけ（都市ガスなどの商材別の件数は別の行として計算するため
+      二重に数えない）。商材別に報酬を計算する人は、商材別の件数の合計。
+    """
     rows = list(SalesCount.objects.filter(member=member, month=month, kind=kind))
     if not rows:
         return None
     total_rows = [r for r in rows if r.product_id is None]
-    if total_rows:
+    if kind == SalesCount.Kind.CONFIRMED and not is_product_member(member):
+        return total_rows[0].count if total_rows else None
+    if total_rows and kind != SalesCount.Kind.CONFIRMED:
         return total_rows[0].count
     return sum(r.count for r in rows)
 

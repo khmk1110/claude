@@ -11,9 +11,6 @@
   <div class="card stat"><div class="label">在籍メンバー</div><div class="value">{{ member_count }}人</div></div>
   <div class="card stat"><div class="label">今日の出勤予定</div><div class="value">{{ today_work }}人</div></div>
   <div class="card stat"><div class="label">勤怠の確認が必要</div><div class="value {% if needs_check %}text-warn{% endif %}">{{ needs_check }}人</div><div class="sub">過去の日に未確定あり</div></div>
-  <div class="card stat"><div class="label">{{ month|date:"n月" }}分の差引支給額</div>
-    {% if payroll %}<div class="value">{{ payroll.net|intcomma }}円</div><div class="sub">{{ payroll.count }}人分</div>
-    {% else %}<div class="value">🔒</div><div class="sub">給与・報酬を開くと表示</div>{% endif %}</div>
 </div>
 
 {% if notices %}
@@ -22,12 +19,13 @@
 {% endif %}
 
 <h2>今月の流れ</h2>
-<p class="muted small">上から順に進めると、毎月の給与計算と明細の発行まで終わります。いま進めるべき手順を青で表示しています。</p>
+<p class="muted small">給与管理マニュアルの順番です。上から順に進めると、明細の発行まで終わります。いま進める手順を青で表示しています。</p>
 <ol class="flow">
   {% for s in flow %}
   <li class="{{ s.state }}">
     <span class="no">{% if s.done %}✓{% else %}{{ s.no }}{% endif %}</span>
-    <div><div class="title">{{ s.title }}</div><div class="desc">{{ s.desc }}</div></div>
+    <div><div class="title"><span class="when">{{ s.when }}</span>{{ s.title }}</div><div class="desc">{{ s.desc }}</div>
+      {% if s.extra %}<div class="extra">{% for label, url in s.extra %}<a href="{{ url }}">{{ label }}</a>{% endfor %}</div>{% endif %}</div>
     <a class="btn {% if s.state == 'doing' %}btn-primary{% endif %} go" href="{{ s.url }}">{{ s.button }}</a>
   </li>
   {% endfor %}

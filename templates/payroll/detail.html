@@ -69,6 +69,17 @@
   {% empty %}<tr><td colspan="8" class="muted">まだ計算していません。「再計算」を押してください。</td></tr>{% endfor %}
 </table></div>
 
+{% if not st.is_confirmed and common_counts %}
+<h3>この月の商材（取った月だけ入力）</h3>
+{% for p, c in common_counts %}
+<form method="post" action="{% url 'payroll:detail_action' st.pk %}" class="form-row">{% csrf_token %}<input type="hidden" name="action" value="product_count"><input type="hidden" name="product" value="{{ p.code }}">
+  <b>{{ p.name }}</b> <input name="count" value="{{ c|default_if_none:'' }}" inputmode="numeric" placeholder="件数" style="width:90px;text-align:right"> 件
+  <button class="btn" type="submit">{% if c is None %}追加{% else %}変更{% endif %}</button>
+  <span class="muted small">単価は電気と同じ自動単価。空欄にして押すと削除します。</span>
+</form>
+{% endfor %}
+{% endif %}
+
 {% if not st.is_confirmed %}
 <h3>当月のみの項目を追加（特別手当・調整金・控除など）</h3>
 <form method="post" action="{% url 'payroll:detail_action' st.pk %}" class="toolbar">{% csrf_token %}<input type="hidden" name="action" value="adhoc_add">

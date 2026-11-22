@@ -27,22 +27,36 @@ def _emp_filter(request):
 
 @login_required
 def grid(request):
+    from django.utils import timezone
+
     month = month_from_request(request)
     emp = _emp_filter(request)
-    days = [
-        {"date": d, "iso": d.isoformat(), "wd": weekday_label(d), "cls": day_class(d), "holiday": holiday_name(d)}
-        for d in days_in_month(month)
-    ]
+    view = request.GET.get("view", "table")
+    today = timezone.localdate()
+    rows = services.month_grid(month, emp or None)
+    days = []
+    for i, d in enumerate(days_in_month(month)):
+        working = []
+        for r in rows:
+            wt = r.cells[i][1]
+            if wt and (wt.attendance_days > 0 or wt.paid_leave_days > 0):
+                working.append((r.member, wt))
+        count = sum(1 for _, wt in working if wt.attendance_days > 0)  # 出勤する人数（半日も1人）
+        days.append({"date": d, "iso": d.isoformat(), "wd": weekday_label(d), "cls": day_class(d), "holiday": holiday_name(d),
+                     "today": d == today, "working": working, "count": count})
+    for r in rows:  # セルごとに土日祝・今日の色分け用のクラスを付ける
+        r.view_cells = [(d, wt, days[i]["cls"] + (" today" if days[i]["today"] else "")) for i, (d, wt) in enumerate(r.cells)]
     return render(
         request,
-        "shifts/grid.html",
+        "shifts/grid.html" if view != "day" else "shifts/day.html",
         {
             **month_context(month),
-            "rows": services.month_grid(month, emp or None),
+            "rows": rows,
             "days": days,
             "work_types": WorkType.objects.filter(is_active=True),
             "emp": emp,
             "emp_choices": EmploymentType.choices,
+            "view": view,
         },
     )
 

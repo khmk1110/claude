@@ -267,3 +267,20 @@ class MemberFormTests(TestCase):
         self.assertFalse(Member.objects.filter(pk=m.pk).exists())
         for url in ["/members/", "/members/new/", "/members/cards/", "/members/order/", "/shifts/import/", "/"]:
             self.assertEqual(self.client.get(url).status_code, 200, url)
+
+
+class ShiftViewModesTests(TestCase):
+    def test_day_view_and_blank_off(self):
+        user = User.objects.create_user("u", password="x-pass-12345")
+        self.client.force_login(user)
+        m = Member.objects.create(name="表示 太郎", employment_type="intern")
+        services.set_shifts([m], [date(2026, 11, 2)], wt("work"))
+        services.set_shifts([m], [date(2026, 11, 3)], wt("off"))
+        self.assertEqual(wt("off").short_label, "")  # 休みは空欄
+        res = self.client.get("/shifts/?month=2026-11&view=day")
+        self.assertContains(res, "日ごとに見る")
+        self.assertContains(res, "表示 太郎")
+        self.assertContains(self.client.get("/shifts/?month=2026-11"), "出勤人数")
+        home = self.client.get("/")
+        self.assertNotContains(home, "差引支給額")
+        self.assertContains(home, "25日頃")

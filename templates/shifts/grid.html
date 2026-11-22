@@ -10,6 +10,10 @@
   </div>
 </div>
 
+<nav class="tabs">
+  <a class="active" href="?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}">表で入力する</a>
+  <a href="?month={{ month_param }}&view=day{% if emp %}&type={{ emp }}{% endif %}">日ごとに見る（スマホ向け）</a>
+</nav>
 <div class="toolbar">
   <form method="get" style="display:inline">
     <input type="hidden" name="month" value="{{ month_param }}">
@@ -33,7 +37,7 @@
   <span class="muted">選んだ日に：</span>
   {% for wt in work_types %}
     <button type="button" class="wt" data-code="{{ wt.code }}" data-label="{{ wt.short_label }}"
-            style="background:{{ wt.color }};color:{{ wt.text_color }}" title="{{ wt.name }}">{{ wt.short_label }}<span class="wt-name"> {{ wt.name }}</span></button>
+            style="background:{{ wt.color }};color:{{ wt.text_color }}" title="{{ wt.name }}">{% if wt.short_label %}{{ wt.short_label }}<span class="wt-name"> {{ wt.name }}</span>{% else %}{{ wt.name }}{% endif %}</button>
   {% endfor %}
   <button type="button" class="wt clear" data-code="" data-label="" style="background:#fff;color:#374151;border:1px solid #d1d5db">未定に戻す</button>
   <span class="muted" id="sel-count"></span>
@@ -44,16 +48,16 @@
 <table class="shift" id="shift-table">
   <thead><tr>
     <th class="name">名前</th>
-    {% for d in days %}<th class="day {{ d.cls }}" data-col="{{ forloop.counter0 }}" title="{{ d.holiday }}">{{ d.date.day }}<br><small>{{ d.wd }}</small></th>{% endfor %}
+    {% for d in days %}<th class="day {{ d.cls }}{% if d.today %} today{% endif %}" data-col="{{ forloop.counter0 }}" title="{{ d.holiday }}">{{ d.date.day }}<br><small>{{ d.wd }}</small></th>{% endfor %}
     <th class="num">予定日数</th><th class="num">基準</th><th class="num">差</th>
   </tr></thead>
   <tbody>
   {% for row in rows %}
     <tr data-member="{{ row.member.pk }}">
       <th class="name" title="{{ row.member.get_employment_type_display }}">{{ row.member.display_label }}<br><small class="muted">{{ row.member.get_employment_type_display }}</small></th>
-      {% for d, wt in row.cells %}
-        <td class="cell {% if wt %}filled{% endif %}" data-date="{{ d.isoformat }}" data-col="{{ forloop.counter0 }}"
-            {% if wt %}style="background:{{ wt.color }};color:{{ wt.text_color }}"{% endif %}>{% if wt %}{{ wt.short_label }}{% endif %}</td>
+      {% for d, wt, dcls in row.view_cells %}
+        <td class="cell {% if wt.short_label %}filled{% endif %} {{ dcls }}" data-date="{{ d.isoformat }}" data-col="{{ forloop.counter0 }}"
+            {% if wt.short_label %}style="background:{{ wt.color }};color:{{ wt.text_color }}"{% endif %}>{% if wt %}{{ wt.short_label }}{% endif %}</td>
       {% endfor %}
       <td class="num strong js-planned">{{ row.planned_days.normalize }}</td>
       <td class="num">{{ row.standard.normalize|default:"-" }}</td>
@@ -63,6 +67,7 @@
     <tr><td colspan="40" class="muted">対象のメンバーがいません。メンバーを登録してください。</td></tr>
   {% endfor %}
   </tbody>
+  {% if rows %}<tfoot><tr><th class="name">出勤人数</th>{% for d in days %}<td class="count {{ d.cls }}{% if d.today %} today{% endif %}">{{ d.count }}</td>{% endfor %}<td colspan="3"></td></tr></tfoot>{% endif %}
 </table>
 </div>
 
@@ -120,9 +125,10 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "保存できませんでした。");
       const c = colors[btn.dataset.code];
+      const show = !!(btn.dataset.code && c.label);  // 休み・未定は空欄（土日祝の色が見える）
       sel.forEach(td => {
-        td.textContent = c.label; td.style.background = btn.dataset.code ? c.bg : ""; td.style.color = btn.dataset.code ? c.fg : "";
-        td.classList.toggle("filled", !!btn.dataset.code); td.classList.remove("sel");
+        td.textContent = c.label; td.style.background = show ? c.bg : ""; td.style.color = show ? c.fg : "";
+        td.classList.toggle("filled", show); td.classList.remove("sel");
       });
       for (const [mid, r] of Object.entries(data.rows)) {
         const tr = table.querySelector(`tr[data-member="${mid}"]`);

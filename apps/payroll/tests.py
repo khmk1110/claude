@@ -355,3 +355,44 @@ class PayrollViewTests(TestCase):
         st.refresh_from_db()
         self.assertTrue(st.needs_review)
         self.assertEqual(st.snapshot["totals"]["net"], st.net_amount)  # 金額は変わらない
+
+
+class CommonProductTests(TestCase):
+    """都市ガスは誰でも、その月に件数を入れたときだけ行が付く（通常の営業報酬とは二重に数えない）。"""
+
+    def setUp(self):
+        make_tables()
+        self.m = Member.objects.create(member_no="C9", name="一般 太郎", employment_type=C)
+
+    def calc_nov(self):
+        calc.prepare_month(NOV)
+        st = PayrollStatement.objects.get(member=self.m, month=NOV)
+        calc.set_input_override(st, "prev_attendance_days", 20, reason="r")
+        return calc.set_input_override(st, "prev_acquired_count", 45, reason="r")
+
+    def test_toshigas_added_only_when_entered(self):
+        count(self.m, NOV, CONF, 10)
+        st = self.calc_nov()
+        self.assertFalse(st.lines.filter(code="product_toshigas").exists())
+        unit = int(st.inputs.get(key="unit_price").value)
+        count(self.m, NOV, CONF, 3, "toshigas")
+        st = calc.calculate(st)
+        self.assertEqual(st.lines.get(code="product_toshigas").amount, 3 * unit)  # 都市ガス＝電気と同じ自動単価
+        self.assertEqual(st.lines.get(code="sales_commission").amount, 10 * unit)  # 都市ガス分を二重に数えない
+        SalesCount.objects.filter(product__code="toshigas").delete()  # その月だけ消す
+        st = calc.calculate(st)
+        self.assertFalse(st.lines.filter(code="product_toshigas").exists())
+
+    def test_detail_page_can_add_and_remove_toshigas(self):
+        user = User.objects.create_user("o", password="x-pass-12345", role=User.Role.OWNER)
+        stepup.set_password("payroll", "pay-pass")
+        self.client.force_login(user)
+        self.client.post("/stepup/payroll/", {"password": "pay-pass"})
+        count(self.m, NOV, CONF, 10)
+        st = self.calc_nov()
+        self.assertContains(self.client.get(f"/payroll/{st.pk}/"), "この月の商材")
+        self.client.post(f"/payroll/{st.pk}/action/", {"action": "product_count", "product": "toshigas", "count": "2"})
+        self.assertTrue(st.lines.filter(code="product_toshigas").exists())
+        self.client.post(f"/payroll/{st.pk}/action/", {"action": "product_count", "product": "toshigas", "count": ""})
+        self.assertFalse(st.lines.filter(code="product_toshigas").exists())
+        self.assertContains(self.client.get("/payroll/sales/?month=2026-11"), "都市ガス")

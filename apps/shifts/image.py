@@ -74,13 +74,22 @@ def render_png(month: date, company: str, employment_type: str | None = None, sc
         _center(d, (x, top + 2 * s, x + cell_w, top + head_h / 2 + 4 * s), str(day.day), font(19 * s), color)
         _center(d, (x, top + head_h / 2, x + cell_w, top + head_h - 2 * s), weekday_label(day), font(15 * s), color)
 
+    # 土日祝の列をうっすら色分け（休みは空欄なので、曜日の区切りが分かるように）
+    body_top, body_bot = top + head_h, top + head_h + cell_h * max(len(rows), 1)
+    for i, day in enumerate(days):
+        x = x_days + i * cell_w
+        if holiday_name(day) or day.weekday() == 6:
+            d.rectangle([x, body_top, x + cell_w, body_bot], fill=(255, 244, 244))
+        elif day.weekday() == 5:
+            d.rectangle([x, body_top, x + cell_w, body_bot], fill=(243, 247, 255))
+
     # 本体
     y = top + head_h
     for row in rows:
         _center(d, (pad + 6 * s, y, x_days - 6 * s, y + cell_h), row.member.display_label, font(19 * s), fg)
         for i, (_, wt) in enumerate(row.cells):
             x = x_days + i * cell_w
-            if wt:
+            if wt and wt.short_label:  # 休みは何も描かない（空欄）
                 d.rectangle([x, y, x + cell_w, y + cell_h], fill=_hex(wt.color))
                 _center(d, (x, y, x + cell_w, y + cell_h), wt.short_label, font(18 * s), _hex(wt.text_color))
         days_txt = f"{row.planned_days.normalize():f}"
@@ -97,7 +106,7 @@ def render_png(month: date, company: str, employment_type: str | None = None, sc
 
     # 凡例
     lx, ly = pad, y + 16 * s
-    for wt in WorkType.objects.filter(is_active=True):
+    for wt in WorkType.objects.filter(is_active=True).exclude(short_label=""):
         d.rectangle([lx, ly, lx + 34 * s, ly + 28 * s], fill=_hex(wt.color), outline=line)
         _center(d, (lx, ly, lx + 34 * s, ly + 28 * s), wt.short_label, font(14 * s), _hex(wt.text_color))
         d.text((lx + 42 * s, ly + 3 * s), wt.name, font=font(16 * s), fill=muted)

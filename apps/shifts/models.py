@@ -10,7 +10,7 @@ class WorkType(models.Model):
 
     code = models.SlugField("コード", max_length=32, unique=True)
     name = models.CharField("名称", max_length=50)
-    short_label = models.CharField("表示文字", max_length=4, help_text="シフト表のセルに表示する文字")
+    short_label = models.CharField("表示文字", max_length=4, blank=True, help_text="シフト表のセルに表示する文字（休みは空欄）")
     color = models.CharField("背景色", max_length=7, default="#ffffff")
     text_color = models.CharField("文字色", max_length=7, default="#111827")
     attendance_days = models.DecimalField("実出勤日数", max_digits=3, decimal_places=1, default=0)

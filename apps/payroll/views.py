@@ -143,8 +143,11 @@ def detail(request, pk):
     )
     prev_st = PayrollStatement.objects.filter(member=st.member, month__lt=st.month).order_by("-month").first()
     next_st = PayrollStatement.objects.filter(member=st.member, month__gt=st.month).order_by("month").first()
+    _, common_products = _product_members(st.month)
+    common_counts = [(p, SalesCount.objects.filter(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED,
+                                                     product=p).values_list("count", flat=True).first()) for p in common_products]
     return render(request, "payroll/detail.html", {
-        "st": st, "input_rows": input_rows, "lines": lines, "history": history,
+        "st": st, "input_rows": input_rows, "lines": lines, "history": history, "common_counts": common_counts,
         "earnings": [l for l in lines if l.kind == "earning"], "deductions": [l for l in lines if l.kind == "deduction"],
         "kind_choices": PayrollItemDefinition.Kind.choices, "prev_st": prev_st, "next_st": next_st,
         "snapshot": st.snapshot if st.is_confirmed else None,
@@ -190,6 +193,27 @@ def detail_action(request, pk):
                 line = get_object_or_404(PayrollLine, pk=p["line_id"], statement=st)
                 calc.remove_adhoc_line(line, user=user, reason=p.get("reason", ""))
                 messages.success(request, "項目を削除しました。")
+            elif action == "product_count":
+                # 都市ガスなど全員共通の商材の件数を、この月だけ追加・変更・削除する
+                if st.is_confirmed:
+                    raise ImmutableAfterConfirmError("確定済みの給与は変更できません。")
+                product = get_object_or_404(Product, code=p.get("product"))
+                value = _int_or_none(p.get("count"))
+                row = SalesCount.objects.filter(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED, product=product).first()
+                before = row.count if row else None
+                if value is None:
+                    if row:
+                        row.delete()
+                elif row:
+                    row.count, row.updated_by = value, user
+                    row.save()
+                else:
+                    SalesCount.objects.create(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED, product=product,
+                                              count=value, updated_by=user)
+                audit.log("payroll.sales_count", target=st.member, before={"count": before},
+                          after={"month": st.month, "kind": f"入金確定件数（{product.name}）", "count": value}, user=user)
+                calc.calculate(st, user=user, log=False)
+                messages.success(request, f"{product.name}を{'削除' if value is None else f'{value}件にして再計算'}しました。")
             elif action == "review":
                 calc.mark_review(st, user=user)
                 messages.success(request, "確認待ちにしました。")
@@ -337,18 +361,30 @@ def parse_counts_text(text: str):
 
 
 def _product_members(month):
-    items = PayrollItemDefinition.objects.filter(is_active=True, method=PayrollItemDefinition.Method.PRODUCT_COMMISSION)
-    out: dict[int, list[Product]] = {}
-    codes = {i.params.get("product") for i in items}
-    products = {p.code: p for p in Product.objects.filter(code__in=codes)}
-    for item in items.prefetch_related("members"):
+    """(個人専用の商材 {member_id: [Product]}, 全員共通の商材 [Product]) を返す。
+
+    全員共通の商材（例: 都市ガス）は、その月に件数を入れた人にだけ給与の行が付く。
+    """
+    items = list(PayrollItemDefinition.objects.filter(is_active=True, method=PayrollItemDefinition.Method.PRODUCT_COMMISSION)
+                 .prefetch_related("members"))
+    products = {p.code: p for p in Product.objects.filter(code__in={i.params.get("product") for i in items})}
+    personal: dict[int, list[Product]] = {}
+    common: list[Product] = []
+    for item in items:
         p = products.get(item.params.get("product"))
+        if not p:
+            continue
+        if item.scope == PayrollItemDefinition.Scope.ALL:
+            if p not in common:
+                common.append(p)
+            continue
         for m in item.members.all():
-            if p and p not in out.setdefault(m.pk, []):
-                out[m.pk].append(p)
-    for v in out.values():
+            if p not in personal.setdefault(m.pk, []):
+                personal[m.pk].append(p)
+    for v in personal.values():
         v.sort(key=lambda p: p.display_order)
-    return out
+    common.sort(key=lambda p: p.display_order)
+    return personal, common
 
 
 def _flag_confirmed(member, month, note, user):
@@ -363,7 +399,7 @@ def _flag_confirmed(member, month, note, user):
 def sales(request):
     month = month_from_request(request)
     members = list(members_for_month(month))
-    prod_map = _product_members(month)
+    prod_map, common_products = _product_members(month)
     existing = {(s.member_id, s.kind, s.product_id): s for s in SalesCount.objects.filter(month=month)}
     prefill: dict[str, int] = {}
     parsed = None
@@ -388,7 +424,8 @@ def sales(request):
                 changed = 0
                 for m in members:
                     fields = [("acq", SalesCount.Kind.ACQUIRED, None), ("conf", SalesCount.Kind.CONFIRMED, None)]
-                    fields += [(f"prod_{p.code}", SalesCount.Kind.CONFIRMED, p) for p in prod_map.get(m.pk, [])]
+                    own = prod_map.get(m.pk, [])
+                    fields += [(f"prod_{p.code}", SalesCount.Kind.CONFIRMED, p) for p in own + [c for c in common_products if c not in own]]
                     for prefix, kind, product in fields:
                         name = f"{prefix}_{m.pk}"
                         if name not in request.POST:
@@ -429,12 +466,16 @@ def sales(request):
                 return prefill[key]
             row = existing.get((m.pk, kind, product.pk if product else None))
             return row.count if row else ""
+        own = prod_map.get(m.pk, [])
         rows.append({
             "member": m, "acq": val(SalesCount.Kind.ACQUIRED, prefix="acq"), "conf": val(SalesCount.Kind.CONFIRMED, prefix="conf"),
-            "products": [(p, val(SalesCount.Kind.CONFIRMED, p, f"prod_{p.code}")) for p in prod_map.get(m.pk, [])],
+            "product_based": bool(own),
+            "products": [(p, val(SalesCount.Kind.CONFIRMED, p, f"prod_{p.code}")) for p in own],
+            # 全員共通の商材（都市ガスなど）。商材別の人は右の「商材別」欄で入力する
+            "common": [(p, val(SalesCount.Kind.CONFIRMED, p, f"prod_{p.code}"), p not in own) for p in common_products],
         })
     return render(request, "payroll/sales.html", {
-        **month_context(month), "rows": rows, "parsed": parsed,
+        **month_context(month), "rows": rows, "parsed": parsed, "common_products": common_products,
         "evidence": SalesEvidence.objects.filter(month=month)[:20],
     })
 

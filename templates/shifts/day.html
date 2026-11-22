@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}シフト（日ごと）{% endblock %}
+{% block topbar %}シフト{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><p class="eyebrow">シフト</p><h1>{{ month|date:"Y年n月" }}のシフト</h1></div>
+  <div class="page-actions">{% include "includes/monthnav.html" with extra_query="&view=day" %}</div>
+</div>
+<nav class="tabs">
+  <a href="?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}">表で入力する</a>
+  <a class="active" href="?month={{ month_param }}&view=day{% if emp %}&type={{ emp }}{% endif %}">日ごとに見る（スマホ向け）</a>
+</nav>
+<div class="legend">{% for wt in work_types %}{% if wt.short_label %}<span><i style="background:{{ wt.color }}"></i>{{ wt.name }}</span>{% endif %}{% endfor %}<span>（休みは表示しません）</span></div>
+<div class="daylist">
+  {% for d in days %}
+  <div class="day-card {{ d.cls }}{% if d.today %} today{% endif %}" id="d{{ d.date.day }}">
+    <div class="head"><span class="date">{{ d.date.day }}日</span><span class="wd">（{{ d.wd }}）</span>{% if d.holiday %}<span class="small text-danger">{{ d.holiday }}</span>{% endif %}{% if d.today %}<span class="badge badge-info">今日</span>{% endif %}
+      <span class="count">出勤 {{ d.count }}人</span></div>
+    {% if d.working %}<div class="chips">{% for m, wt in d.working %}<span class="chip" style="background:{{ wt.color }};color:{{ wt.text_color }}">{{ m.display_label }}{% if wt.code != "work" %}<small>（{{ wt.name }}）</small>{% endif %}</span>{% endfor %}</div>
+    {% else %}<p class="muted small" style="margin:0">出勤予定の人はいません</p>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+<script>
+  // 今月を開いたときは今日の日付までスクロール
+  (function(){ const t = document.querySelector(".day-card.today"); if (t) t.scrollIntoView({block: "center"}); })();
+</script>
+{% endblock %}
