@@ -727,3 +727,25 @@ class ExpensesFixPageTests(TableScreenshotTests):
         added = ExpenseRecord.objects.get(source_file=sf, row_number=4)
         self.assertEqual((added.effective_member, added.effective_amount, added.effective_target_month), (self.c, 3000, NOV))
         self.assertContains(self.client.get("/payroll/?month=2026-11"), "52,080 − 35,000")
+
+
+class ApproveWithOcrWarningsTests(TableScreenshotTests):
+    def test_ok_button_confirms_low_confidence_but_not_missing_person(self):
+        from apps.expenses.models import ExpenseCategory, ExpenseIssue, ExpenseRecord, SourceFile
+
+        cat = ExpenseCategory.objects.get(code="transport")
+        sf = SourceFile.objects.create(original_name="o.png", sha256="o" * 64, file_format="image", document_kind="transport",
+                                       target_month=NOV, status="parsed")
+        good = ExpenseRecord.objects.create(source_file=sf, row_number=1, name_text="大石", auto_member=self.a, auto_category=cat,
+                                            auto_amount=52080, auto_target_month=NOV, dedupe_key="o1")
+        nobody = ExpenseRecord.objects.create(source_file=sf, row_number=2, name_text="中沢", auto_category=cat, auto_amount=7184,
+                                              auto_target_month=NOV, dedupe_key="o2")
+        for r in (good, nobody):
+            ExpenseIssue.objects.create(record=r, source_file=sf, code="low_confidence", message="画像から読み取りました")
+        self.client.post("/payroll/expenses/approve-all/", {"month": "2026-11", "group": "transport"})
+        good.refresh_from_db(); nobody.refresh_from_db()
+        self.assertEqual(good.status, "approved")
+        self.assertNotEqual(nobody.status, "approved")
+        # 承認できなかった理由は名前で表示する
+        page = self.client.get("/payroll/?month=2026-11")
+        self.assertNotContains(page, "2行目")

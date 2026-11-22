@@ -607,14 +607,32 @@ def approval_problems(rec: ExpenseRecord) -> list[str]:
     return problems
 
 
+# 給与の画面で人と金額を見て「内容OK」を押した時に、確認済みとして扱ってよい注意（二重払いの恐れがあるものは除く）
+SOFT_ISSUES = {Code.LOW_CONFIDENCE, Code.AMOUNT_MISMATCH, Code.MONTH_MISMATCH, Code.TOTAL_MISMATCH,
+               Code.NAME_CARD_MISMATCH, Code.UNKNOWN_MEMBER, Code.UNKNOWN_CARD, Code.MULTIPLE_CANDIDATES}
+
+
+def record_label(rec: ExpenseRecord) -> str:
+    m = rec.effective_member
+    return m.name if m else (rec.name_text or (f"カード {rec.card_code}" if rec.card_code else f"{rec.row_number}行目"))
+
+
 @transaction.atomic
-def approve(records, *, user=None) -> tuple[int, list[str]]:
+def approve(records, *, user=None, confirm_soft_issues: bool = False) -> tuple[int, list[str]]:
+    """承認する。confirm_soft_issues=True は「内容を見て OK を押した」時：読み取り精度などの注意を確認済みにしてから承認する。"""
     ok, skipped = 0, []
     for rec in records:
         rec = ExpenseRecord.objects.select_for_update().get(pk=rec.pk)  # 常に最新の内容で判定する（古い値で上書きしない）
+        if confirm_soft_issues and rec.effective_member and rec.effective_amount is not None:
+            for issue in rec.issues.filter(resolved=False, code__in=SOFT_ISSUES):
+                issue.resolved, issue.resolved_at, issue.resolved_by = True, timezone.now(), user
+                issue.resolution_note = "給与の画面で名前と金額を確認して承認"
+                issue.save()
         problems = approval_problems(rec)
         if problems:
-            skipped.append(f"{rec.row_number}行目: {'・'.join(problems)}")
+            left = [i.message for i in rec.issues.filter(resolved=False).exclude(code=Code.CHANGED_AFTER_PAYROLL)]
+            detail = "・".join(p for p in problems if p != "未解決の確認事項があります")
+            skipped.append(f"{record_label(rec)}: " + "・".join(x for x in [detail, *left[:2]] if x))
             continue
         rec.status, rec.approved_at, rec.approved_by = R.APPROVED, timezone.now(), user
         rec.save()

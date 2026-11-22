@@ -229,11 +229,11 @@ def expenses_approve_all(request):
         recs = _month_expense_records(month, exclude_codes={"gasoline", "transport"})
     recs = [r for r in recs if r.status in OPEN_EXPENSE]
     with transaction.atomic():
-        ok, skipped = importer.approve(recs, user=request.user)
+        ok, skipped = importer.approve(recs, user=request.user, confirm_soft_issues=True)
     if ok:
         messages.success(request, f"{ok}件を承認しました。給与に入ります。")
     for msg in skipped[:5]:
-        messages.warning(request, f"承認できませんでした：{msg}（「明細を直す」から直してください）")
+        messages.warning(request, f"承認できませんでした：{msg}（「名前・金額を直す」から直してください）")
     return redirect(f"/payroll/?month={month:%Y-%m}#step2")
 
 
@@ -315,8 +315,12 @@ def expenses_fix(request):
                 except (ValueError, KeyError, importer.RecordLocked) as e:
                     errors.append(f"追加: {e}")
             if request.POST.get("then") == "approve" and not errors:
+                # 誰の分か決まっていない行（対象外にしなかった行）は承認せずに残す
                 fresh = [r for r in _group_records(month, group) if r.status in OPEN_EXPENSE]
-                ok, skipped = importer.approve(fresh, user=request.user)
+                ok, skipped = importer.approve([r for r in fresh if r.effective_member], user=request.user, confirm_soft_issues=True)
+                left = [importer.record_label(r) for r in fresh if not r.effective_member]
+                if left:
+                    errors.append(f"誰の分か選ばれていないため承認していません：{'、'.join(left)}（選ぶか「給与に入れない」にしてください）")
                 if ok:
                     messages.success(request, f"{ok}件を承認しました。")
                 for msg in skipped[:5]:
