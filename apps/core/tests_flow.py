@@ -82,10 +82,9 @@ class MonthlyFlowTests(TestCase):
 
         # 9〜10. 営業件数（10月の獲得 → 11月の単価、11月の入金確定 → 報酬）
         self.client.post("/stepup/payroll/", {"password": "pay-pass"})
-        self.client.post("/payroll/sales/", {"month": "2026-10", "action": "save", f"acq_{self.a.pk}": "65", f"acq_{self.b.pk}": "30",
-                                             f"acq_{self.c.pk}": "", f"conf_{self.a.pk}": "", f"conf_{self.b.pk}": "", f"conf_{self.c.pk}": ""})
-        self.client.post("/payroll/sales/", {"month": "2026-11", "action": "save", f"conf_{self.a.pk}": "40", f"conf_{self.b.pk}": "25",
-                                             f"conf_{self.c.pk}": "12", f"acq_{self.a.pk}": "", f"acq_{self.b.pk}": "", f"acq_{self.c.pk}": ""})
+        # 11月分の給与の「件数を直す」画面：前月（10月）の獲得件数と、11月の入金確定件数を1つの表で入れる
+        self.client.post("/payroll/sales/", {"month": "2026-11", f"acq_{self.a.pk}": "65", f"acq_{self.b.pk}": "30", f"acq_{self.c.pk}": "",
+                                             f"conf_{self.a.pk}": "40", f"conf_{self.b.pk}": "25", f"conf_{self.c.pk}": "12"})
         # 11. 給与計算
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "prepare"})
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})

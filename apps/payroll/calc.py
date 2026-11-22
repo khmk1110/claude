@@ -178,8 +178,11 @@ def _unit_price(ctx: Ctx, item) -> int | None:
 
 
 def h_sales_commission(ctx: Ctx, item) -> list[LineSpec]:
-    unit = _unit_price(ctx, item)
     count = ctx.value(Key.CONFIRMED_COUNT)
+    if count is not None and int(count) == 0:
+        # 入金確定が0件なら単価に関係なく0円（経費だけ支払う月など）
+        return [LineSpec(item, item.name, item.kind, 0, Decimal(0), None, "")]
+    unit = _unit_price(ctx, item)
     if count is None:
         ctx.error("当月の入金確定件数を入力してください。", item.code)
     if unit is None or count is None:
@@ -519,8 +522,9 @@ def build_snapshot(st: PayrollStatement) -> dict:
             {"code": l.code, "name": l.name, "kind": l.kind, "quantity": None if l.quantity is None else str(l.quantity),
              "unit_price": l.unit_price, "auto_amount": l.auto_amount, "override_amount": l.override_amount,
              "amount": l.amount, "detail": l.detail, "override_reason": l.override_reason, "is_adhoc": l.is_adhoc,
-             "show_on_slip": l.show_on_slip, "always_show": l.always_show, "source_refs": l.source_refs}
-            for l in st.lines.all()
+             "show_on_slip": l.show_on_slip, "always_show": l.always_show, "source_refs": l.source_refs,
+             "expense": bool(l.item_id and l.item.method == PayrollItemDefinition.Method.EXPENSE_SUM)}
+            for l in st.lines.select_related("item")
         ],
         "rate_table": table.as_snapshot() if table else None,
         "totals": {"earnings": st.earnings_total, "deductions": st.deductions_total, "net": st.net_amount},

@@ -2,8 +2,7 @@
 {% load humanize %}
 {% block title %}正社員{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>正社員（{{ month|date:"Y年n月" }}）</h1></div>{% include "includes/monthnav.html" %}</div>
-{% include "payroll/_nav.html" %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:settings' %}">← 給与の設定</a></p><h1>正社員（{{ month|date:"Y年n月" }}）</h1></div>{% include "includes/monthnav.html" %}</div>
 <p class="muted small">正社員は明細を作りません。給与計算に必要な前月出勤日数・前月獲得件数・基本給を確認できます。</p>
 <div class="table-scroll"><table class="list">
   <tr><th>氏名</th><th>入社日</th><th class="num">前月（{{ prev|date:"n月" }}）出勤日数</th><th class="num">前月獲得件数</th><th class="num">基本給</th><th>基本給の登録・改定</th></tr>

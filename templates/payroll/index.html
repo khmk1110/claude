@@ -1,54 +1,37 @@
 {% extends "base.html" %}
 {% load humanize %}
-{% block title %}給与・報酬管理{% endblock %}
+{% block title %}過去の明細{% endblock %}
 {% block topbar %}給与・報酬{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>{{ month|date:"Y年n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>{{ month|date:"Y年n月" }}分の明細</h1></div>{% include "includes/monthnav.html" %}</div>
 {% include "payroll/_nav.html" %}
 
-<div class="grid">
-  <div class="card"><div class="muted">差引支給額の合計</div><div class="big">{{ total_net|intcomma }}円</div></div>
-  <div class="card"><div class="muted">未確定</div><div class="big {% if unconfirmed %}attn{% endif %}">{{ unconfirmed }}人</div>
-    <div class="muted small">未計算 {{ counts.not_calculated }} / 入力途中 {{ counts.in_progress }} / 計算済み {{ counts.calculated }} / 確認待ち {{ counts.review }} / 確定 {{ counts.confirmed }}</div></div>
-  <div class="card"><div class="muted">支払日</div>
-    {% if payment_date %}<form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="payment_date">
-      <input type="date" name="payment_date" value="{{ payment_date|date:'Y-m-d' }}" style="width:auto"> <button class="btn-light" type="submit">変更</button></form>{% else %}<div class="muted">給与データ作成後に設定</div>{% endif %}</div>
+{% if rows %}
+<div class="xsummary" style="margin-top:0">
+  <div><div class="small muted">支払額の合計</div><div class="xbig">{{ total_net|intcomma }}<small>円</small></div></div>
+  <div class="small muted">確定 {{ counts.confirmed }} / {{ rows|length }}人{% if payment_date %}<br>支払日 {{ payment_date|date:"n月j日" }}{% endif %}</div>
 </div>
-
-<div class="toolbar">
-  {% if pending_members %}
-  <form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="prepare">
-    <button class="btn btn-primary" type="submit">給与データを作成（{{ pending_members }}人）</button></form>
-  {% endif %}
-  {% if rows %}
-  <form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('確定済みを除く全員を計算します。手動で修正した値はそのまま残ります。よろしいですか？')">{% csrf_token %}
-    <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit">全員を計算</button></form>
-  <a class="btn-light" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDF（確定分を一括）</a>
-  <a class="btn-light" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}&all=1" target="_blank">確認用PDF（未確定を含む）</a>
-  <a class="btn-light" href="{% url 'payroll:export' 'csv' %}?month={{ month_param }}">CSV</a>
-  <a class="btn-light" href="{% url 'payroll:export' 'xlsx' %}?month={{ month_param }}">Excel</a>
-  {% endif %}
-</div>
-
-<div class="table-scroll">
-<table class="list">
-  <tr><th>氏名</th><th>区分</th><th class="num">前月出勤</th><th class="num">前月獲得</th><th class="num">当月獲得</th><th class="num">入金確定</th><th class="num">単価</th>
-      <th class="num">支給合計</th><th class="num">控除合計</th><th class="num">差引支給額</th><th>計算状況</th></tr>
+<ul class="plist">
   {% for r in rows %}
-  <tr class="{% if r.st.needs_review %}rowattn{% endif %}">
-    <td class="strong"><a href="{% url 'payroll:detail' r.st.pk %}">{{ r.st.member.name }}</a>{% if r.overridden %} <span class="tag" title="手動修正あり">修正</span>{% endif %}</td>
-    <td>{{ r.st.get_employment_type_display }}</td>
-    <td class="num">{{ r.in.prev_attendance_days.normalize|default:"-" }}</td>
-    <td class="num">{{ r.in.prev_acquired_count.normalize|default:"-" }}</td>
-    <td class="num">{{ r.in.current_acquired_count.normalize|default:"-" }}</td>
-    <td class="num">{{ r.in.confirmed_count.normalize|default:"-" }}</td>
-    <td class="num">{% if r.in.unit_price is not None %}{{ r.in.unit_price|floatformat:0|intcomma }}{% else %}-{% endif %}</td>
-    <td class="num">{{ r.st.earnings_total|default_if_none:"-"|intcomma }}</td>
-    <td class="num">{{ r.st.deductions_total|default_if_none:"-"|intcomma }}</td>
-    <td class="num strong">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td>
-    <td><span class="badge st-{{ r.st.status }}">{{ r.st.get_status_display }}</span>{% if r.st.needs_review %}<br><span class="warn small">確定後に元データ変更あり</span>{% endif %}</td>
-  </tr>
-  {% empty %}<tr><td colspan="11" class="muted">この月の給与データはまだありません。「給与データを作成」を押してください。</td></tr>{% endfor %}
-</table>
-</div>
+  <li class="prow {% if r.st.needs_review %}prow-attn{% endif %}">
+    <div class="pmain"><a class="strong" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{{ r.st.member.name }}</a>
+      {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% else %}<span class="chip">未確定</span>{% endif %}
+      {% if r.st.needs_review %}<span class="chip chip-warn">確定後に変更あり</span>{% endif %}</div>
+    <div class="pamt">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></div>
+    <div class="pstate"><a class="small" href="{% url 'payroll:statement_pdf' r.st.pk %}" target="_blank">PDF</a></div>
+  </li>
+  {% endfor %}
+</ul>
+<details class="more" style="margin-top:14px"><summary>ダウンロード・支払日</summary>
+  <div class="form-row" style="margin-top:10px">
+    <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDF（確定分）</a>
+    <a class="btn" href="{% url 'payroll:export' 'xlsx' %}?month={{ month_param }}">Excel</a>
+    <a class="btn" href="{% url 'payroll:export' 'csv' %}?month={{ month_param }}">CSV</a>
+  </div>
+  {% if payment_date %}<form method="post" action="{% url 'payroll:month_action' %}" class="form-row">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="payment_date">
+    支払日 <input type="date" name="payment_date" value="{{ payment_date|date:'Y-m-d' }}" style="width:auto"> <button class="btn" type="submit">変更</button></form>{% endif %}
+</details>
+{% else %}
+<p class="muted">この月の明細はまだありません。<a href="{% url 'payroll:index' %}?month={{ month_param }}">今月の給与</a>から計算してください。</p>
+{% endif %}
 {% endblock %}

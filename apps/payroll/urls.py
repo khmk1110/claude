@@ -16,6 +16,7 @@ urlpatterns = [
     path("evidence/<int:pk>/", views.evidence_file, name="evidence"),
     path("employees/", views.employees, name="employees"),
     path("teams/", views.teams, name="teams"),
+    path("settings/", views.payroll_settings, name="settings"),
     path("pdf/", views.month_pdf, name="month_pdf"),
     path("export.<str:fmt>", views.export, name="export"),
     path("<int:pk>/", views.detail, name="detail"),

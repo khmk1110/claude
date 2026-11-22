@@ -389,6 +389,7 @@ def review(request):
         **month_context(month), "sts": sts, "st": cur, "i": i, "prev": sts[i - 1] if i > 0 else None,
         "next": sts[i + 1] if i + 1 < len(sts) else None, "snap": snap, "draft": draft, "rows": rows,
         "pay_date": date.fromisoformat(snap["payment_date"]),
+        "expense_only": __import__("apps.payroll.pdf", fromlist=["is_expense_only"]).is_expense_only(snap["lines"]),
         "total": sum(r["amount"] for r in rows), "errors": errors, "warns": warns, "products": products,
         "is_product_member": calc.is_product_member(cur.member),
         "kind_choices": PayrollItemDefinition.Kind.choices, "confirmed_count": sum(1 for x in sts if x.is_confirmed),
@@ -472,6 +473,11 @@ def review_action(request, pk):
     return redirect(go)
 
 
+
+@payroll_view
+def payroll_settings(request):
+    return render(request, "payroll/settings.html", {})
+
 @payroll_view
 def month_home(request):
     """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""
@@ -496,9 +502,13 @@ def month_home(request):
             warns.append(f"先月（{pn:,}円）から大きく変わっています")
         commission = lines.get("sales_commission", 0) + sum(v for k, v in lines.items() if k.startswith("product_"))
         slip = []
-        for l in sorted(st.lines.all(), key=lambda x: (x.display_order, x.pk)):
+        from .pdf import EXPENSE_CODES, is_expense_only
+
+        ordered = sorted(st.lines.all(), key=lambda x: (x.display_order, x.pk))
+        expense_only = is_expense_only([{"amount": l.amount, "code": l.code, "show_on_slip": l.show_on_slip} for l in ordered])
+        for l in ordered:
             amt = l.amount or 0
-            if not l.show_on_slip or (amt == 0 and not l.always_show):
+            if not l.show_on_slip or (amt == 0 and (expense_only or not l.always_show)):
                 continue
             slip.append({"name": l.name, "detail": l.detail, "amount": amt if l.kind == "earning" else -amt,
                          "missing": l.amount is None})
@@ -846,36 +856,26 @@ def _flag_confirmed(member, month, note, user):
 
 @payroll_view
 def sales(request):
+    """件数の一覧（手で直す）。この月の給与に使う「前月の獲得件数」と「この月の入金確定件数」を1つの表で直す。"""
+    from apps.attendance import services as attendance_services
+
     month = month_from_request(request)
+    pm = prev_month(month)
     members = list(members_for_month(month))
     prod_map, common_products = _product_members(month)
-    existing = {(s.member_id, s.kind, s.product_id): s for s in SalesCount.objects.filter(month=month)}
-    prefill: dict[str, int] = {}
-    parsed = None
+    existing = {(s.member_id, s.kind, s.product_id): s for s in SalesCount.objects.filter(month=month, kind=SalesCount.Kind.CONFIRMED)}
+    existing.update({(s.member_id, s.kind, s.product_id): s for s in
+                     SalesCount.objects.filter(month=pm, kind=SalesCount.Kind.ACQUIRED, product__isnull=True)})
 
-    if request.method == "POST" and request.POST.get("action") == "parse":
-        kind = request.POST.get("kind", "confirmed")
-        parsed = parse_counts_text(request.POST.get("text", ""))
-        for r in parsed:
-            if r["member"]:
-                prefill[f"{'conf' if kind == 'confirmed' else 'acq'}_{r['member'].pk}"] = r["count"]
-        messages.info(request, "読み取った件数をフォームに入れました。内容を確認して「保存」を押してください（まだ保存されていません）。")
-
-    elif request.method == "POST" and request.POST.get("action") == "save":
-        evidence_file = request.FILES.get("evidence")
-        source = SalesCount.Source.IMAGE if evidence_file or request.POST.get("evidence_text") else SalesCount.Source.MANUAL
+    if request.method == "POST":
         try:
             with transaction.atomic():
-                if evidence_file or request.POST.get("evidence_text"):
-                    SalesEvidence.objects.create(month=month, kind=request.POST.get("evidence_kind", "confirmed"),
-                                                 file=evidence_file, text=request.POST.get("evidence_text", ""),
-                                                 uploaded_by=request.user)
                 changed = 0
                 for m in members:
-                    fields = [("acq", SalesCount.Kind.ACQUIRED, None), ("conf", SalesCount.Kind.CONFIRMED, None)]
+                    fields = [("acq", SalesCount.Kind.ACQUIRED, None, pm), ("conf", SalesCount.Kind.CONFIRMED, None, month)]
                     own = prod_map.get(m.pk, [])
-                    fields += [(f"prod_{p.code}", SalesCount.Kind.CONFIRMED, p) for p in own + [c for c in common_products if c not in own]]
-                    for prefix, kind, product in fields:
+                    fields += [(f"prod_{p.code}", SalesCount.Kind.CONFIRMED, p, month) for p in own + [c for c in common_products if c not in own]]
+                    for prefix, kind, product, target in fields:
                         name = f"{prefix}_{m.pk}"
                         if name not in request.POST:
                             continue
@@ -889,45 +889,44 @@ def sales(request):
                         if value is None:
                             row.delete()
                         elif row:
-                            row.count, row.source, row.updated_by = value, source, request.user
+                            row.count, row.source, row.updated_by = value, SalesCount.Source.MANUAL, request.user
                             row.save()
                         else:
-                            SalesCount.objects.create(member=m, month=month, kind=kind, product=product, count=value,
-                                                      source=source, updated_by=request.user)
+                            SalesCount.objects.create(member=m, month=target, kind=kind, product=product, count=value,
+                                                      source=SalesCount.Source.MANUAL, updated_by=request.user)
                         label = f"{SalesCount.Kind(kind).label}{'（' + product.name + '）' if product else ''}"
                         audit.log("payroll.sales_count", target=m, before={"count": before},
-                                  after={"month": month, "kind": label, "count": value}, user=request.user)
-                        affected = [month] if kind == SalesCount.Kind.CONFIRMED else [month, next_month(month)]
-                        for am in affected:
-                            _flag_confirmed(m, am, f"{month:%Y年%m月}の{label}が {before} → {value} に変更", request.user)
+                                  after={"month": target, "kind": label, "count": value}, user=request.user)
+                        for am in ([target] if kind == SalesCount.Kind.CONFIRMED else [target, next_month(target)]):
+                            _flag_confirmed(m, am, f"{target:%Y年%m月}の{label}が {before} → {value} に変更", request.user)
                         changed += 1
+                # 保存したら計算し直す（確定済みの人は変えない）
+                calc.prepare_month(month, user=request.user)
+                for st in PayrollStatement.objects.filter(month=month).exclude(status=S.CONFIRMED):
+                    calc.calculate(st, user=request.user, log=False)
         except ValueError as e:
             messages.error(request, str(e))
         else:
-            messages.success(request, f"{changed}件を保存しました。給与に反映するには、給与画面で再計算してください。")
-            return redirect(f"/payroll/sales/?month={month:%Y-%m}")
+            messages.success(request, f"{changed}件を保存して、計算し直しました。")
+            return redirect(f"/payroll/?month={month:%Y-%m}#step3")
 
     rows = []
     for m in members:
-        def val(kind, product=None, prefix=None):
-            key = f"{prefix}_{m.pk}"
-            if key in prefill:
-                return prefill[key]
+        def val(kind, product=None):
             row = existing.get((m.pk, kind, product.pk if product else None))
             return row.count if row else ""
         own = prod_map.get(m.pk, [])
+        att, _ = attendance_services.actual_attendance_days(m, pm)
+        payroll = m.employment_type in calc.PAYROLL_TYPES
         rows.append({
-            "member": m, "acq": val(SalesCount.Kind.ACQUIRED, prefix="acq"), "conf": val(SalesCount.Kind.CONFIRMED, prefix="conf"),
-            "product_based": bool(own),
-            "products": [(p, val(SalesCount.Kind.CONFIRMED, p, f"prod_{p.code}")) for p in own],
-            # 全員共通の商材（都市ガスなど）。商材別の人は右の「商材別」欄で入力する
-            "common": [(p, val(SalesCount.Kind.CONFIRMED, p, f"prod_{p.code}"), p not in own) for p in common_products],
+            "member": m, "att": att, "acq": val(SalesCount.Kind.ACQUIRED), "conf": val(SalesCount.Kind.CONFIRMED),
+            "payroll": payroll, "product_based": bool(own),
+            "products": [(p, val(SalesCount.Kind.CONFIRMED, p)) for p in own],
+            "common": [(p, val(SalesCount.Kind.CONFIRMED, p), p not in own) for p in common_products] if payroll else [],
         })
     return render(request, "payroll/sales.html", {
-        **month_context(month), "rows": rows, "parsed": parsed, "common_products": common_products,
-        "evidence": SalesEvidence.objects.filter(month=month)[:20],
+        **month_context(month), "prev": pm, "rows": rows, "common_products": common_products,
     })
-
 
 @payroll_view
 def evidence_file(request, pk):

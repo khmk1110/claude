@@ -808,3 +808,24 @@ class IssuerAndSlipOrderTests(TableScreenshotTests):
         self.assertNotIn("<b>手当</b>", html)
         pdf = self.client.get(f"/payroll/{st.pk}/pdf/")
         self.assertEqual(pdf["Content-Type"], "application/pdf")
+
+
+class ExpenseOnlySlipTests(TableScreenshotTests):
+    def test_intern_with_only_transport(self):
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
+        from apps.payroll.pdf import slip_rows
+
+        intern = Member.objects.create(name="谷川 三郎", employment_type=I)
+        SalesCount.objects.create(member=intern, month=NOV, kind="confirmed", count=0)
+        cat = ExpenseCategory.objects.get(code="transport")
+        sf = SourceFile.objects.create(original_name="e.png", sha256="e" * 64, file_format="image", document_kind="transport",
+                                       target_month=NOV, status="parsed")
+        ExpenseRecord.objects.create(source_file=sf, row_number=1, auto_member=intern, auto_category=cat, auto_amount=8702,
+                                     auto_target_month=NOV, dedupe_key="e1", status="approved")
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=intern, month=NOV)
+        self.assertFalse(st.blocking_errors)  # 入金確定0件なら単価がなくても0円
+        snap = calc.build_snapshot(st)
+        self.assertEqual([(n, a) for n, _, a in slip_rows(snap)], [("交通費精算", 8702)])  # 経費の行だけ
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertNotContains(page, "報酬額合計")

@@ -40,7 +40,7 @@
             {% endif %}
         </td><td class="num {% if r.amount < 0 %}neg{% endif %}">{{ r.amount|intcomma }}円</td></tr>
       {% empty %}<tr><td colspan="3" class="muted">まだ計算していません。</td></tr>{% endfor %}
-        <tr class="sum"><td colspan="2">報酬額合計</td><td class="num">{{ total|intcomma }}円</td></tr>
+        {% if not expense_only %}<tr class="sum"><td colspan="2">報酬額合計</td><td class="num">{{ total|intcomma }}円</td></tr>{% endif %}
       </tbody>
     </table>
     <div class="slip-net"><span>差引支払額</span><b>{{ snap.totals.net|default_if_none:"-"|intcomma }}円</b></div>

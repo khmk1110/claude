@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% block title %}チーム{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>チーム</h1></div></div>
-{% include "payroll/_nav.html" %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:settings' %}">← 給与の設定</a></p><h1>チーム</h1></div></div>
 <p class="muted small">チーム達成ボーナス（営業チーム）とインターンリーダー手当（インターンチーム）の計算に使います。変更はその月以降の給与計算（未確定分）に自動で反映され、確定済みの給与は変わりません。メンバーは「加入月」「脱退月」で管理するので、過去の月の計算にも正しいメンバーが使われます。</p>
 
 {% for r in rows %}

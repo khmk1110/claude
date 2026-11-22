@@ -53,36 +53,19 @@ def monthly_flow(month):
 
     locked = AttendanceMonthLock.objects.filter(month=pm).exists()
     acq = SalesCount.objects.filter(month=pm, kind="acquired", member__in=payroll_members).values("member").distinct().count()
-    steps.append(_step("25日頃", "前月の出勤日数・獲得件数を確認して、インセンティブ単価を確認する",
-                       f"{pm.month}月の勤怠 {'確定済み' if locked else '未確定'}・{pm.month}月の獲得件数 {acq} / {len(payroll_members)}人",
-                       reverse("payroll:sales") + pq, f"{pm.month}月の獲得件数を入力",
-                       locked and bool(payroll_members) and acq >= len(payroll_members), locked or acq > 0,
+    conf = SalesCount.objects.filter(month=month, kind="confirmed", member__in=payroll_members).values("member").distinct().count()
+    open_recs = ExpenseRecord.objects.filter(status__in=["imported", "unchecked", "pending", "modified"], auto_target_month=month).count()
+    files = SourceFile.objects.filter(target_month=month).count()
+    ready = locked and bool(payroll_members) and acq >= len(payroll_members) and conf >= len(payroll_members) and files > 0 and open_recs == 0
+    steps.append(_step("25日頃", "件数と経費を取り込む",
+                       f"{pm.month}月の勤怠 {'確定' if locked else '未確定'}・件数 {min(acq, conf)}/{len(payroll_members)}人・経費の確認待ち {open_recs}件",
+                       reverse("payroll:index") + q, "給与を開く", ready, locked or acq > 0 or conf > 0 or files > 0,
                        [(f"{pm.month}月の勤怠を確定", reverse("attendance:month") + pq)]))
 
-    conf = SalesCount.objects.filter(month=month, kind="confirmed", member__in=payroll_members, product__isnull=True).values("member").distinct().count()
     sts = list(PayrollStatement.objects.filter(month=month).values_list("status", flat=True))
-    calculated = sum(1 for s in sts if s in ("calculated", "review", "confirmed"))
-    steps.append(_step("25日頃", "入金確定件数を入力して、基本給（件数×単価）を計算する",
-                       f"入金確定件数 {conf} / {len(payroll_members)}人・計算済み {calculated} / {len(sts)}人",
-                       reverse("payroll:sales") + q, "入金確定件数を入力",
-                       bool(sts) and calculated == len(sts) and conf >= len(payroll_members), conf > 0,
-                       [("給与を計算する", reverse("payroll:index") + q)]))
-
-    files = SourceFile.objects.filter(target_month=month).exclude(file_format="manual").count()
-    open_recs = ExpenseRecord.objects.filter(status__in=["imported", "unchecked", "pending", "modified"], auto_target_month=month).count()
-    steps.append(_step("25日頃", "ガソリン代・交通費の資料を取り込んで、金額を確認する",
-                       f"資料 {files}件・確認待ち {open_recs}件" if files else "ENEOSの請求書・交通費の請求書を取り込みます",
-                       reverse("expenses:index") + q, "資料を取り込む", files > 0 and open_recs == 0, files > 0))
-
-    reviewed = sum(1 for s in sts if s in ("review", "confirmed"))
-    steps.append(_step("25日頃", "その他の経費・立替・手当・その月だけの項目を確認する",
-                       "LINEで届いた経費、チームボーナス・リーダー手当、都市ガス・プロパンなど" + (f"（確認済み {reviewed} / {len(sts)}人）" if sts else ""),
-                       reverse("payroll:index") + q, "給与を確認する", bool(sts) and reviewed == len(sts), reviewed > 0,
-                       [("LINEの経費を入力", reverse("expenses:index") + q)]))
-
     done = sum(1 for s in sts if s == "confirmed")
-    steps.append(_step("月末まで", "給与を確定して、明細PDFを発行する", f"確定 {done} / {len(sts)}人" if sts else "まだ給与データがありません",
-                       reverse("payroll:index") + q, "確定・明細PDF", bool(sts) and done == len(sts), done > 0,
+    steps.append(_step("月末まで", "明細を確認して確定する", f"確定 {done}/{len(sts)}人" if sts else "まだ計算していません",
+                       reverse("payroll:review") + q, "1人ずつ確認", bool(sts) and done == len(sts), done > 0,
                        [("バックアップを保存", reverse("setup"))]))
 
     current = next((i for i, s in enumerate(steps) if not s["done"]), None)

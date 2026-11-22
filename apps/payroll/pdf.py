@@ -40,14 +40,27 @@ def _yen(n) -> str:
     return f"-{abs(n):,}" if n < 0 else f"{n:,}"
 
 
+EXPENSE_CODES = {"transport_contractor", "transport_intern", "advance", "gasoline"}
+
+
+def is_expense_only(lines) -> bool:
+    """報酬がなく、経費（交通費・立替など）だけを支払う明細か。"""
+    paid = [l for l in lines if int(l.get("amount") or 0) != 0 and l.get("show_on_slip", True)]
+    return bool(paid) and all(l.get("expense", l.get("code") in EXPENSE_CODES) for l in paid)
+
+
 def slip_rows(snapshot: dict) -> list[tuple[str, str, int]]:
-    """明細の行（内容・内訳・符号付き金額）。0円の行は『常に表示』の項目だけ出す。"""
+    """明細の行（内容・内訳・符号付き金額）。0円の行は『常に表示』の項目だけ出す。
+
+    経費だけを支払う月は、0円の行を出さずに経費の行だけにする（スプレッドシートの明細と同じ）。
+    """
+    expense_only = is_expense_only(snapshot["lines"])
     rows = []
     for l in snapshot["lines"]:
         if not l.get("show_on_slip", True):
             continue
         amount = int(l["amount"] or 0)
-        if amount == 0 and not l.get("always_show"):
+        if amount == 0 and (expense_only or not l.get("always_show")):
             continue
         signed = amount if l["kind"] == "earning" else -amount
         rows.append((l["name"], l.get("detail") or "", signed))
@@ -126,12 +139,13 @@ def draw_statement(c: canvas.Canvas, snap: dict, *, draft: bool = False) -> None
         c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(amount)}円")
         y -= row_h
         c.line(left, y, right, y)
-    # 報酬額合計
-    c.setFont(f, 10.5)
-    c.drawString(col1 + 3 * mm, y - 7 * mm, "報酬額合計")
-    c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(total)}円")
-    y -= row_h
-    c.line(left, y, right, y)
+    # 報酬額合計（経費だけの明細では出さない）
+    if not is_expense_only(snap["lines"]):
+        c.setFont(f, 10.5)
+        c.drawString(col1 + 3 * mm, y - 7 * mm, "報酬額合計")
+        c.drawRightString(col3 - 3 * mm, y - 7 * mm, f"{_yen(total)}円")
+        y -= row_h
+        c.line(left, y, right, y)
     # 差引支払額（黒帯）
     y -= 4 * mm
     bar_h = 9 * mm
