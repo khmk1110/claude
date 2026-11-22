@@ -269,7 +269,20 @@ class CalcTests(TestCase):
         self.assertNotIn("特別手当", [r[0] for r in rows])  # 0円の任意項目は表示しない
         self.assertEqual(sum(r[2] for r in rows), net)
 
-    def test_first_payroll_log_device(self):
+    def test_log_device_is_stopped(self):
+        """運用変更によりログ機械代金は差し引かない（項目は停止状態で残す）。"""
+        self.c.joined_on = date(2026, 11, 5)
+        self.c.save()
+        count(self.c, NOV, CONF, 0)
+        st = self.statement(self.c)
+        calc.set_input_override(st, "prev_attendance_days", 0, reason="新規")
+        st = calc.set_input_override(st, "prev_acquired_count", 0, reason="新規")
+        self.assertFalse(st.lines.filter(code="log_device").exists())
+        self.assertFalse(PayrollItemDefinition.objects.get(code="log_device").is_active)
+
+    def test_first_payroll_only_items_still_work(self):
+        """「初回の給与のみ」の仕組み自体は残す（再開したとき・別の項目で使えるように）。"""
+        PayrollItemDefinition.objects.filter(code="log_device").update(is_active=True)
         self.c.joined_on = date(2026, 11, 5)
         self.c.save()
         count(self.c, NOV, CONF, 0)
