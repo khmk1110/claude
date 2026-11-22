@@ -269,30 +269,32 @@ class CalcTests(TestCase):
         self.assertNotIn("特別手当", [r[0] for r in rows])  # 0円の任意項目は表示しない
         self.assertEqual(sum(r[2] for r in rows), net)
 
-    def test_log_device_is_stopped(self):
-        """運用変更によりログ機械代金は差し引かない（項目は停止状態で残す）。"""
+    def test_log_device_item_removed(self):
+        """運用変更によりログ機械代金の項目は削除済み（初回でも差し引かない）。"""
+        self.assertFalse(PayrollItemDefinition.objects.filter(code="log_device").exists())
         self.c.joined_on = date(2026, 11, 5)
         self.c.save()
         count(self.c, NOV, CONF, 0)
         st = self.statement(self.c)
         calc.set_input_override(st, "prev_attendance_days", 0, reason="新規")
         st = calc.set_input_override(st, "prev_acquired_count", 0, reason="新規")
-        self.assertFalse(st.lines.filter(code="log_device").exists())
-        self.assertFalse(PayrollItemDefinition.objects.get(code="log_device").is_active)
+        self.assertFalse(st.lines.filter(name__contains="ログ").exists())
 
-    def test_first_payroll_only_items_still_work(self):
-        """「初回の給与のみ」の仕組み自体は残す（再開したとき・別の項目で使えるように）。"""
-        PayrollItemDefinition.objects.filter(code="log_device").update(is_active=True)
+    def test_first_payroll_only_mechanism(self):
+        """「初回の給与のみ」の仕組みは、管理者が新しく作った項目でも使える。"""
+        PayrollItemDefinition.objects.create(code="welcome_kit", name="初回のみの控除（テスト）", kind="deduction",
+                                             method="fixed", default_amount=1000, scope="employment_type",
+                                             employment_types=[C], first_payroll_only=True)
         self.c.joined_on = date(2026, 11, 5)
         self.c.save()
         count(self.c, NOV, CONF, 0)
         st = self.statement(self.c)
         calc.set_input_override(st, "prev_attendance_days", 0, reason="新規")
         st = calc.set_input_override(st, "prev_acquired_count", 0, reason="新規")
-        self.assertEqual(self.line(st, "log_device").amount, 5000)
+        self.assertEqual(self.line(st, "welcome_kit").amount, 1000)
         calc.confirm(st)
         dec = PayrollStatement.objects.create(member=self.c, month=date(2026, 12, 1), employment_type=C)
-        self.assertFalse(calc.calculate(dec).lines.filter(code="log_device").exists())
+        self.assertFalse(calc.calculate(dec).lines.filter(code="welcome_kit").exists())
 
 
 class PayrollViewTests(TestCase):

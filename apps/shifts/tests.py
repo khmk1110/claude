@@ -182,3 +182,23 @@ class MemberDeleteTests(TestCase):
         self.assertFalse(Member.objects.filter(pk=fresh.pk).exists())
         self.assertTrue(Member.objects.filter(pk=used.pk).exists())
         self.assertTrue(AuditLog.objects.filter(action="member.delete").exists())
+
+
+class MemberNumberingTests(TestCase):
+    def test_auto_number_and_order_without_filling_gaps(self):
+        a = Member.objects.create(name="一番 太郎", employment_type="contractor")
+        b = Member.objects.create(name="二番 次郎", employment_type="intern")
+        c = Member.objects.create(name="三番 三郎", employment_type="employee")
+        self.assertEqual((a.member_no, b.member_no, c.member_no), ("1", "2", "3"))
+        self.assertLess(a.display_order, b.display_order)
+        self.assertLess(b.display_order, c.display_order)
+        b.delete()  # 削除・退職しても番号は詰めない
+        c.status = Member.Status.RETIRED
+        c.save()
+        d = Member.objects.create(name="四番 四郎", employment_type="contractor")
+        self.assertEqual(d.member_no, "4")
+        self.assertEqual(list(Member.objects.values_list("name", flat=True)), ["一番 太郎", "三番 三郎", "四番 四郎"])
+        # 10 以降も数値として正しく続く
+        for i in range(5, 12):
+            Member.objects.create(name=f"メンバー{i}", employment_type="intern")
+        self.assertEqual(Member.objects.create(name="最後", employment_type="intern").member_no, "12")

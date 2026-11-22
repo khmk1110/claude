@@ -26,7 +26,10 @@ class Member(models.Model):
         ACTIVE = "active", "在籍"
         RETIRED = "retired", "退職"
 
-    member_no = models.CharField("メンバー番号", max_length=20, unique=True)
+    member_no = models.CharField(
+        "メンバー番号", max_length=20, unique=True, blank=True,
+        help_text="空欄なら自動で採番（1から順。退職・削除しても詰めない）",
+    )
     name = models.CharField("氏名", max_length=100)
     name_kana = models.CharField("フリガナ", max_length=100, blank=True)
     short_name = models.CharField(
@@ -47,7 +50,7 @@ class Member(models.Model):
     paid_leave_target = models.BooleanField("有給管理の対象", default=False)
     status = models.CharField("在籍状況", max_length=16, choices=Status.choices, default=Status.ACTIVE)
     retired_on = models.DateField("退職日", null=True, blank=True)
-    display_order = models.PositiveIntegerField("並び順", default=0)
+    display_order = models.PositiveIntegerField("並び順", default=0, help_text="0 なら追加した順で一番最後に並ぶ")
     note = models.TextField("備考", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -60,8 +63,20 @@ class Member(models.Model):
     def __str__(self):
         return self.name
 
+    @classmethod
+    def next_member_no(cls) -> str:
+        """これまでで最大の番号＋1（数字だけの番号を対象。欠番は詰めない）。"""
+        nums = [int(n) for n in cls.objects.values_list("member_no", flat=True) if str(n).isdigit()]
+        return str(max(nums, default=0) + 1)
+
     def save(self, *args, **kwargs):
         self.name_normalized = normalize_name(self.name)
+        if self._state.adding:
+            if not self.member_no:
+                self.member_no = self.next_member_no()
+            if not self.display_order:
+                last = type(self).objects.order_by("-display_order").values_list("display_order", flat=True).first()
+                self.display_order = (last or 0) + 10  # 追加した順に一番最後へ
         super().save(*args, **kwargs)
 
     def has_history(self) -> bool:

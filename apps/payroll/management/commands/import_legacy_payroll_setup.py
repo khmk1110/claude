@@ -68,10 +68,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("確認のみ（--apply を付けると取り込みます）"))
             return
         with transaction.atomic():
-            base = Member.objects.count()
-            for i, (name, emp) in enumerate(new_members, start=1):
-                Member.objects.create(member_no=f"M{base + i:04d}", name=name, employment_type=emp,
-                                      display_order=(base + i) * 10, paid_leave_target=emp == EmploymentType.EMPLOYEE)
+            for name, emp in new_members:  # メンバー番号・並び順は追加した順に自動で付く
+                Member.objects.create(name=name, employment_type=emp, paid_leave_target=emp == EmploymentType.EMPLOYEE)
             for table in tables:
                 table.save()
         self.stdout.write(self.style.SUCCESS(f"メンバー{len(new_members)}人・単価表{len(tables)}件を登録しました。"))

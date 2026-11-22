@@ -20,6 +20,8 @@ class MemberAdmin(admin.ModelAdmin):
     list_filter = ("employment_type", "status", "is_agency")
     search_fields = ("name", "name_kana", "member_no", "aliases__alias")
     inlines = [MemberAliasInline, MonthlyStandardInline]
+    readonly_fields = ("member_no",)  # 自動で採番する
+    ordering = ("display_order", "id")
 
     actions = None  # 一括削除は使わない
 
