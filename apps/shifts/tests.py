@@ -373,3 +373,10 @@ class ShiftTabsTests(TestCase):
         self.assertLess(tabs.index("日付別"), tabs.index("カレンダーで直す"))
         self.assertNotIn("LINEの数字で入力", tabs)
         self.assertIn("LINEの数字でまとめて入力", html)
+
+
+class PublicTopPageTests(TestCase):
+    def test_top_page_shows_shifts_without_login(self):
+        res = self.client.get("/")
+        self.assertEqual(res["Location"], "/shifts/")
+        self.assertEqual(self.client.get("/shifts/").status_code, 200)

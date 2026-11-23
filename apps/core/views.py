@@ -2,7 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
@@ -75,8 +75,9 @@ def monthly_flow(month):
     return steps
 
 
-@login_required
 def dashboard(request):
+    if not request.user.is_authenticated:
+        return redirect("shifts:grid")  # ログインしていない人には、まずシフト表（見るだけ）を出す
     from apps.payroll.models import PayrollStatement
 
     today = timezone.localdate()
