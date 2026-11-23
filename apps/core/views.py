@@ -142,5 +142,5 @@ def csrf_failure(request, reason=""):
     if request.path.startswith("/login/"):
         dj_messages.info(request, "画面の有効期限が切れていたため、開き直しました。もう一度ログインしてください。")
         nxt = request.POST.get("next") or request.GET.get("next") or ""
-        return redirect("/login/" + (f"?next={nxt}" if nxt.startswith("/") and not nxt.startswith("//") else ""))
+        return redirect("/login/?login=1" + (f"&next={nxt}" if nxt.startswith("/") and not nxt.startswith("//") else ""))
     return render(request, "core/csrf_failure.html", {"back": request.path}, status=403)

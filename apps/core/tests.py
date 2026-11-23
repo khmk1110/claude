@@ -153,10 +153,10 @@ class CsrfFailureTests(TestCase):
         from django.test import Client
 
         c = Client(enforce_csrf_checks=True)
-        c.get("/login/")
+        c.get("/login/?login=1")
         res = c.post("/login/", {"username": "x", "password": "y", "csrfmiddlewaretoken": "stale-token-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"})
-        self.assertRedirects(res, "/login/", fetch_redirect_response=False)
-        page = c.get("/login/")
+        self.assertRedirects(res, "/login/?login=1", fetch_redirect_response=False)
+        page = c.get("/login/?login=1")
         self.assertContains(page, "もう一度ログインしてください")
         self.assertIn("no-store", page["Cache-Control"])
 

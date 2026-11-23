@@ -26,7 +26,7 @@
     <div class="user">
       <div class="strong">{% if request.is_guest %}ゲスト{% else %}{{ user }}{% endif %}</div>
       {% if STEPUP_VERIFIED.payroll %}<form method="post" action="{% url 'stepup_close' 'payroll' %}">{% csrf_token %}<button class="btn-sm" title="次に開くときはパスワードを再入力">給与・設定を閉じる</button></form>{% endif %}
-      {% if request.is_guest %}<a class="btn-sm" href="{% url 'login' %}">ログイン</a>{% else %}<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn-sm">ログアウト</button></form>{% endif %}
+      {% if request.is_guest %}<a class="btn-sm" href="{% url 'login' %}?login=1">ログイン</a>{% else %}<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn-sm">ログアウト</button></form>{% endif %}
     </div>
   </aside>
   <div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
@@ -37,7 +37,7 @@
     </header>
 {% else %}
 <div class="public">
-  <header class="topbar public-top"><span class="title">{{ COMPANY_NAME }}</span><a class="btn-sm" href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}">ログイン</a></header>
+  <header class="topbar public-top"><span class="title">{{ COMPANY_NAME }}</span><a class="btn-sm" href="{% url 'login' %}?login=1&next={{ request.get_full_path|urlencode }}">ログイン</a></header>
 {% endif %}
     <main class="content">
       {% if messages %}<div class="messages">{% for message in messages %}<div class="msg msg-{{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}

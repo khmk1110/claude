@@ -71,3 +71,24 @@ def stepup_close_view(request, scope):
     audit.log("stepup.close", target_type="stepup", target_id=scope, target_repr=StepUpScope(scope).label, request=request)
     messages.success(request, f"{StepUpScope(scope).label}を閉じました。")
     return redirect("dashboard")
+
+
+
+from django.contrib.auth import views as _auth_views
+
+
+class OptionalLoginView(_auth_views.LoginView):
+    """ログインは任意（シフトなどはログインなしで使える）。
+
+    ブックマークなどで /login/ を開いても、ログイン画面を出さずにサイトへ進む。
+    メニューの「ログイン」から開いた時（?login=1）だけログイン画面を出す。
+    """
+
+    template_name = "accounts/login.html"
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get("login") != "1":
+            nxt = request.GET.get("next", "")
+            ok = url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+            return redirect(nxt if nxt and ok else "/")
+        return super().get(request, *args, **kwargs)

@@ -246,3 +246,11 @@ class GuestPayrollPasswordTests(TestCase):
         self.client.post(reverse("stepup", args=["payroll"]), {"password": PW, "next": "/payroll/"})
         self.assertEqual(self.client.get("/payroll/").status_code, 200)
         self.assertEqual(self.client.get("/settings/").status_code, 200)
+
+
+class OptionalLoginTests(TestCase):
+    def test_login_page_skipped_unless_asked(self):
+        self.assertEqual(self.client.get("/login/")["Location"], "/")  # ブックマークの /login/ でもサイトへ
+        self.assertEqual(self.client.get("/login/?next=/shifts/")["Location"], "/shifts/")
+        self.assertEqual(self.client.get("/login/?next=https://evil.example/")["Location"], "/")
+        self.assertEqual(self.client.get("/login/?login=1").status_code, 200)  # メニューの「ログイン」から
