@@ -6,8 +6,7 @@
   <div class="card"><div class="muted">残日数</div><div class="big">{{ st.remaining.normalize }}日</div><div class="muted small">予定分を引くと {{ st.remaining_after_planned.normalize }}日</div></div>
   <div class="card"><div class="muted">取得済み / 取得予定 / 申請中</div><div class="big">{{ st.taken.normalize }} / {{ st.planned.normalize }} / {{ st.requested.normalize }}</div></div>
   <div class="card"><div class="muted">次回付与（法定）</div><div class="big">{% if st.next_grant %}{{ st.next_grant.0|date:"Y-m-d" }}{% else %}-{% endif %}</div><div class="muted small">{% if st.next_grant %}{{ st.next_grant.1 }}日{% elif not member.joined_on %}入社日が未登録です{% endif %}</div></div>
-  <div class="card"><div class="muted">年5日取得義務</div>
-    {% with o=st.obligation %}{% if o %}<div class="big {% if not o.achieved %}warn{% endif %}">{{ o.taken.normalize }} / 5日</div><div class="muted small">{{ o.start|date:"Y-m-d" }}〜{{ o.deadline|date:"Y-m-d" }}（予定 {{ o.planned.normalize }}日）</div>{% else %}<div class="muted">対象外</div>{% endif %}{% endwith %}</div>
+
 </div>
 {% if st.missing_statutory %}<p class="warn">付与日を過ぎた法定付与が{{ st.missing_statutory|length }}件未登録です（{% for g, d in st.missing_statutory %}{{ g|date:"Y-m-d" }} {{ d }}日{% if not forloop.last %}、{% endif %}{% endfor %}）。出勤率を確認のうえ「法定付与を作成」してください。</p>{% endif %}
 {% if st.shortage %}<p class="warn">残日数を超える取得が {{ st.shortage.normalize }}日あります。付与の登録漏れがないか確認してください。</p>{% endif %}
