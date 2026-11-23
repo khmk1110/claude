@@ -115,7 +115,7 @@ class MonthlyFlowTests(TestCase):
         self.assertEqual(ExpenseRecord.objects.filter(status="reflected").count(), 5)  # 二重反映しない
         # 14. 明細PDF（個人別・一括）
         self.assertTrue(self.client.get(f"/payroll/{a.pk}/pdf/").content.startswith(b"%PDF"))
-        self.assertTrue(self.client.get("/payroll/pdf/?month=2026-11").content.startswith(b"%PDF"))
+        self.assertTrue(self.client.get("/payroll/pdf/?month=2026-11").content.startswith(b"PK"))  # 1人1つのPDFをZIPで
         # 確定後に経費が追加されても金額は変わらず、要確認になる
         net = a.net_amount
         self.client.post("/expenses/line/", {"text": "青木 1,000", "category": ExpenseCategory.objects.get(code="advance").pk,

@@ -482,3 +482,9 @@ details.xpanel > summary::-webkit-details-marker { display: none; }
 .set-card:hover { border-color: #93c5fd; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08); }
 .check-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .check-list label { padding: 10px 12px; border: 1px solid var(--line, #e5e7eb); border-radius: 10px; }
+/* 閉じておく入力欄 */
+details.card.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; margin: 0; }
+details.card.fold > summary::-webkit-details-marker { display: none; }
+details.card.fold > summary::before { content: "＋"; color: #2563eb; font-weight: 800; }
+details.card.fold[open] > summary::before { content: "－"; }
+details.card.fold[open] > summary { margin-bottom: 10px; }

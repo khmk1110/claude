@@ -25,10 +25,10 @@
     {% else %}<input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit" onclick="this.textContent='計算中…'">全員を計算し直す</button>{% endif %}
   </form>
   {% if rows %}
-  <button type="button" class="linkbtn small" style="color:#2563eb" onclick="var c=document.querySelectorAll('.pay-card'),o=!c[0].open;c.forEach(function(d){d.open=o});this.textContent=o?'全部閉じる':'全部開く'">全部閉じる</button>
+  <button type="button" class="linkbtn small" style="color:#2563eb" onclick="var c=document.querySelectorAll('.pay-card'),o=this.dataset.o!=='1';c.forEach(function(d){d.open=o});this.dataset.o=o?'1':'0';this.textContent=o?'全部閉じる':'全員の内訳を開く'">全員の内訳を開く</button>
   <div class="pay-cards">
     {% for r in rows %}
-    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" open>
+    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
       <summary>
         <span class="pay-name">{{ r.st.member.name }}</span>
         {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}
@@ -52,7 +52,7 @@
   <ul class="checks">{% for label, ok in checklist %}{% if not ok %}<li class="ng">{{ label }}</li>{% endif %}{% endfor %}</ul>
   <div class="form-row">
     {% if sts %}<a class="btn btn-primary" href="{% url 'payroll:review' %}?month={{ month_param }}">{% if confirmed == sts|length %}明細を見直す{% else %}1人ずつ明細を見て確定する{% endif %}</a>{% endif %}
-    {% if confirmed %}<a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDFを一括ダウンロード（確定 {{ confirmed }}人）</a>{% endif %}
+    {% if confirmed %}<a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分をダウンロード（1人1つのPDF・{{ confirmed }}人）</a>{% endif %}
   </div>
 </section>
 {% endblock %}

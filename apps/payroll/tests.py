@@ -871,3 +871,23 @@ class ReviewBaseInputsTests(TableScreenshotTests):
         unit = st.inputs.get(key="unit_price").value
         self.assertIsNotNone(unit)
         self.assertEqual(st.lines.get(code="sales_commission").amount, 40 * int(unit))
+
+
+class SlipDownloadTests(TableScreenshotTests):
+    def test_individual_and_zip_names(self):
+        import io
+        import zipfile
+
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.c, month=NOV)
+        res = self.client.get(f"/payroll/{st.pk}/pdf/?download=1")
+        self.assertIn("attachment", res["Content-Disposition"])
+        self.assertIn("11%E6%9C%88%E5%88%86", res["Content-Disposition"])  # 「11月分」（URLエンコード）
+        # 確定分を ZIP で（1人1つのPDF）
+        for s_ in PayrollStatement.objects.filter(month=NOV):
+            PayrollStatement.objects.filter(pk=s_.pk).update(status="confirmed", snapshot=calc.build_snapshot(s_))
+        z = self.client.get("/payroll/pdf/?month=2026-11")
+        self.assertEqual(z["Content-Type"], "application/zip")
+        names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
+        self.assertIn("11月分明細書_長谷川花子.pdf", names)
+        self.assertEqual(len(names), PayrollStatement.objects.filter(month=NOV).count())

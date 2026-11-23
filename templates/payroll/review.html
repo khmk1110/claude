@@ -48,14 +48,17 @@
       <div><span class="lbl">発行者</span>{{ snap.issuer.company }}</div>{% if snap.issuer.representative %}<div><span class="lbl">代表取締役</span>{{ snap.issuer.representative }}</div>{% endif %}
       {% if snap.issuer.address %}<div><span class="lbl">所在地</span>{{ snap.issuer.address }}</div>{% endif %}{% if snap.issuer.tel %}<div><span class="lbl">TEL</span>{{ snap.issuer.tel }}</div>{% endif %}
     </div>
-    <p class="small"><a href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る</a></p>
+    <div class="form-row" style="margin-top:12px">
+      <a class="btn" href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る</a>
+      <a class="btn" href="{% url 'payroll:statement_pdf' st.pk %}?download=1">ダウンロード</a>
+    </div>
   </section>
 
   {# ── この人の入力 ── #}
   <div class="review-side">
     {% if not st.is_confirmed %}
-    <section class="card">
-      <p class="card-title">計算のもとの数字</p>
+    <details class="card fold" {% if open_base %}open{% endif %}>
+      <summary class="card-title">計算のもとの数字（前月の出勤・獲得、入金確定）</summary>
       <p class="small muted" style="margin-top:-4px">入れると単価と金額を自動で計算します。金額を直接直す時は、明細の「金額を直す」から。</p>
       <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="base">
         <div class="prod-grid">
@@ -65,11 +68,11 @@
         <p class="small">単価 <b>{% if unit_price is not None %}{{ unit_price|floatformat:0|intcomma }}円{% else %}未定（出勤日数と獲得件数を入れてください）{% endif %}</b></p>
         <button class="btn btn-primary" type="submit">保存して計算</button>
       </form>
-    </section>
+    </details>
     {% endif %}
     {% if products and not st.is_confirmed %}
-    <section class="card">
-      <p class="card-title">商品別の件数{% if is_product_member %} <span class="chip chip-open">{{ st.member.name }}さん専用</span>{% endif %}</p>
+    <details class="card fold" {% if open_products %}open{% endif %}>
+      <summary class="card-title">商品別の件数{% if is_product_member %}（プロパン・都市ガスなど）{% else %}（都市ガスなど）{% endif %}</summary>
       <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="products">
         <div class="prod-grid">
           {% for x in products %}<label class="prod"><span>{{ x.p.name }}</span>
@@ -77,12 +80,12 @@
         </div>
         <button class="btn btn-primary" type="submit">保存して計算</button>
       </form>
-    </section>
+    </details>
     {% endif %}
 
     {% if not st.is_confirmed %}
-    <section class="card">
-      <p class="card-title">この月だけの項目を追加</p>
+    <details class="card fold">
+      <summary class="card-title">この月だけの項目を追加</summary>
       <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="adhoc-form">{% csrf_token %}<input type="hidden" name="action" value="adhoc_add">
         <input name="name" placeholder="項目名（例：サウナコンサル）" required>
         <div class="form-row">
@@ -91,7 +94,7 @@
         </div>
         <button class="btn" type="submit">追加</button>
       </form>
-    </section>
+    </details>
     {% endif %}
     <p class="small"><a href="{% url 'payroll:detail' st.pk %}">詳しい計算の中身・変更履歴を見る</a></p>
   </div>

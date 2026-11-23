@@ -18,13 +18,13 @@
       {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% else %}<span class="chip">未確定</span>{% endif %}
       {% if r.st.needs_review %}<span class="chip chip-warn">確定後に変更あり</span>{% endif %}</div>
     <div class="pamt">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></div>
-    <div class="pstate"><a class="small" href="{% url 'payroll:statement_pdf' r.st.pk %}" target="_blank">PDF</a></div>
+    <div class="pstate"><a class="small" href="{% url 'payroll:statement_pdf' r.st.pk %}" target="_blank">見る</a>　<a class="small" href="{% url 'payroll:statement_pdf' r.st.pk %}?download=1">ダウンロード</a></div>
   </li>
   {% endfor %}
 </ul>
 <details class="more" style="margin-top:14px"><summary>ダウンロード・支払日</summary>
   <div class="form-row" style="margin-top:10px">
-    <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}" target="_blank">明細PDF（確定分）</a>
+    <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分の明細（1人1つのPDF）</a>
     <a class="btn" href="{% url 'payroll:export' 'xlsx' %}?month={{ month_param }}">Excel</a>
     <a class="btn" href="{% url 'payroll:export' 'csv' %}?month={{ month_param }}">CSV</a>
   </div>

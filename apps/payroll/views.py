@@ -400,6 +400,9 @@ def review(request):
     unit_inp = inp.get(PayrollInput.Key.UNIT_PRICE)
     return render(request, "payroll/review.html", {
         "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
+        # 入力欄はふだん閉じておき、足りない数字がある時だけ開く
+        "open_base": any(("前月" in e or "入金確定件数" in e or "単価" in e) for e in errors),
+        "open_products": any("商品別" in e for e in errors),
         **month_context(month), "sts": sts, "st": cur, "i": i, "prev": sts[i - 1] if i > 0 else None,
         "next": sts[i + 1] if i + 1 < len(sts) else None, "snap": snap, "draft": draft, "rows": rows,
         "pay_date": date.fromisoformat(snap["payment_date"]),
@@ -790,27 +793,56 @@ def _snapshot_for(st: PayrollStatement) -> tuple[dict, bool]:
 def statement_pdf(request, pk):
     st = get_object_or_404(PayrollStatement, pk=pk)
     snap, draft = _snapshot_for(st)
-    audit.log("payroll.pdf", target=st, after={"draft": draft}, user=request.user)
-    resp = HttpResponse(render_pdf([(snap, draft)]), content_type="application/pdf")
-    resp["Content-Disposition"] = f'inline; filename="statement-{st.month:%Y-%m}-{st.member.member_no}.pdf"'
+    download = request.GET.get("download") == "1"
+    audit.log("payroll.pdf", target=st, after={"draft": draft, "download": download}, user=request.user)
+    name = slip_filename(st) if not draft else slip_filename(st).replace(".pdf", "_確認用.pdf")
+    return _pdf_response(render_pdf([(snap, draft)]), name, download=download)
+
+
+def slip_filename(st) -> str:
+    """明細PDFのファイル名：「10月分明細書_山田太郎.pdf」（名前の空白は詰める）。"""
+    name = re.sub(r"\s+", "", st.member.name)
+    name = re.sub(r'[\\/:*?"<>|]', "", name)
+    return f"{st.month.month}月分明細書_{name}.pdf"
+
+
+def _pdf_response(data: bytes, filename: str, *, download: bool) -> HttpResponse:
+    from django.utils.http import content_disposition_header
+
+    resp = HttpResponse(data, content_type="application/pdf")
+    resp["Content-Disposition"] = content_disposition_header(download, filename)
     return resp
 
 
 @payroll_view
 def month_pdf(request):
+    """一括ダウンロード：1人1つのPDF（「〇月分明細書_名前.pdf」）をZIPにまとめる。"""
+    import zipfile
+
     month = month_from_request(request)
     only_confirmed = request.GET.get("all") != "1"
     qs = PayrollStatement.objects.filter(month=month).select_related("member").order_by("member__display_order", "member_id")
     if only_confirmed:
         qs = qs.filter(status=S.CONFIRMED)
-    items = [_snapshot_for(st) for st in qs]
-    if not items:
+    sts = list(qs)
+    if not sts:
         messages.error(request, "出力できる明細がありません（確定済みの給与がありません）。")
         return redirect(f"/payroll/?month={month:%Y-%m}")
+    buf = io.BytesIO()
+    used = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for st in sts:
+            fname = slip_filename(st)
+            if fname in used:  # 同姓同名の時は番号を付ける
+                fname = fname.replace(".pdf", f"_{st.member.member_no}.pdf")
+            used.add(fname)
+            zf.writestr(fname, render_pdf([_snapshot_for(st)]))
     audit.log("payroll.pdf_bulk", target_type="payroll_month", target_id=month.isoformat(),
-              after={"count": len(items), "only_confirmed": only_confirmed}, user=request.user)
-    resp = HttpResponse(render_pdf(items), content_type="application/pdf")
-    resp["Content-Disposition"] = f'inline; filename="statements-{month:%Y-%m}.pdf"'
+              after={"count": len(sts), "only_confirmed": only_confirmed, "format": "zip"}, user=request.user)
+    from django.utils.http import content_disposition_header
+
+    resp = HttpResponse(buf.getvalue(), content_type="application/zip")
+    resp["Content-Disposition"] = content_disposition_header(True, f"{month.month}月分明細書.zip")
     return resp
 
 
@@ -823,7 +855,7 @@ def _export_table(month):
             name = l["name"] if isinstance(l, dict) else l.name
             if name not in line_names:
                 line_names.append(name)
-    header = ["メンバー番号", "氏名", "雇用区分", "前月出勤日数", "前月獲得件数", "当月獲得件数", "入金確定件数", "単価",
+    header = ["メンバー番号", "氏名", "雇用区分", "前月出勤日数", "前月獲得件数", "入金確定件数", "単価",
               *line_names, "支給合計", "控除合計", "差引支給額", "計算状況"]
     rows = []
     for st in sts:
@@ -836,7 +868,7 @@ def _export_table(month):
             amounts[l["name"]] = amounts.get(l["name"], 0) + sign * int(l["amount"] or 0)
         g = lambda k: "" if inputs.get(k) is None else calc.num(inputs[k])  # noqa: E731
         rows.append([st.member.member_no, st.member.name, st.get_employment_type_display(),
-                     g("prev_attendance_days"), g("prev_acquired_count"), g("current_acquired_count"), g("confirmed_count"),
+                     g("prev_attendance_days"), g("prev_acquired_count"), g("confirmed_count"),
                      g("unit_price"), *[amounts.get(n, "") for n in line_names],
                      st.earnings_total or 0, st.deductions_total or 0, st.net_amount or 0, st.get_status_display()])
     return header, rows
