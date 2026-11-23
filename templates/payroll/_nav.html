@@ -1,6 +1,7 @@
 {% with p=request.path %}
 <nav class="tabs">
   <a href="{% url 'payroll:index' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/' %}active{% endif %}">今月の給与</a>
+  <a href="{% url 'payroll:transfers' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/transfers/' %}active{% endif %}">振込・送付</a>
   <a href="{% url 'payroll:list' %}{% if month_param %}?month={{ month_param }}{% endif %}" class="{% if p == '/payroll/list/' %}active{% endif %}">過去の明細</a>
   <a href="{% url 'payroll:settings' %}" class="{% if p == '/payroll/settings/' or p == '/payroll/teams/' or p == '/payroll/employees/' %}active{% endif %}">給与の設定</a>
 </nav>

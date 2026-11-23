@@ -113,9 +113,15 @@ def dashboard(request):
         if st.missing_statutory:
             notices.append((f"{m.name}さんの有給の付与が未登録です（付与日を過ぎた分が {len(st.missing_statutory)}件）。",
                             reverse("attendance:leave_member", args=[m.pk])))
-        elif o and not o.get("achieved") and o.get("shortfall", 0) > 0:
-            notices.append((f"{m.name}さんは年5日の有給取得まで あと{o['shortfall'].normalize()}日の予定が必要です（期限 {o['deadline']:%Y/%m/%d}）。",
-                            reverse("attendance:leave_member", args=[m.pk])))
+
+    # バックアップのお知らせ（月に1回）
+    from apps.core.models import AuditLog
+
+    last_backup = AuditLog.objects.filter(action="setup.backup").order_by("-at").values_list("at", flat=True).first()
+    if last_backup is None:
+        notices.append(("バックアップがまだありません。設定から保存してください。", reverse("setup")))
+    elif (timezone.now() - last_backup).days >= 30:
+        notices.append((f"前回のバックアップから {(timezone.now() - last_backup).days}日 たちました。保存してください。", reverse("setup")))
 
     payroll = None
     if stepup.is_verified(request, "payroll", touch=False):

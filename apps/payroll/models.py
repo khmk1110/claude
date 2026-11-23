@@ -543,3 +543,17 @@ class IgnoredName(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class StatementDelivery(models.Model):
+    """振込・明細送付のチェック（確定した明細そのものは変えずに、別に記録する）。"""
+
+    statement = models.OneToOneField(PayrollStatement, on_delete=models.CASCADE, related_name="delivery")
+    paid_at = models.DateTimeField("振込済み", null=True, blank=True)
+    paid_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    sent_at = models.DateTimeField("明細送付済み", null=True, blank=True)
+    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        verbose_name = "振込・送付の記録"
+        verbose_name_plural = "振込・送付の記録"

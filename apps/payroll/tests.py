@@ -917,3 +917,54 @@ class SimpleCountLinesTests(TestCase):
         p = parse_dashboard("大石：60件\n長谷：4件\n吉野 8\n合計：72件")
         self.assertEqual([(e.name, e.count) for e in p.entries], [("大石", 60), ("長谷", 4), ("吉野", 8)])
         self.assertEqual(p.warnings, [])
+
+
+class TransfersAndChecksTests(TableScreenshotTests):
+    def test_transfer_checks_and_csv(self):
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.c, month=NOV)
+        PayrollStatement.objects.filter(pk=st.pk).update(status="confirmed", snapshot=calc.build_snapshot(st))
+        page = self.client.get("/payroll/transfers/?month=2026-11")
+        self.assertContains(page, self.c.name)
+        r = self.client.post("/payroll/transfers/toggle/", {"st": st.pk, "field": "paid", "on": "1"})
+        self.assertTrue(r.json()["on"])
+        self.client.post("/payroll/transfers/toggle/", {"st": st.pk, "field": "sent", "on": "1"})
+        st.refresh_from_db()
+        self.assertIsNotNone(st.delivery.paid_at)
+        self.assertIsNotNone(st.delivery.sent_at)
+        csv_text = self.client.get("/payroll/transfers/?month=2026-11&format=csv").content.decode("utf-8-sig")
+        self.assertIn("済", csv_text)
+
+    def test_confirm_blocked_by_unapproved_expense(self):
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
+
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=0)
+        cat = ExpenseCategory.objects.get(code="transport")
+        sf = SourceFile.objects.create(original_name="u.png", sha256="u" * 64, file_format="image", document_kind="transport",
+                                       target_month=NOV, status="parsed")
+        ExpenseRecord.objects.create(source_file=sf, row_number=1, auto_member=self.a, auto_category=cat, auto_amount=50000,
+                                     auto_target_month=NOV, dedupe_key="u1")
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "承認していない経費が 1件")
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "confirm"})
+        st.refresh_from_db()
+        self.assertNotEqual(st.status, "confirmed")
+
+
+class RememberTodayTests(TestCase):
+    def test_remember_today_skips_idle_timeout(self):
+        from django.test import override_settings
+
+        from apps.accounts import stepup as su
+
+        su.set_password("payroll", "pay-pass")
+        self.client.post("/stepup/payroll/", {"password": "pay-pass", "remember": "1", "next": "/payroll/"})
+        with override_settings(STEPUP_IDLE_SECONDS=-1):
+            self.assertEqual(self.client.get("/payroll/").status_code, 200)  # 今日は聞かない
+
+
+class BackupReminderTests(TestCase):
+    def test_home_shows_backup_notice(self):
+        self.assertContains(self.client.get("/"), "バックアップがまだありません")

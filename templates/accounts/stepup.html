@@ -2,12 +2,13 @@
 {% block title %}{{ scope_label }}{% endblock %}
 {% block content %}
 <div class="card" style="max-width:440px;margin:24px auto">
-  <p class="eyebrow">🔒 パスワードが必要です</p>
+  <p class="eyebrow">🔒 給与のパスワード</p>
   <h1 style="margin-bottom:8px">{{ scope_label }}</h1>
-  <p class="muted small">給与・経費の金額を守るため、この画面は専用のパスワードで開きます。30分操作がないと再入力になります。</p>
+
   {% if error %}<div class="msg msg-error">{{ error }}</div>{% endif %}
   <form method="post">{% csrf_token %}
     <div class="field"><label for="id_password">パスワード</label><input id="id_password" type="password" name="password" required autofocus></div>
+    <label class="check" style="margin:4px 0 14px"><input type="checkbox" name="remember" value="1" checked> このスマホでは今日は聞かない</label>
     <input type="hidden" name="next" value="{{ next }}">
     <button class="btn btn-primary" type="submit" style="width:100%">開く</button>
   </form>

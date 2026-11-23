@@ -3,23 +3,21 @@
 {% block title %}ホーム{% endblock %}
 {% block topbar %}ホーム{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div><p class="eyebrow">{{ today|date:"Y年n月j日" }}</p><h1>{{ month|date:"n月" }}にやること</h1></div>
-</div>
+<div class="page-head"><div><p class="eyebrow">{{ today|date:"n月j日（D）" }}</p><h1>ホーム</h1></div></div>
 
-<div class="stats">
-  <div class="card stat"><div class="label">在籍メンバー</div><div class="value">{{ member_count }}人</div></div>
-  <div class="card stat"><div class="label">今日の出勤予定</div><div class="value">{{ today_work }}人</div></div>
-  <div class="card stat"><div class="label">勤怠の確認が必要</div><div class="value {% if needs_check %}text-warn{% endif %}">{{ needs_check }}人</div><div class="sub">過去の日に未確定あり</div></div>
-</div>
+<a class="today-card" href="{% url 'shifts:grid' %}?view=day">
+  <div><div class="small muted">今日の出勤</div><div class="xbig">{{ today_work }}<small>人</small></div></div>
+  <span class="chev">›</span>
+</a>
 
-{% if notices %}
-<h2>お知らせ</h2>
-{% for text, url in notices %}<a class="notice" href="{{ url }}" style="text-decoration:none">⚠️ <span>{{ text }}</span></a>{% endfor %}
+{% if notices or needs_check %}
+<div class="notices">
+  {% if needs_check %}<a class="notice" href="{% url 'attendance:month' %}" style="text-decoration:none">⚠️ <span>勤怠の確認が必要な人が {{ needs_check }}人 います。</span></a>{% endif %}
+  {% for text, url in notices %}<a class="notice" href="{{ url }}" style="text-decoration:none">⚠️ <span>{{ text }}</span></a>{% endfor %}
+</div>
 {% endif %}
 
-<h2>今月の流れ</h2>
-<p class="muted small">給与管理マニュアルの順番です。上から順に進めると、明細の発行まで終わります。いま進める手順を青で表示しています。</p>
+<h2>{{ month|date:"n月" }}の流れ</h2>
 <ol class="flow">
   {% for s in flow %}
   <li class="{{ s.state }}">

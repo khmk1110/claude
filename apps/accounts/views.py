@@ -26,7 +26,7 @@ def stepup_view(request, scope):
     form = StepUpForm(request.POST or None)
     error = ""
     if request.method == "POST" and form.is_valid():
-        result = stepup.verify(request, scope, form.cleaned_data["password"])
+        result = stepup.verify(request, scope, form.cleaned_data["password"], remember_today=bool(request.POST.get("remember")))
         if result.ok:
             return redirect(next_url)
         error = result.message

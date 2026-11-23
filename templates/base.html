@@ -14,12 +14,10 @@
   <aside class="sidebar" id="sidebar">
     <div class="brand">{{ COMPANY_NAME }}<small>シフト・勤怠・給与 管理</small></div>
     <nav class="nav">
-      <a href="{% url 'dashboard' %}" class="{% if p == '/' %}active{% endif %}"><span class="ico">🏠</span>ホーム（今月やること）</a>
-      <div class="group">毎月の業務</div>
+      <a href="{% url 'dashboard' %}" class="{% if p == '/' %}active{% endif %}"><span class="ico">🏠</span>ホーム</a>
       <a href="{% url 'shifts:grid' %}" class="{% if p|slice:':8' == '/shifts/' or p|slice:':12' == '/attendance/' and p|slice:':18' != '/attendance/leave/' %}active{% endif %}"><span class="ico">📅</span>シフト・勤怠</a>
-      <a href="{% url 'attendance:leave_list' %}" class="{% if p|slice:':18' == '/attendance/leave/' %}active{% endif %}"><span class="ico">🌴</span>有給（残り日数）</a>
       <a href="{% url 'payroll:index' %}" class="{% if p|slice:':9' == '/payroll/' %}active{% endif %}"><span class="ico">💴</span>給与・経費<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>
-      <div class="group">管理</div>
+      <a href="{% url 'attendance:leave_list' %}" class="{% if p|slice:':18' == '/attendance/leave/' %}active{% endif %}"><span class="ico">🌴</span>有給</a>
       <a href="{% url 'members:list' %}" class="{% if p|slice:':9' == '/members/' %}active{% endif %}"><span class="ico">👥</span>メンバー</a>
       <a href="{% url 'setup' %}" class="{% if p|slice:':10' == '/settings/' %}active{% endif %}"><span class="ico">⚙️</span>設定・バックアップ<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>
     </nav>
@@ -48,8 +46,8 @@
   <nav class="bottom-nav">
     <a href="{% url 'dashboard' %}" class="{% if p == '/' %}active{% endif %}"><span class="ico">🏠</span>ホーム</a>
     <a href="{% url 'shifts:grid' %}" class="{% if p|slice:':8' == '/shifts/' or p|slice:':12' == '/attendance/' and p|slice:':18' != '/attendance/leave/' %}active{% endif %}"><span class="ico">📅</span>シフト</a>
-    <a href="{% url 'attendance:leave_list' %}" class="{% if p|slice:':18' == '/attendance/leave/' %}active{% endif %}"><span class="ico">🌴</span>有給</a>
     <a href="{% url 'payroll:index' %}" class="{% if p|slice:':9' == '/payroll/' %}active{% endif %}"><span class="ico">💴</span>給与</a>
+    <a href="{% url 'members:list' %}" class="{% if p|slice:':9' == '/members/' %}active{% endif %}"><span class="ico">👥</span>メンバー</a>
     <a href="#" onclick="document.body.classList.toggle('nav-open');return false;"><span class="ico">☰</span>メニュー</a>
   </nav>
 </div>

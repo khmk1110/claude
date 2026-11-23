@@ -57,7 +57,7 @@ def locked_until(user, scope: str):
     return last_failure_at + timedelta(seconds=settings.STEPUP_LOCK_SECONDS)
 
 
-def verify(request, scope: str, raw_password: str) -> VerifyResult:
+def verify(request, scope: str, raw_password: str, *, remember_today: bool = False) -> VerifyResult:
     _check_scope(scope)
     user = request.user
     until = locked_until(user, scope)
@@ -92,7 +92,16 @@ def verify(request, scope: str, raw_password: str) -> VerifyResult:
 
     now = time.time()
     request.session.cycle_key()  # セッション固定化攻撃の対策
-    request.session[_session_key(scope)] = {"verified_at": now, "last_seen": now}
+    data = {"verified_at": now, "last_seen": now}
+    if remember_today:
+        # この端末では今日の終わり（23:59）までパスワードを聞かない
+        from datetime import datetime, time as dtime
+
+        from django.utils import timezone as _tz
+
+        end = _tz.make_aware(datetime.combine(_tz.localdate(), dtime(23, 59, 59)))
+        data["until"] = end.timestamp()
+    request.session[_session_key(scope)] = data
     return VerifyResult(ok=True)
 
 
@@ -106,6 +115,8 @@ def is_verified(request, scope: str, *, touch: bool = True) -> bool:
     if not data:
         return False
     now = time.time()
+    if data.get("until") and now <= data["until"]:
+        return True  # 「今日は聞かない」にした端末
     if now - data.get("last_seen", 0) > settings.STEPUP_IDLE_SECONDS or now - data.get(
         "verified_at", 0
     ) > settings.STEPUP_MAX_AGE_SECONDS:

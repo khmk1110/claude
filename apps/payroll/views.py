@@ -357,6 +357,26 @@ def _member_products(st):
     return [{"p": p, "count": counts.get(p.pk), "personal": p in personal.get(st.member_id, [])} for p in products]
 
 
+
+def confirm_checks(st):
+    """確定する前のチェック。(止める理由, 確認が必要な注意) を返す。"""
+    from django.db.models import Q
+
+    from apps.expenses.models import ExpenseRecord
+
+    blocks, cautions = [], []
+    open_recs = (ExpenseRecord.objects.filter(status__in=OPEN_EXPENSE)
+                 .filter(Q(target_month=st.month) | Q(target_month__isnull=True, auto_target_month=st.month))
+                 .filter(Q(member=st.member) | Q(member__isnull=True, auto_member=st.member)).count())
+    if open_recs:
+        blocks.append(f"承認していない経費が {open_recs}件 あります（給与の画面の「経費」で承認か対象外に）。")
+    prev = (PayrollStatement.objects.filter(member=st.member, month=prev_month(st.month), status=S.CONFIRMED)
+            .values_list("net_amount", flat=True).first())
+    if prev and st.net_amount is not None and abs(st.net_amount - prev) > max(abs(prev) * 0.3, 30000):
+        cautions.append(f"先月（{prev:,}円）から {st.net_amount - prev:+,}円 変わっています。")
+    return blocks, cautions
+
+
 @payroll_view
 def review(request):
     """1人ずつ確認：明細のプレビュー＋その人の件数・当月の項目の修正＋確定。"""
@@ -400,6 +420,7 @@ def review(request):
     unit_inp = inp.get(PayrollInput.Key.UNIT_PRICE)
     return render(request, "payroll/review.html", {
         "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
+        "blocks": confirm_checks(cur)[0] if not cur.is_confirmed else [], "cautions": confirm_checks(cur)[1] if not cur.is_confirmed else [],
         # 入力欄はふだん閉じておき、足りない数字がある時だけ開く
         "open_base": any(("前月" in e or "入金確定件数" in e or "単価" in e) for e in errors),
         "open_products": any("商品別" in e for e in errors),
@@ -509,6 +530,11 @@ def review_action(request, pk):
                 calc.calculate(st, user=user, log=False)
                 messages.success(request, "計算し直しました。")
             elif action == "confirm":
+                blocks, cautions = confirm_checks(st)
+                if blocks:
+                    raise ValueError("確定できません：" + " ".join(blocks))
+                if cautions and not p.get("ack"):
+                    raise ValueError("先月と大きく違うので、内容を確かめて「確認した」にチェックしてから確定してください。")
                 calc.confirm(st, user=user)
                 nxt = (PayrollStatement.objects.filter(month=st.month).exclude(status=S.CONFIRMED)
                        .order_by("member__display_order", "member_id").first())
@@ -565,6 +591,62 @@ def app_fee_settings(request):
         return redirect("payroll:settings")
     chosen = set(fee.members.values_list("pk", flat=True))
     return render(request, "payroll/app_fee.html", {"fee": fee, "until": until, "contractors": contractors, "chosen": chosen})
+
+
+@payroll_view
+def transfers(request):
+    """振込一覧：確定した人の支払額と、振込済み・明細送付済みのチェック。"""
+    from .models import StatementDelivery
+
+    month = month_from_request(request)
+    sts = list(PayrollStatement.objects.filter(month=month, status=S.CONFIRMED).select_related("member")
+               .order_by("member__display_order", "member_id"))
+    deliveries = {d.statement_id: d for d in StatementDelivery.objects.filter(statement__in=sts)}
+    if request.GET.get("format") == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["名前", "支払額", "振込済み", "明細送付済み"])
+        for st in sts:
+            d = deliveries.get(st.pk)
+            w.writerow([st.member.name, st.net_amount or 0, "済" if d and d.paid_at else "", "済" if d and d.sent_at else ""])
+        resp = HttpResponse("\ufeff" + buf.getvalue(), content_type="text/csv; charset=utf-8")
+        from django.utils.http import content_disposition_header
+
+        resp["Content-Disposition"] = content_disposition_header(True, f"{month.month}月分_振込一覧.csv")
+        return resp
+    rows = [{"st": st, "d": deliveries.get(st.pk)} for st in sts]
+    total = sum(st.net_amount or 0 for st in sts)
+    paid = [r for r in rows if r["d"] and r["d"].paid_at]
+    unconfirmed = PayrollStatement.objects.filter(month=month).exclude(status=S.CONFIRMED).count()
+    return render(request, "payroll/transfers.html", {
+        **month_context(month), "rows": rows, "total": total, "paid_count": len(paid),
+        "remaining": total - sum(r["st"].net_amount or 0 for r in paid),
+        "sent_count": sum(1 for r in rows if r["d"] and r["d"].sent_at), "unconfirmed": unconfirmed,
+    })
+
+
+@payroll_view
+@require_POST
+def transfer_toggle(request):
+    """振込済み・送付済みのチェックを付け外しする（画面はそのまま、結果だけ返す）。"""
+    from django.http import JsonResponse
+    from django.utils import timezone
+
+    from .models import StatementDelivery
+
+    st = get_object_or_404(PayrollStatement, pk=request.POST.get("st"), status=S.CONFIRMED)
+    field = request.POST.get("field")
+    if field not in ("paid", "sent"):
+        return JsonResponse({"detail": "不明な操作です。"}, status=400)
+    on = request.POST.get("on") == "1"
+    d, _ = StatementDelivery.objects.get_or_create(statement=st)
+    setattr(d, f"{field}_at", timezone.now() if on else None)
+    setattr(d, f"{field}_by", request.user if on else None)
+    d.save()
+    audit.log(f"payroll.{field}_check", target=st, after={"振込済み" if field == "paid" else "明細送付済み": "済" if on else "取り消し"},
+              user=request.user)
+    return JsonResponse({"ok": True, "on": on, "at": timezone.localtime(getattr(d, f"{field}_at")).strftime("%-m/%-d %H:%M") if on else ""})
+
 
 @payroll_view
 def month_home(request):
@@ -766,6 +848,11 @@ def detail_action(request, pk):
                 calc.mark_review(st, user=user)
                 messages.success(request, "確認待ちにしました。")
             elif action == "confirm":
+                blocks, cautions = confirm_checks(st)
+                if blocks:
+                    raise ValueError("確定できません：" + " ".join(blocks))
+                if cautions and not p.get("ack"):
+                    raise ValueError("先月と大きく違うので、内容を確かめて「確認した」にチェックしてから確定してください。")
                 calc.confirm(st, user=user)
                 messages.success(request, "確定しました。以後、この給与は変更されません。")
             elif action == "reopen":

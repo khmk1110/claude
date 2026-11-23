@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}振込・送付{% endblock %}
+{% block topbar %}給与・経費{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{{ month|date:"n月" }}分の振込</h1></div>{% include "includes/monthnav.html" %}</div>
+{% include "payroll/_nav.html" %}
+
+{% if unconfirmed %}<div class="notice">⚠️ まだ確定していない人が {{ unconfirmed }}人 います（確定した人だけ表示）。</div>{% endif %}
+{% if rows %}
+<div class="tr-sum">
+  <div><div class="small muted">残りの振込</div><div class="xbig" id="remain">{{ remaining|intcomma }}<small>円</small></div></div>
+  <div class="tr-progress"><span id="paid-n">{{ paid_count }}</span>/{{ rows|length }}人 振込済み<br><span id="sent-n">{{ sent_count }}</span>/{{ rows|length }}人 送付済み</div>
+</div>
+<ul class="tr-list" id="tr-list">
+  {% for r in rows %}
+  <li class="tr-row {% if r.d.paid_at %}is-paid{% endif %}" data-st="{{ r.st.pk }}" data-amount="{{ r.st.net_amount|default:0 }}">
+    <div class="tr-name"><b>{{ r.st.member.name }}</b><a class="small" href="{% url 'payroll:statement_pdf' r.st.pk %}?download=1">明細</a></div>
+    <button type="button" class="tr-amt" data-copy="{{ r.st.net_amount|default:0 }}" title="タップで金額をコピー">{{ r.st.net_amount|default:0|intcomma }}<small>円</small></button>
+    <div class="tr-checks">
+      <button type="button" class="tr-chk {% if r.d.paid_at %}on{% endif %}" data-field="paid">{% if r.d.paid_at %}✓ 振込済{% else %}振込{% endif %}</button>
+      <button type="button" class="tr-chk {% if r.d.sent_at %}on{% endif %}" data-field="sent">{% if r.d.sent_at %}✓ 送付済{% else %}送付{% endif %}</button>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+<div class="form-row" style="margin-top:14px">
+  <a class="btn" href="?month={{ month_param }}&format=csv">一覧をCSVで保存</a>
+  <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">明細を全員分保存</a>
+</div>
+<div id="copied" class="toast" hidden>金額をコピーしました</div>
+<script>
+(() => {
+  const csrf = () => document.cookie.split("; ").find(c => c.startsWith("csrftoken="))?.split("=")[1];
+  const list = document.getElementById("tr-list");
+  const yen = n => n.toLocaleString("ja-JP");
+  function recount() {
+    let remain = 0, paid = 0, sent = 0;
+    list.querySelectorAll(".tr-row").forEach(li => {
+      const p = li.querySelector('[data-field="paid"]').classList.contains("on");
+      if (p) paid++; else remain += +li.dataset.amount;
+      if (li.querySelector('[data-field="sent"]').classList.contains("on")) sent++;
+    });
+    document.getElementById("remain").firstChild.textContent = yen(remain);
+    document.getElementById("paid-n").textContent = paid; document.getElementById("sent-n").textContent = sent;
+  }
+  list.addEventListener("click", async e => {
+    const copy = e.target.closest(".tr-amt");
+    if (copy) {
+      try { await navigator.clipboard.writeText(copy.dataset.copy); const t = document.getElementById("copied"); t.hidden = false; setTimeout(() => t.hidden = true, 1200); } catch (_) {}
+      return;
+    }
+    const b = e.target.closest(".tr-chk"); if (!b) return;
+    const li = b.closest(".tr-row"), on = !b.classList.contains("on");
+    const body = new URLSearchParams({st: li.dataset.st, field: b.dataset.field, on: on ? "1" : "0"});
+    b.disabled = true;
+    const res = await fetch("{% url 'payroll:transfer_toggle' %}", {method: "POST", headers: {"X-CSRFToken": csrf()}, body});
+    b.disabled = false;
+    if (!res.ok) { alert("保存できませんでした。もう一度押してください。"); return; }
+    b.classList.toggle("on", on);
+    const label = b.dataset.field === "paid" ? "振込" : "送付";
+    b.textContent = on ? `✓ ${label}済` : label;
+    if (b.dataset.field === "paid") li.classList.toggle("is-paid", on);
+    recount();
+  });
+})();
+</script>
+{% else %}
+<p class="muted">確定した明細がまだありません。「今月の給与」で確定すると、ここに振込一覧が出ます。</p>
+{% endif %}
+{% endblock %}

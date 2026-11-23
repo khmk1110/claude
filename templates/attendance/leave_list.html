@@ -1,25 +1,21 @@
 {% extends "base.html" %}
-{% block title %}有給管理{% endblock %}
+{% block title %}有給{% endblock %}
+{% block topbar %}有給{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">有給（基準日 {{ today|date:"Y/n/j" }}）</p><h1>有給の残日数と取得状況</h1></div></div>
+<div class="page-head"><div><p class="eyebrow">{{ today|date:"n月j日" }}時点</p><h1>有給の残り</h1></div></div>
 {% if pending %}
-<div class="card attnbox"><b>承認待ちの申請 {{ pending|length }}件</b>
-  <ul>{% for r in pending %}<li><a href="{% url 'attendance:leave_member' r.member.pk %}">{{ r.member.name }}</a> {{ r.date|date:"Y-m-d" }}（{{ r.days.normalize }}日）</li>{% endfor %}</ul></div>
+<div class="notice notice-block"><b>承認待ち {{ pending|length }}件</b>
+  {% for r in pending %}<div><a href="{% url 'attendance:leave_member' r.member.pk %}">{{ r.member.name }}</a> {{ r.date|date:"n/j" }}（{{ r.days.normalize }}日）</div>{% endfor %}</div>
 {% endif %}
-<div class="table-scroll">
-<table class="list">
-  <tr><th>名前</th><th>入社日</th><th class="num">残日数</th><th class="num">取得済み</th><th class="num">取得予定</th><th class="num">申請中</th><th>次回付与</th><th>期限が近い残日数</th></tr>
+<ul class="mlist">
   {% for r in rows %}
-  <tr>
-    <td class="strong"><a href="{% url 'attendance:leave_member' r.member.pk %}">{{ r.member.name }}</a></td>
-    <td>{{ r.member.joined_on|date:"Y-m-d"|default:"未登録" }}</td>
-    <td class="num strong">{{ r.st.remaining.normalize }}{% if r.st.missing_statutory %}<br><span class="warn small">付与未登録 {{ r.st.missing_statutory|length }}件</span>{% endif %}</td>
-    <td class="num">{{ r.st.taken.normalize }}</td><td class="num">{{ r.st.planned.normalize }}</td><td class="num">{{ r.st.requested.normalize }}</td>
-    <td>{% if r.st.next_grant %}{{ r.st.next_grant.0|date:"Y-m-d" }}（{{ r.st.next_grant.1 }}日）{% else %}-{% endif %}</td>
-
-    <td>{% for e in r.st.expiring_soon %}<span class="warn">{{ e.1.normalize }}日（{{ e.0|date:"Y-m-d" }}まで）</span> {% empty %}-{% endfor %}</td>
-  </tr>
-  {% empty %}<tr><td colspan="9" class="muted">有給管理の対象者がいません（メンバーの「有給管理の対象」をオンにしてください）。</td></tr>{% endfor %}
-</table>
-</div>
+  <li><a class="mrow" href="{% url 'attendance:leave_member' r.member.pk %}">
+    <span class="mmain"><b>{{ r.member.name }}</b>
+      <span class="small muted">取得 {{ r.st.taken.normalize }}日{% if r.st.planned %}・予定 {{ r.st.planned.normalize }}日{% endif %}{% if r.st.next_grant %}・次回付与 {{ r.st.next_grant.0|date:"n/j" }}（{{ r.st.next_grant.1 }}日）{% endif %}</span>
+      {% if r.st.missing_statutory %}<span class="small text-warn">⚠ 付与が未登録です</span>{% elif not r.member.joined_on %}<span class="small text-warn">⚠ 入社日が未登録です</span>{% endif %}
+      {% for e in r.st.expiring_soon %}<span class="small text-warn">⏳ {{ e.1.normalize }}日が {{ e.0|date:"n/j" }} に消えます</span>{% endfor %}</span>
+    <span class="mbig">{{ r.st.remaining.normalize }}<small>日</small></span>
+    <span class="chev">›</span></a></li>
+  {% empty %}<li class="muted" style="padding:14px">有給管理の対象者がいません（メンバーの編集で「有給管理の対象」をオン）。</li>{% endfor %}
+</ul>
 {% endblock %}

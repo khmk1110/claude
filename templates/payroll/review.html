@@ -12,6 +12,8 @@
 </nav>
 
 {% for e in errors %}<div class="notice">⚠️ {{ e }}</div>{% endfor %}
+{% for b in blocks %}<div class="notice notice-stop">⛔ {{ b }}</div>{% endfor %}
+{% for c in cautions %}<div class="notice notice-stop">⚠️ {{ c }} 確定する前に内容を確かめてください。</div>{% endfor %}
 {% for w in warns %}<div class="notice info">ℹ️ {{ w }}</div>{% endfor %}
 
 <div class="review-grid">
@@ -105,10 +107,11 @@
   {% if st.is_confirmed %}
     <form method="post" action="{% url 'payroll:review_action' st.pk %}" onsubmit="const r=prompt('取り消す理由');if(!r)return false;this.reason.value=r;">{% csrf_token %}
       <input type="hidden" name="action" value="reopen"><input type="hidden" name="reason"><button class="btn" type="submit">確定を取り消す</button></form>
-  {% elif errors %}
+  {% elif errors or blocks %}
     <button class="btn" disabled>直すところがあります</button>
   {% else %}
-    <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="confirm">
+    <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="confirm-form">{% csrf_token %}<input type="hidden" name="action" value="confirm">
+      {% if cautions %}<label class="check small ack"><input type="checkbox" name="ack" value="1" required> 確認した</label>{% endif %}
       <button class="btn btn-ok" type="submit">この内容で確定{% if next %}して次へ{% endif %}</button></form>
   {% endif %}
   {% if next %}<a class="btn" href="?month={{ month_param }}&st={{ next.pk }}">次 ▶</a>{% else %}<span></span>{% endif %}

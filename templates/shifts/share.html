@@ -1,23 +1,32 @@
 {% extends "base.html" %}
 {% block title %}シフト画像{% endblock %}
+{% block topbar %}シフト{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow"><a href="{% url 'shifts:grid' %}?month={{ month_param }}">シフト</a></p><h1>LINE用の画像（{{ month|date:"Y年n月" }}）</h1></div>{% include "includes/monthnav.html" %}</div>
-<div class="toolbar">
-  <a class="btn btn-primary" href="{% url 'shifts:image' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}&download=1">PNGをダウンロード</a>
-  <button class="btn-light" type="button" id="copy-btn">画像をコピー</button>
-  <a class="btn-light" href="{% url 'shifts:grid' %}?month={{ month_param }}">シフト表に戻る</a>
-  <span id="copy-status" class="muted"></span>
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'shifts:grid' %}?month={{ month_param }}">← シフト</a></p><h1>{{ month|date:"n月" }}のシフト画像</h1></div>{% include "includes/monthnav.html" %}</div>
+<div class="share-bar">
+  <button class="btn btn-primary btn-lg" type="button" id="share-btn">LINEに送る</button>
+  <a class="btn" href="{% url 'shifts:image' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}&download=1">保存</a>
 </div>
-<p class="muted small">コピーした画像は、LINE のトーク画面に貼り付けられます（Chrome・Edge・Safari に対応）。</p>
-<div class="card" style="overflow:auto"><img id="shift-img" src="{% url 'shifts:image' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}" alt="シフト表" style="max-width:100%;height:auto"></div>
+<p class="small muted" id="share-status"></p>
+<div class="card" style="overflow:auto;padding:8px"><img id="shift-img" src="{% url 'shifts:image' %}?month={{ month_param }}{% if emp %}&type={{ emp }}{% endif %}" alt="シフト表" style="max-width:100%;height:auto"></div>
 <script>
-document.getElementById("copy-btn").addEventListener("click", async () => {
-  const st = document.getElementById("copy-status");
+// iPhone の共有メニューを開いて、そのまま LINE を選べるようにする（使えない時はコピー、それもだめなら保存）
+document.getElementById("share-btn").addEventListener("click", async () => {
+  const st = document.getElementById("share-status");
+  const src = document.getElementById("shift-img").src;
   try {
-    const src = document.getElementById("shift-img").src;
-    await navigator.clipboard.write([new ClipboardItem({"image/png": fetch(src).then(r => r.blob())})]);
-    st.textContent = "コピーしました。LINE に貼り付けてください。";
-  } catch (e) { st.textContent = "このブラウザでは画像のコピーができません。ダウンロードして送信してください。"; }
+    const blob = await (await fetch(src)).blob();
+    const file = new File([blob], "{{ month|date:'n' }}月のシフト.png", {type: "image/png"});
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      await navigator.share({files: [file], title: "{{ month|date:'n' }}月のシフト"});
+      return;
+    }
+    await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]);
+    st.textContent = "画像をコピーしました。LINEのトークに貼り付けてください。";
+  } catch (e) {
+    if (e && e.name === "AbortError") return;  // 共有をやめた時
+    location.href = src + "&download=1";
+  }
 });
 </script>
 {% endblock %}
