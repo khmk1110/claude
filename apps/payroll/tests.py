@@ -268,7 +268,7 @@ class CalcTests(TestCase):
         pdf = render_pdf([(st.snapshot, False)])
         self.assertTrue(pdf.startswith(b"%PDF"))
         rows = slip_rows(st.snapshot)
-        self.assertIn(("アプリ手数料", "個人事業主のみ", -4000), rows)
+        self.assertIn(("アプリ手数料", "", -4000), rows)
         self.assertIn("交通費精算", [r[0] for r in rows])  # 0円でも常に表示する項目
         self.assertNotIn("特別手当", [r[0] for r in rows])  # 0円の任意項目は表示しない
         self.assertEqual(sum(r[2] for r in rows), net)
@@ -891,3 +891,20 @@ class SlipDownloadTests(TableScreenshotTests):
         names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
         self.assertIn("11月分明細書_長谷川花子.pdf", names)
         self.assertEqual(len(names), PayrollStatement.objects.filter(month=NOV).count())
+
+
+class SlipNoDetailTests(TestCase):
+    def test_details_hidden_on_slip(self):
+        from apps.payroll.pdf import slip_rows
+
+        snap = {"lines": [
+            {"code": "sales_commission", "name": "営業報酬", "kind": "earning", "amount": 4000, "detail": "1件 × 4,000円"},
+            {"code": "transport_contractor", "name": "交通費精算", "kind": "earning", "amount": 6690, "detail": "41,690円 − 35,000円"},
+            {"code": "team_bonus", "name": "チームリーダーボーナス", "kind": "earning", "amount": 80000, "detail": "前月獲得 平均85.0件"},
+            {"code": "app_fee", "name": "アプリ手数料", "kind": "deduction", "amount": 4000, "detail": "個人事業主のみ"},
+        ]}
+        rows = {n: d for n, d, _ in slip_rows(snap)}
+        self.assertEqual(rows["営業報酬"], "1件 × 4,000円")
+        self.assertEqual(rows["交通費精算"], "")
+        self.assertEqual(rows["チームリーダーボーナス"], "")
+        self.assertEqual(rows["アプリ手数料"], "")

@@ -53,6 +53,8 @@ def _yen(n) -> str:
 
 
 EXPENSE_CODES = {"transport_contractor", "transport_intern", "advance", "gasoline"}
+# 明細書には内訳を書かない項目（交通費の −35,000円、チーム平均の件数、アプリ手数料の「個人事業主のみ」など）
+NO_DETAIL_ON_SLIP = {"transport_contractor", "transport_intern", "team_bonus", "intern_leader", "app_fee", "advance", "gasoline"}
 
 
 def is_expense_only(lines) -> bool:
@@ -75,7 +77,8 @@ def slip_rows(snapshot: dict) -> list[tuple[str, str, int]]:
         if amount == 0 and (expense_only or not l.get("always_show")):
             continue
         signed = amount if l["kind"] == "earning" else -amount
-        rows.append((l["name"], l.get("detail") or "", signed, l["kind"] != "earning"))
+        detail = "" if l.get("code") in NO_DETAIL_ON_SLIP else (l.get("detail") or "")
+        rows.append((l["name"], detail, signed, l["kind"] != "earning"))
     # 引く金額（ガソリン代・アプリ手数料など）は一番最後にまとめる
     rows.sort(key=lambda r: r[3])
     return [r[:3] for r in rows]
