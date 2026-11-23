@@ -854,3 +854,20 @@ class AppFeeAndOrderTests(TableScreenshotTests):
             {"name": "アプリ手数料", "kind": "deduction", "amount": 4000, "always_show": True},
         ]}
         self.assertEqual([r[0] for r in slip_rows(snap)], ["営業報酬", "立替金", "ガソリン代", "アプリ手数料"])
+
+
+class ReviewBaseInputsTests(TableScreenshotTests):
+    def test_enter_prev_counts_and_attendance(self):
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.assertTrue(st.blocking_errors)  # 前月の出勤・獲得がない
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "計算のもとの数字")
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "base", "prev_attendance_days": "20",
+                                                        "prev_acquired_count": "65", "confirmed_count": "40"})
+        st.refresh_from_db()
+        self.assertEqual(SalesCount.objects.get(member=self.a, month=OCT, kind="acquired").count, 65)  # 件数のデータとして保存
+        self.assertEqual(SalesCount.objects.get(member=self.a, month=NOV, kind="confirmed", product__isnull=True).count, 40)
+        unit = st.inputs.get(key="unit_price").value
+        self.assertIsNotNone(unit)
+        self.assertEqual(st.lines.get(code="sales_commission").amount, 40 * int(unit))

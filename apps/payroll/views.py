@@ -385,7 +385,21 @@ def review(request):
     errors = [m["text"] for m in (cur.calc_messages or []) if m.get("level") == "error"]
     warns = [m["text"] for m in (cur.calc_messages or []) if m.get("level") == "warning"]
     products = _member_products(cur)
+    inp = {i.key: i for i in cur.inputs.all()}
+    base_inputs = []
+    for key, label in ((PayrollInput.Key.PREV_ATTENDANCE_DAYS, f"{prev_month(month).month}月の出勤日数"),
+                       (PayrollInput.Key.PREV_ACQUIRED_COUNT, f"{prev_month(month).month}月の獲得件数"),
+                       (PayrollInput.Key.CONFIRMED_COUNT, f"{month.month}月の入金確定件数")):
+        if key == PayrollInput.Key.CONFIRMED_COUNT and calc.is_product_member(cur.member):
+            continue  # 商品別の人は下の「商品別の件数」で入れる
+        bi = inp.get(key)
+        v = bi.value if bi else None
+        base_inputs.append({"key": key, "label": label, "value": "" if v is None else f"{v.normalize():f}",
+                            "overridden": bool(bi and bi.override_value is not None),
+                            "auto": None if not bi or bi.auto_value is None else f"{bi.auto_value.normalize():f}"})
+    unit_inp = inp.get(PayrollInput.Key.UNIT_PRICE)
     return render(request, "payroll/review.html", {
+        "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
         **month_context(month), "sts": sts, "st": cur, "i": i, "prev": sts[i - 1] if i > 0 else None,
         "next": sts[i + 1] if i + 1 < len(sts) else None, "snap": snap, "draft": draft, "rows": rows,
         "pay_date": date.fromisoformat(snap["payment_date"]),
@@ -429,6 +443,46 @@ def review_action(request, pk):
                     changed.append(x["p"].name)
                 calc.calculate(st, user=user, log=False)
                 messages.success(request, f"{'・'.join(changed)}の件数を保存して計算し直しました。" if changed else "計算し直しました。")
+            elif action == "base":
+                # 計算のもとの数字：獲得件数・入金確定件数は件数のデータとして保存、出勤日数はこの明細だけの修正
+                pm = prev_month(st.month)
+                for key, kind, target in ((PayrollInput.Key.PREV_ACQUIRED_COUNT, SalesCount.Kind.ACQUIRED, pm),
+                                          (PayrollInput.Key.CONFIRMED_COUNT, SalesCount.Kind.CONFIRMED, st.month)):
+                    if key not in p:
+                        continue
+                    raw = p.get(key, "").strip()
+                    value = _int_or_none(raw) if raw else None
+                    if raw and value is None:
+                        raise ValueError("件数は数字で入れてください。")
+                    row = SalesCount.objects.filter(member=st.member, month=target, kind=kind, product__isnull=True).first()
+                    before = row.count if row else None
+                    if before == value:
+                        continue
+                    if value is None:
+                        if row:
+                            row.delete()
+                    elif row:
+                        row.count, row.source, row.updated_by = value, SalesCount.Source.MANUAL, user
+                        row.save()
+                    else:
+                        SalesCount.objects.create(member=st.member, month=target, kind=kind, count=value,
+                                                  source=SalesCount.Source.MANUAL, updated_by=user)
+                    audit.log("payroll.sales_count", target=st.member, before={"count": before},
+                              after={"month": target, "kind": SalesCount.Kind(kind).label, "count": value}, user=user)
+                key = PayrollInput.Key.PREV_ATTENDANCE_DAYS
+                if key in p:
+                    raw = p.get(key, "").strip()
+                    cur_inp = st.inputs.filter(key=key).first()
+                    auto = cur_inp.auto_value if cur_inp else None
+                    value = _dec_or_none(raw) if raw else None
+                    if raw and value is None:
+                        raise ValueError("出勤日数は数字で入れてください。")
+                    new_override = None if value is None or value == auto else value
+                    if (cur_inp.override_value if cur_inp else None) != new_override:
+                        calc.set_input_override(st, key, new_override, reason="1人ずつ確認で入力" if new_override is not None else "", user=user)
+                st.refresh_from_db()
+                calc.calculate(st, user=user, log=False)
+                messages.success(request, "保存して計算し直しました。")
             elif action == "line":
                 line = get_object_or_404(PayrollLine, pk=p.get("line_id"), statement=st)
                 amount = _int_or_none(p.get("amount", "").replace(",", ""))
