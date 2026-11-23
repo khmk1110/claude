@@ -374,3 +374,19 @@ class PublicTopPageTests(TestCase):
     def test_top_page_without_login(self):
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertContains(self.client.get("/shifts/"), "ゲスト")
+
+
+class SurnameMatchingTests(TestCase):
+    def test_surname_variants_retired_and_given_name(self):
+        from apps.members.matching import match_member
+
+        a = Member.objects.create(member_no="1", name="中澤 一郎", employment_type="contractor")
+        b1 = Member.objects.create(member_no="2", name="矢野 次郎", employment_type="contractor")
+        b2 = Member.objects.create(member_no="3", name="矢野 三郎", employment_type="contractor")
+        old = Member.objects.create(member_no="4", name="大石 花子", employment_type="contractor", status=Member.Status.RETIRED)
+        now = Member.objects.create(member_no="5", name="大石 太郎", employment_type="contractor")
+        self.assertEqual(match_member("中沢").member, a)          # 澤＝沢
+        self.assertEqual(match_member("矢野").method, "ambiguous")  # 同じ名字が2人 → 選んでもらう
+        self.assertEqual(set(match_member("矢野").candidates), {b1, b2})
+        self.assertEqual(match_member("大石").member, now)        # 退職者と同じ名字でも在籍中が1人ならその人
+        self.assertEqual(match_member("三郎").member, b2)         # 下の名前だけ

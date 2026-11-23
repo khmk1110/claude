@@ -77,13 +77,8 @@ class ImporterTests(TestCase):
         self.assertEqual(set(recs), {"青木", "井上", "渡辺", "社員"})  # LPガスなど交通費以外の行は読まない
         self.assertEqual((recs["青木"].auto_member, recs["青木"].auto_amount, recs["青木"].status), (self.c, 98000, R.UNCHECKED))
         self.assertEqual(recs["社員"].status, R.EXCLUDED)  # 正社員は明細の対象外
-        watanabe = recs["渡辺"]  # 「邊」と「辺」の違い → 推測せず確認待ち
-        self.assertEqual(watanabe.status, R.PENDING)
-        self.assertTrue(watanabe.issues.filter(code="unknown_member", resolved=False).exists())
-        importer.update_record(watanabe, user=self.user, reason="渡邊さん", member=self.n, save_alias=True)
-        watanabe.refresh_from_db()
-        self.assertEqual(watanabe.status, R.MODIFIED)
-        self.assertTrue(MemberAlias.objects.filter(member=self.n, alias="渡辺").exists())  # 次回から自動
+        watanabe = recs["渡辺"]  # 「邊」と「辺」は同じ字として照合（承認するまで給与には入らない）
+        self.assertEqual((watanabe.auto_member, watanabe.status), (self.n, R.UNCHECKED))
         ok, skipped = importer.approve(list(sf.records.all()), user=self.user)
         self.assertEqual(ok, 3)
         # 同じファイルは二重に取り込まない
