@@ -599,8 +599,8 @@ class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
         self.client.post("/payroll/expenses/approve-all/", {"month": "2026-11", "group": "gasoline"})
         rec.refresh_from_db()
         self.assertEqual(rec.status, "approved")
-        # 経費メニュー（/expenses/）は今まで通り経費のパスワードが必要
-        self.assertNotEqual(self.client.get("/expenses/").status_code, 200)
+        # 経費も給与のパスワードで開ける
+        self.assertEqual(self.client.get("/expenses/").status_code, 200)
 
 
 class DashboardOcrRobustnessTests(TestCase):

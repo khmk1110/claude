@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
 <body>
-{% if user.is_authenticated %}
+{% if user.is_authenticated or public_page %}
 {% with p=request.path %}
+{% if user.is_authenticated %}
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="brand">{{ COMPANY_NAME }}<small>シフト・勤怠・給与 管理</small></div>
@@ -24,8 +25,7 @@
     </nav>
     <div class="user">
       <div class="strong">{{ user }}</div>
-      {% if STEPUP_VERIFIED.payroll %}<form method="post" action="{% url 'stepup_close' 'payroll' %}">{% csrf_token %}<button class="btn-sm" title="次に開くときはパスワードを再入力">給与を閉じる</button></form>{% endif %}
-      {% if STEPUP_VERIFIED.expenses %}<form method="post" action="{% url 'stepup_close' 'expenses' %}">{% csrf_token %}<button class="btn-sm">経費を閉じる</button></form>{% endif %}
+      {% if STEPUP_VERIFIED.payroll %}<form method="post" action="{% url 'stepup_close' 'payroll' %}">{% csrf_token %}<button class="btn-sm" title="次に開くときはパスワードを再入力">給与・設定を閉じる</button></form>{% endif %}
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn-sm">ログアウト</button></form>
     </div>
   </aside>
@@ -35,10 +35,15 @@
       <button type="button" aria-label="メニュー" onclick="document.body.classList.toggle('nav-open')">☰</button>
       <span class="title">{% block topbar %}{{ COMPANY_NAME }}{% endblock %}</span>
     </header>
+{% else %}
+<div class="public">
+  <header class="topbar public-top"><span class="title">{{ COMPANY_NAME }}</span><a class="btn-sm" href="{% url 'login' %}?next={{ request.get_full_path|urlencode }}">ログイン</a></header>
+{% endif %}
     <main class="content">
       {% if messages %}<div class="messages">{% for message in messages %}<div class="msg msg-{{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
       {% block content %}{% endblock %}
     </main>
+{% if user.is_authenticated %}
   </div>
   <nav class="bottom-nav">
     <a href="{% url 'dashboard' %}" class="{% if p == '/' %}active{% endif %}"><span class="ico">🏠</span>ホーム</a>
@@ -48,6 +53,9 @@
     <a href="#" onclick="document.body.classList.toggle('nav-open');return false;"><span class="ico">☰</span>メニュー</a>
   </nav>
 </div>
+{% else %}
+</div>
+{% endif %}
 {% endwith %}
 {% else %}
 <main class="content" style="max-width:440px;padding-top:56px">

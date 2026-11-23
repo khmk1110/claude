@@ -18,5 +18,5 @@
   // 今月を開いたときは今日の日付までスクロール
   (function(){ const t = document.querySelector(".day-card.today"); if (t) t.scrollIntoView({block: "center"}); })();
 </script>
-{% include "shifts/_lockbar.html" %}
+{% if can_edit %}{% include "shifts/_lockbar.html" %}{% endif %}
 {% endblock %}

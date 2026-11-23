@@ -8,5 +8,5 @@
 <nav class="tabs">
   <a class="{% if view == 'table' or view == 'numbers' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}">シフト表</a>
   <a class="{% if view == 'day' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=day">日付別</a>
-  <a class="{% if view == 'person' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=person">カレンダーで直す</a>
+  <a class="{% if view == 'person' %}active{% endif %}" href="{% url 'shifts:grid' %}?month={{ month_param }}&view=person">{% if can_edit %}カレンダーで直す{% else %}カレンダー{% endif %}</a>
 </nav>

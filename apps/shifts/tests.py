@@ -154,8 +154,17 @@ class ShiftViewTests(TestCase):
 
     def test_login_required(self):
         self.client.logout()
-        for url in ["/shifts/", "/attendance/", "/members/", "/shifts/image.png"]:
+        # シフトを見るだけならログイン不要（変更する画面・ボタンは出さない）
+        for url in ["/shifts/", "/shifts/?view=day", "/shifts/?view=person", "/shifts/share/", "/shifts/image.png"]:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        page = self.client.get("/shifts/")
+        self.assertNotContains(page, "LINEの数字でまとめて入力")
+        self.assertContains(page, "ログイン")
+        # 変更・勤怠・メンバーはログインが必要
+        for url in ["/attendance/", "/members/", "/shifts/numbers/"]:
             self.assertIn("/login/", self.client.get(url)["Location"])
+        res = self.client.post("/shifts/api/set/", data="{}", content_type="application/json")
+        self.assertNotEqual(res.status_code, 200)
 
 
 class MatchingTests(TestCase):

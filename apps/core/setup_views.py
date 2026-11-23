@@ -116,7 +116,7 @@ def setup(request):
     return render(request, "core/setup.html", {"output": output, "ok": ok, "can_restore": can_restore, "issuer": issuer_info(),
                                                "pasted": request.POST.get("text", "") if request.method == "POST" else "",
                                                "payroll_verified": stepup.is_verified(request, "payroll", touch=False),
-                                               "expenses_verified": stepup.is_verified(request, "expenses", touch=False)})
+                                               "expenses_verified": True})
 
 
 @login_required
@@ -125,8 +125,8 @@ def backup(request):
     _owner(request)
     if request.method != "POST":
         return redirect("setup")
-    if not (stepup.is_verified(request, "payroll") and stepup.is_verified(request, "expenses")):
-        messages.error(request, "バックアップには給与と経費のデータが含まれるため、両方の追加パスワードを入力してから実行してください。")
+    if not stepup.is_verified(request, "payroll"):
+        messages.error(request, "バックアップには給与のデータが含まれるため、給与のパスワードを入力してから実行してください。")
         return redirect("setup")
     buf = io.StringIO()
     call_command("dumpdata", "--exclude", "contenttypes", "--exclude", "auth.permission", "--exclude", "sessions",

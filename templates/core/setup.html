@@ -17,7 +17,7 @@
 
 <div class="card" style="margin-bottom:16px">
   <b>バックアップをダウンロード</b>
-  <p class="small muted">全データ（シフト・勤怠・給与・経費・資料ファイル・操作履歴）を1つのファイルで保存します。<b>月に1回</b>保存し、パソコンなど安全な場所に保管してください。給与と経費の両方の追加パスワードを入力済みの場合のみ実行できます。</p>
+  <p class="small muted">全データ（シフト・勤怠・給与・経費・資料ファイル・操作履歴）を1つのファイルで保存します。<b>月に1回</b>保存し、パソコンなど安全な場所に保管してください。</p>
   {% if payroll_verified and expenses_verified %}
   <form method="post" action="{% url 'backup' %}">{% csrf_token %}<button class="btn btn-primary" type="submit">バックアップをダウンロード</button></form>
   {% else %}

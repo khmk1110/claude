@@ -61,7 +61,7 @@ class MonthlyFlowTests(TestCase):
         shifts.set_shifts([self.b], [NOV.replace(day=d) for d in range(1, 6)], work, user=self.user)  # 当月5日（手当の条件）
 
         # 4〜7. 資料の取り込み・振り分け・承認（画面から）
-        self.client.post("/stepup/expenses/", {"password": "exp-pass"})
+        self.client.post("/stepup/payroll/", {"password": "pay-pass"})  # 経費は給与のパスワードで開く
         pdf = transport_invoice_pdf(["交通費(9月分) 青木 50,000 1 50,000", "交通費(9月分) 井上 3,000 1 3,000",
                                      "交通費(9月分) 江口 20,000 1 20,000"], issued="2026年10月5日")
         self.client.post("/expenses/upload/", {"files": [SimpleUploadedFile("transport.pdf", pdf)]})

@@ -139,7 +139,7 @@ class SetupPasteTests(TestCase):
         self.client.force_login(owner)
         text = _json.dumps({"members": [{"name": "貼付 太郎", "employment_type": "intern", "member_no": "1"}]}, ensure_ascii=False)
         res = self.client.post("/settings/", {"action": "setupfile", "text": text})
-        self.assertContains(res, "給与・報酬管理を開いて")  # 追加認証が先
+        self.assertNotEqual(res.status_code, 200)  # 設定は給与のパスワードが先
         self.client.post("/stepup/payroll/", {"password": "pay-pass"})
         res = self.client.post("/settings/", {"action": "setupfile", "text": text})
         self.assertContains(res, "確認のみ")

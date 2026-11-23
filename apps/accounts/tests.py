@@ -41,10 +41,10 @@ class StepUpTests(TestCase):
         self.assertTrue(AuditLog.objects.filter(action="stepup.success", username="staff").exists())
 
     def test_scopes_are_independent(self):
+        # 経費・設定は給与と同じパスワードで開く（シフトなどはパスワード不要）
+        self.assertEqual(self.client.get("/expenses/").status_code, 302)
         self.unlock("payroll")
         self.assertEqual(self.client.get("/payroll/").status_code, 200)
-        self.assertEqual(self.client.get("/expenses/").status_code, 302)
-        self.unlock("expenses", "another-pass")
         self.assertEqual(self.client.get("/expenses/").status_code, 200)
 
     def test_api_and_downloads_get_403_json_without_stepup(self):
@@ -92,8 +92,9 @@ class StepUpTests(TestCase):
         self.assertNotEqual(res.status_code, 302)
 
     def test_only_owner_can_change_passwords(self):
-        self.assertEqual(self.client.get(reverse("stepup_password_change")).status_code, 403)
+        self.assertNotEqual(self.client.get(reverse("stepup_password_change")).status_code, 200)
         self.client.force_login(self.owner)
+        self.unlock("payroll")  # 設定の画面は給与のパスワードで開く
         res = self.client.post(
             reverse("stepup_password_change"),
             {"scope": "payroll", "new_password": "newpass", "new_password_confirm": "newpass"},
@@ -189,15 +190,15 @@ class BootstrapAndSetupTests(TestCase):
         stepup.set_password("payroll", PW)
         stepup.set_password("expenses", "exp-pass")
         self.client.force_login(staff)
-        self.assertEqual(self.client.get("/settings/").status_code, 403)
-        self.assertEqual(self.client.post("/settings/backup/").status_code, 403)
-        self.client.force_login(owner)
-        self.assertEqual(self.client.get("/settings/").status_code, 200)
-        res = self.client.post("/settings/backup/")  # 追加認証なし → ダウンロードさせない
-        self.assertEqual(res.status_code, 302)
+        self.assertNotEqual(self.client.get("/settings/").status_code, 200)
         self.client.post("/stepup/payroll/", {"password": PW})
-        self.assertEqual(self.client.post("/settings/backup/").status_code, 302)  # 経費の認証がまだ
-        self.client.post("/stepup/expenses/", {"password": "exp-pass"})
+        self.assertEqual(self.client.get("/settings/").status_code, 403)  # 代表者以外は開けない
+        self.assertEqual(self.client.post("/settings/backup/").status_code, 403)
+        self.client.logout()
+        self.client.force_login(owner)
+        self.assertEqual(self.client.get("/settings/").status_code, 302)  # 設定は給与のパスワードが必要
+        self.client.post("/stepup/payroll/", {"password": PW})
+        self.assertEqual(self.client.get("/settings/").status_code, 200)
         res = self.client.post("/settings/backup/")
         self.assertEqual(res["Content-Type"], "application/gzip")
         import gzip

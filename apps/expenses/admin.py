@@ -6,11 +6,11 @@ from . import models as m
 
 
 class ExpensesAdmin(StepUpAdminMixin, admin.ModelAdmin):
-    stepup_scope = "expenses"
+    stepup_scope = "payroll"
 
 
 class IssueInline(StepUpAdminMixin, admin.TabularInline):
-    stepup_scope = "expenses"
+    stepup_scope = "payroll"
     model = m.ExpenseIssue
     extra = 0
 

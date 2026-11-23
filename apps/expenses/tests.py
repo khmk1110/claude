@@ -193,9 +193,7 @@ class ExpenseViewTests(TestCase):
         for url in ["/expenses/", "/expenses/files/1/", "/expenses/files/1/download/"]:
             self.assertEqual(self.client.get(url).status_code, 302)
         self.client.post("/stepup/payroll/", {"password": "pay-pass"})
-        self.assertEqual(self.client.get("/expenses/").status_code, 302)  # 給与の認証では経費は開けない
-        self.client.post("/stepup/expenses/", {"password": "exp-pass"})
-        self.assertEqual(self.client.get("/expenses/").status_code, 200)
+        self.assertEqual(self.client.get("/expenses/").status_code, 200)  # 経費は給与のパスワードで開く
         pdf = transport_invoice_pdf(["交通費(8月分) 青木 10,000 1 10,000"])
         from django.core.files.uploadedfile import SimpleUploadedFile
 

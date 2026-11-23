@@ -8,18 +8,18 @@
 <div class="card" style="margin-bottom:12px">
   <div class="page-head" style="margin:0 0 10px"><div><h2 style="margin:0">{{ sel.member.name }}</h2><div class="small muted">{{ sel.member.get_employment_type_display }}</div></div>
     <div class="num"><span class="muted small">予定</span> <b class="big" id="planned">{{ sel.planned_days.normalize }}</b><span class="small">日</span></div></div>
-  <p class="small muted" style="margin:0 0 10px">{% if lock %}この月は確定済みのため変更できません。{% else %}下で種類を選んでから、日付をタップしてください（もう一度タップで「未定」に戻ります）。{% endif %}</p>
+  <p class="small muted" style="margin:0 0 10px">{% if not can_edit %}見るだけの画面です（直す時はログイン）。{% elif lock %}この月は確定済みのため変更できません。{% else %}下で種類を選んでから、日付をタップしてください（もう一度タップで「未定」に戻ります）。{% endif %}</p>
   <div class="cal" id="cal" data-member="{{ sel.member.pk }}">
     {% for w in "日月火水木金土" %}<div class="wd {% if forloop.first %}sun{% elif forloop.last %}sat{% endif %}">{{ w }}</div>{% endfor %}
     {% for c in cal %}{% if c %}
       <button type="button" class="day {{ c.cls }}{% if c.holiday %} hol{% endif %}{% if c.today %} today{% endif %}{% if c.wt.short_label %} filled{% endif %}"
         data-date="{{ c.date.isoformat }}" data-code="{{ c.wt.code|default:'' }}" title="{{ c.holiday }}"
-        {% if c.wt.short_label %}style="background:{{ c.wt.color }};color:{{ c.wt.text_color }};border-color:{{ c.wt.color }}"{% endif %} {% if lock %}disabled{% endif %}>
+        {% if c.wt.short_label %}style="background:{{ c.wt.color }};color:{{ c.wt.text_color }};border-color:{{ c.wt.color }}"{% endif %} {% if lock or not can_edit %}disabled{% endif %}>
         <span class="n">{{ c.date.day }}</span><span class="lb">{{ c.wt.short_label|default:"" }}</span></button>
     {% else %}<div class="blank"></div>{% endif %}{% endfor %}
   </div>
 </div>
-{% if not lock %}
+{% if not lock and can_edit %}
 <div class="palette" id="palette">
   {% for wt in work_types %}<button type="button" class="wt{% if forloop.first %} on{% endif %}" data-code="{{ wt.code }}" data-label="{{ wt.short_label }}"
     data-bg="{{ wt.color }}" data-fg="{{ wt.text_color }}" style="background:{{ wt.color }};color:{{ wt.text_color }}{% if not wt.short_label %};border:1px solid #d1d5db{% endif %}">{% if wt.short_label %}{{ wt.short_label }}<span class="wt-name"> {{ wt.name }}</span>{% else %}{{ wt.name }}{% endif %}</button>{% endfor %}
@@ -51,5 +51,5 @@
 })();
 </script>
 {% else %}<p class="muted">対象のメンバーがいません。</p>{% endif %}
-{% include "shifts/_lockbar.html" %}
+{% if can_edit %}{% include "shifts/_lockbar.html" %}{% endif %}
 {% endblock %}

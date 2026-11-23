@@ -3,6 +3,7 @@
 {% block topbar %}シフト・勤怠{% endblock %}
 {% block content %}
 {% include "shifts/_head.html" with view_query="" %}
+{% if can_edit %}
 <div class="form-row" style="margin-top:0"><a class="btn btn-primary" href="{% url 'shifts:numbers' %}?month={{ month_param }}">LINEの数字でまとめて入力</a><span id="save-status" class="muted small"></span></div>
 
 
@@ -16,6 +17,7 @@
   <span class="muted" id="sel-count"></span>
 </div>
 <p class="muted small hint-pc">セルをクリックで選択（Shift＋クリックで範囲・ドラッグで複数）。日付をクリックでその日の全員、名前をクリックでその人の全日を選択します。土日祝日も通常どおり入力できます。</p>
+{% endif %}
 
 <div class="table-scroll">
 <table class="shift" id="shift-table">
@@ -42,6 +44,7 @@
 </table>
 </div>
 
+{% if can_edit %}
 <script>
 (() => {
   const table = document.getElementById("shift-table");
@@ -110,6 +113,8 @@
   });
 })();
 </script>
+{% endif %}
+{% if can_edit %}
 <details class="more" style="margin-top:14px"><summary>その他の操作（前月のコピー・Excel取り込み・並び替え・変更履歴・絞り込み）</summary>
 <div class="toolbar">
   <form method="get" style="display:inline">
@@ -130,5 +135,6 @@
 </div>
 </details>
 {% include "shifts/_lockbar.html" %}
-<p class="small muted" style="margin-top:12px">遅刻・早退・欠勤を記録したいときは <a href="{% url 'attendance:month' %}?month={{ month_param }}">勤怠の詳細</a> から。</p>
+{% endif %}
+{% if can_edit %}<p class="small muted" style="margin-top:12px">遅刻・早退・欠勤を記録したいときは <a href="{% url 'attendance:month' %}?month={{ month_param }}">勤怠の詳細</a> から。</p>{% endif %}
 {% endblock %}

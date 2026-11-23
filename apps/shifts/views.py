@@ -25,8 +25,8 @@ def _emp_filter(request):
     return t if t in EmploymentType.values else ""
 
 
-@login_required
 def grid(request):
+    """シフト表（見るだけならログイン不要。変更はログインした人だけ）。"""
     from django.utils import timezone
 
     month = month_from_request(request)
@@ -72,6 +72,8 @@ def grid(request):
             "emp": emp,
             "emp_choices": EmploymentType.choices,
             "view": view,
+            "can_edit": request.user.is_authenticated,
+            "public_page": not request.user.is_authenticated,
         },
     )
 
@@ -131,13 +133,12 @@ def copy_previous(request):
     return redirect(f"/shifts/?month={month:%Y-%m}")
 
 
-@login_required
 def share(request):
     month = month_from_request(request)
-    return render(request, "shifts/share.html", {**month_context(month), "emp": _emp_filter(request)})
+    return render(request, "shifts/share.html", {**month_context(month), "emp": _emp_filter(request),
+                                                 "public_page": not request.user.is_authenticated})
 
 
-@login_required
 def image_png(request):
     month = month_from_request(request)
     png = render_png(month, settings.COMPANY_NAME, _emp_filter(request) or None)

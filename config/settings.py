@@ -119,8 +119,8 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 
 # --- セッション ---
-SESSION_COOKIE_AGE = 60 * 60 * 10  # ログインは最長10時間
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 90  # ログインは90日保持（毎回入力しなくてよい。給与・設定は別のパスワードで守る）
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 if not DEBUG:
@@ -141,9 +141,12 @@ STEPUP_PROTECTED_PREFIXES = {
     "/payroll/": "payroll",
     "/api/payroll/": "payroll",
     "/admin/payroll/": "payroll",
-    "/expenses/": "expenses",
-    "/api/expenses/": "expenses",
-    "/admin/expenses/": "expenses",
+    # 経費は給与と一緒に扱うので、給与のパスワードで守る
+    "/expenses/": "payroll",
+    "/api/expenses/": "payroll",
+    "/admin/expenses/": "payroll",
+    # 設定（発行者・バックアップなど）も給与のパスワードで守る
+    "/settings/": "payroll",
 }
 
 import sys as _sys

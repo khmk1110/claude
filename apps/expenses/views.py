@@ -28,7 +28,7 @@ R = ExpenseRecord.Status
 
 def _scope(request) -> str:
     """給与の画面（/payroll/expenses/）から開いた時は給与のパスワード、経費メニューからは経費のパスワードで守る。"""
-    return "payroll" if request.path.startswith("/payroll/") else "expenses"
+    return "payroll"  # 経費は給与と一緒に扱うので、給与のパスワードで守る
 
 
 def expenses_view(view):
@@ -44,7 +44,7 @@ def expenses_view(view):
             return stepup_denied_response(request, scope)
         return view(request, *args, **kwargs)
 
-    wrapped.stepup_scope = "expenses"
+    wrapped.stepup_scope = "payroll"
     return login_required(wrapped)
 
 
