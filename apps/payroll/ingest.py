@@ -148,7 +148,14 @@ def parse_dashboard(text: str, known_names: list[str] | None = None) -> Parsed:
             for n in rest:
                 p.entries.append(Entry(n, 0, None, line=b["raw"], note="件数が不明（手入力）"))
     if not p.entries:
-        p.warnings.append("【名前】と「件数/目標」の形が見つかりませんでした。")
+        # 【】のブロックがない時は「平川：60件」「平川 60」のような1行1人の文として読む
+        for ln in lines:
+            m = re.match(r"^([^\d:：/｜|]+?)\s*[:：]?\s*(\d+)\s*件?\s*$", ln)
+            if m and clean_name(m.group(1)) and not re.search(r"(合計|全体|目標|実績|月)", m.group(1)):
+                p.entries.append(Entry(clean_name(m.group(1)), int(m.group(2)), line=ln))
+        p.warnings = [w for w in p.warnings if "件数（例: 131/90）" not in w]
+    if not p.entries:
+        p.warnings.append("【名前】と「件数/目標」の形、または「名前：件数」の行が見つかりませんでした。")
     return p
 
 

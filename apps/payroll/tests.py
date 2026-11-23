@@ -908,3 +908,12 @@ class SlipNoDetailTests(TestCase):
         self.assertEqual(rows["交通費精算"], "")
         self.assertEqual(rows["チームリーダーボーナス"], "")
         self.assertEqual(rows["アプリ手数料"], "")
+
+
+class SimpleCountLinesTests(TestCase):
+    def test_name_colon_count_lines(self):
+        from apps.payroll.ingest import parse_dashboard
+
+        p = parse_dashboard("大石：60件\n長谷：4件\n吉野 8\n合計：72件")
+        self.assertEqual([(e.name, e.count) for e in p.entries], [("大石", 60), ("長谷", 4), ("吉野", 8)])
+        self.assertEqual(p.warnings, [])
