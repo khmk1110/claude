@@ -6,3 +6,8 @@ class CoreConfig(AppConfig):
     name = "apps.core"
     label = "core"
     verbose_name = "共通"
+
+    def ready(self):
+        from . import keepawake
+
+        keepawake.start()

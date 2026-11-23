@@ -168,3 +168,17 @@ class HealthzTests(TestCase):
             res = self.client.get("/healthz")
         self.assertEqual(res.content, b"ok")
         self.assertEqual(self.client.get("/healthz?db=1").status_code, 200)
+
+
+class KeepAwakeTests(TestCase):
+    def test_not_started_outside_server(self):
+        import os
+        from unittest import mock
+
+        from apps.core import keepawake
+
+        with mock.patch.dict(os.environ, {"RENDER_EXTERNAL_HOSTNAME": "example.onrender.com"}), \
+                mock.patch("threading.Thread") as th:
+            keepawake._started = False
+            keepawake.start()  # テスト（gunicorn ではない）では動かさない
+            th.assert_not_called()
