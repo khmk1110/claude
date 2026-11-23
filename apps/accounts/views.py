@@ -40,7 +40,7 @@ def stepup_view(request, scope):
 
 @login_required
 def stepup_password_change_view(request):
-    if not request.user.can_manage_stepup_passwords:
+    if not (request.user.can_manage_stepup_passwords or stepup.is_verified(request, "payroll", touch=False)):
         raise PermissionDenied
     form = StepUpPasswordChangeForm(request.POST or None)
     if request.method == "POST" and form.is_valid():

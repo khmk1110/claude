@@ -76,8 +76,6 @@ def monthly_flow(month):
 
 
 def dashboard(request):
-    if not request.user.is_authenticated:
-        return redirect("shifts:grid")  # ログインしていない人には、まずシフト表（見るだけ）を出す
     from apps.payroll.models import PayrollStatement
 
     today = timezone.localdate()

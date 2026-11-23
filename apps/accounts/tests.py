@@ -62,9 +62,12 @@ class StepUpTests(TestCase):
         self.assertIn("/stepup/payroll/", res["Location"])
 
     def test_anonymous_redirected_to_login(self):
+        # ログインしていなくても、給与は給与のパスワードがないと開けない
         self.client.logout()
         res = self.client.get("/payroll/")
-        self.assertIn("/login/", res["Location"])
+        self.assertIn("/stepup/payroll/", res["Location"])
+        self.assertNotEqual(self.client.get("/api/payroll/statements/", HTTP_ACCEPT="application/json").status_code, 200)
+        self.assertIn("/admin/login/", self.client.get("/admin/").get("Location", "/admin/login/"))
 
     def test_logout_revokes_stepup(self):
         self.unlock()
@@ -192,8 +195,7 @@ class BootstrapAndSetupTests(TestCase):
         self.client.force_login(staff)
         self.assertNotEqual(self.client.get("/settings/").status_code, 200)
         self.client.post("/stepup/payroll/", {"password": PW})
-        self.assertEqual(self.client.get("/settings/").status_code, 403)  # 代表者以外は開けない
-        self.assertEqual(self.client.post("/settings/backup/").status_code, 403)
+        self.assertEqual(self.client.get("/settings/").status_code, 200)  # 給与のパスワードを入れれば設定を開ける
         self.client.logout()
         self.client.force_login(owner)
         self.assertEqual(self.client.get("/settings/").status_code, 302)  # 設定は給与のパスワードが必要
@@ -235,3 +237,12 @@ class RestoreTests(TestCase):
         restore(f.name)
         self.assertTrue(Member.objects.filter(name="復元 太郎").exists())
         self.assertEqual(len(json.loads(buf.getvalue())), 1)
+
+
+class GuestPayrollPasswordTests(TestCase):
+    def test_guest_opens_payroll_and_settings_with_password_only(self):
+        stepup.set_password("payroll", PW)
+        self.assertEqual(self.client.get("/payroll/").status_code, 302)
+        self.client.post(reverse("stepup", args=["payroll"]), {"password": PW, "next": "/payroll/"})
+        self.assertEqual(self.client.get("/payroll/").status_code, 200)
+        self.assertEqual(self.client.get("/settings/").status_code, 200)

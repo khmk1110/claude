@@ -21,7 +21,8 @@ from apps.core import audit
 
 
 def _owner(request):
-    if not request.user.can_manage_stepup_passwords:
+    # 設定は給与のパスワードを入れた人が使える（代表者アカウントでログインしていなくてもよい）
+    if not (request.user.can_manage_stepup_passwords or stepup.is_verified(request, "payroll", touch=False)):
         raise PermissionDenied
 
 

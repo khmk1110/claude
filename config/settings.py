@@ -51,6 +51,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # ログインしていない人はゲストとして扱う（給与・経費・設定だけ給与のパスワードが必要）
+    "apps.accounts.middleware.GuestUserMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.core.middleware.CurrentRequestMiddleware",

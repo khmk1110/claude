@@ -154,17 +154,12 @@ class ShiftViewTests(TestCase):
 
     def test_login_required(self):
         self.client.logout()
-        # シフトを見るだけならログイン不要（変更する画面・ボタンは出さない）
-        for url in ["/shifts/", "/shifts/?view=day", "/shifts/?view=person", "/shifts/share/", "/shifts/image.png"]:
+        # 給与・設定以外はログインなしで使える（ゲストとして記録）
+        for url in ["/", "/shifts/", "/shifts/?view=person", "/shifts/numbers/", "/attendance/", "/members/", "/shifts/image.png"]:
             self.assertEqual(self.client.get(url).status_code, 200, url)
-        page = self.client.get("/shifts/")
-        self.assertNotContains(page, "LINEの数字でまとめて入力")
-        self.assertContains(page, "ログイン")
-        # 変更・勤怠・メンバーはログインが必要
-        for url in ["/attendance/", "/members/", "/shifts/numbers/"]:
-            self.assertIn("/login/", self.client.get(url)["Location"])
-        res = self.client.post("/shifts/api/set/", data="{}", content_type="application/json")
-        self.assertNotEqual(res.status_code, 200)
+        # 給与・経費・設定は給与のパスワードの画面へ
+        for url in ["/payroll/", "/expenses/", "/settings/"]:
+            self.assertIn("/stepup/payroll/", self.client.get(url)["Location"], url)
 
 
 class MatchingTests(TestCase):
@@ -376,7 +371,6 @@ class ShiftTabsTests(TestCase):
 
 
 class PublicTopPageTests(TestCase):
-    def test_top_page_shows_shifts_without_login(self):
-        res = self.client.get("/")
-        self.assertEqual(res["Location"], "/shifts/")
-        self.assertEqual(self.client.get("/shifts/").status_code, 200)
+    def test_top_page_without_login(self):
+        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertContains(self.client.get("/shifts/"), "ゲスト")

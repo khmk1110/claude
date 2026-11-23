@@ -21,12 +21,12 @@
       <a href="{% url 'payroll:index' %}" class="{% if p|slice:':9' == '/payroll/' %}active{% endif %}"><span class="ico">💴</span>給与・経費<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>
       <div class="group">管理</div>
       <a href="{% url 'members:list' %}" class="{% if p|slice:':9' == '/members/' %}active{% endif %}"><span class="ico">👥</span>メンバー</a>
-      {% if user.can_manage_stepup_passwords %}<a href="{% url 'setup' %}" class="{% if p|slice:':10' == '/settings/' %}active{% endif %}"><span class="ico">⚙️</span>設定・バックアップ</a>{% endif %}
+      <a href="{% url 'setup' %}" class="{% if p|slice:':10' == '/settings/' %}active{% endif %}"><span class="ico">⚙️</span>設定・バックアップ<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>
     </nav>
     <div class="user">
-      <div class="strong">{{ user }}</div>
+      <div class="strong">{% if request.is_guest %}ゲスト{% else %}{{ user }}{% endif %}</div>
       {% if STEPUP_VERIFIED.payroll %}<form method="post" action="{% url 'stepup_close' 'payroll' %}">{% csrf_token %}<button class="btn-sm" title="次に開くときはパスワードを再入力">給与・設定を閉じる</button></form>{% endif %}
-      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn-sm">ログアウト</button></form>
+      {% if request.is_guest %}<a class="btn-sm" href="{% url 'login' %}">ログイン</a>{% else %}<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn-sm">ログアウト</button></form>{% endif %}
     </div>
   </aside>
   <div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
