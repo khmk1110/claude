@@ -159,3 +159,31 @@ class SalesAndPayrollRowTests(TestCase):
         self.client.post("/payments/import-sheet/?month=2026-11", {"file": SimpleUploadedFile("s.xlsx", buf.getvalue())})
         sale = Sale.objects.get()
         self.assertEqual((sale.client, sale.amount, sale.received), ("架空商事", 668736, True))
+
+
+class SaleDocumentTests(TestCase):
+    def test_guess_client_from_our_invoice_and_from_payment_notice(self):
+        own = "架空商事株式会社"
+        ours = "請求書\n株式会社サンプル電力 御中\n架空商事株式会社\nご請求金額 668,736円\nお支払期限 2026年12月10日"
+        g = invoice.guess_sale(ours, own_company=own, today=date(2026, 11, 20))
+        self.assertEqual((g.payee, g.amount, g.due_date), ("株式会社サンプル電力", 668736, date(2026, 12, 10)))
+        notice = "支払通知書\n架空商事株式会社 御中\n株式会社サンプルガス\nお支払金額 4,819,000円"
+        g = invoice.guess_sale(notice, own_company=own)
+        self.assertEqual((g.payee, g.amount), ("株式会社サンプルガス", 4819000))
+
+    @override_settings(OCR_IN_BACKGROUND=False)
+    def test_upload_confirm_and_totals(self):
+        stepup.set_password("payroll", "pay-pass")
+        self.client.post("/stepup/payroll/", {"password": "pay-pass", "next": "/payments/"})
+        png = invoice_png(["請求書", "株式会社サンプル電力 御中", "ご請求金額 668,736円"])
+        self.client.post("/payments/sales/upload/?month=2026-11", {"files": [SimpleUploadedFile("s.png", png, content_type="image/png")]})
+        x = Sale.objects.get()
+        self.assertEqual(x.state, "draft")
+        self.assertEqual(x.amount, 668736)
+        self.assertIn("サンプル電力", x.client)
+        self.assertContains(self.client.get("/payments/sales/?month=2026-11"), "確認待ち")
+        self.assertNotContains(self.client.get("/payments/year/?month=2026-11"), "668,736")  # 確認前は合計に入れない
+        self.client.post(f"/payments/sales/{x.pk}/", {"client": x.client, "amount": "668736", "month": "2026-11"})
+        x.refresh_from_db()
+        self.assertEqual(x.state, "ok")
+        self.assertContains(self.client.get("/payments/year/?month=2026-11"), "668,736")

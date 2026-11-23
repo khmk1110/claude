@@ -4,8 +4,27 @@
 {% block topbar %}会社の支払い・売上{% endblock %}
 {% block content %}
 {% include "payments/_head.html" %}
-<div class="form-row" style="margin:4px 0 14px"><a class="btn btn-primary" href="{% url 'payments:sale_new' %}?month={{ month_param }}">＋ 売上を追加</a>
+<form method="post" action="{% url 'payments:sale_upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="xupload">{% csrf_token %}
+  <label class="drop"><input type="file" name="files" multiple accept="image/*,.pdf" onchange="this.form.querySelector('.drop-text').textContent='読み取り中…';this.form.submit()">
+    <span class="drop-icon">📄</span><span class="drop-text">請求書・支払通知書（写真・PDF）を読み込む</span></label>
+</form>
+<div class="form-row" style="margin:8px 0 14px"><a class="btn btn-primary" href="{% url 'payments:sale_new' %}?month={{ month_param }}">＋ 売上を追加（資料なし）</a>
   {% if totals.unreceived %}<span class="chip chip-warn">未入金 {{ totals.unreceived|intcomma }}円</span>{% endif %}</div>
+
+{% if drafts %}
+<h2>確認待ち <span class="chip chip-warn">{{ drafts|length }}</span></h2>
+{% if processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>
+<script>setTimeout(function(){location.reload()},6000)</script>{% endif %}
+<ul class="mlist" style="margin-bottom:16px">
+  {% for x in drafts %}
+  <li><a class="mrow" href="{% if x.state != 'processing' %}{% url 'payments:sale_edit' x.pk %}{% else %}#{% endif %}">
+    <span class="mmain"><b>{{ x.client|default:"（取引先を確認）" }}</b><span class="small muted">{{ x.original_name }}</span>
+      {% if x.error_message %}<span class="small text-warn">⚠ {{ x.error_message }}</span>{% endif %}</span>
+    <span class="mbig" style="font-size:1.2rem">{% if x.amount %}{{ x.amount|intcomma }}<small>円</small>{% else %}-{% endif %}</span>
+    <span class="chev">›</span></a></li>
+  {% endfor %}
+</ul>
+{% endif %}
 
 <h2>未入金</h2>
 <ul class="tr-list sale-list">

@@ -1,7 +1,7 @@
 {% load humanize %}
 <li class="tr-row {% if x.received %}is-paid{% endif %}">
   <a class="tr-name" href="{% url 'payments:sale_edit' x.pk %}" style="color:inherit;text-decoration:none;flex-direction:column;align-items:flex-start;gap:2px">
-    <b>{{ x.client }}</b>{% if x.memo or x.received_at %}<span class="small muted">{{ x.memo }}{% if x.received_at %}{% if x.memo %}・{% endif %}{{ x.received_at|date:"n/j" }} 入金確認{% endif %}</span>{% endif %}
+    <b>{{ x.client }}</b>{% if x.memo or x.received_at or x.due_date %}<span class="small muted">{% if x.due_date and not x.received %}入金予定 {{ x.due_date|date:"n/j" }}{% if x.memo %}・{% endif %}{% endif %}{{ x.memo }}{% if x.received_at %}{% if x.memo %}・{% endif %}{{ x.received_at|date:"n/j" }} 入金確認{% endif %}</span>{% endif %}
   </a>
   <span class="tr-amt" style="cursor:default">{{ x.amount|intcomma }}<small>円</small></span>
   <div class="tr-checks" style="grid-template-columns:1fr">

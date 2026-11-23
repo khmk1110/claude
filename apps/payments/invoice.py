@@ -154,3 +154,31 @@ def guess(text: str, *, own_company: str = "", known_payees: list[str] | None = 
                 g.payee = re.sub(r"(TEL|電話|〒|住所|登録番号).*$", "", l)[:60].strip()
                 break
     return g
+
+
+def guess_sale(text: str, *, own_company: str = "", known_clients: list[str] | None = None, today: date | None = None) -> InvoiceGuess:
+    """売上の資料（自社の請求書・取引先からの支払通知書など）を読む。
+
+    取引先は、宛名（「〇〇 御中」「〇〇 様」）が自社でなければ宛名、自社宛てなら発行元の会社。
+    """
+    g = guess(text, own_company=own_company, today=today)  # 金額・日付は請求書と同じ読み方
+    g.payee = ""
+    lines = [nfkc(l).strip().replace(" ", "") for l in (text or "").splitlines() if l.strip()]
+    own = re.sub(r"\s", "", nfkc(own_company))
+    joined = "".join(lines)
+    for name in sorted(known_clients or [], key=len, reverse=True):
+        key = re.sub(r"\s", "", nfkc(name))
+        if key and key in joined and (not own or key not in own):
+            g.payee = name
+            break
+    if not g.payee:
+        for l in lines:
+            if ("御中" in l or l.endswith("様")) and (not own or own not in l):
+                g.payee = re.sub(r"(御中|様).*$", "", l).strip()[:60]
+                break
+    if not g.payee:
+        for l in lines:
+            if COMPANY.search(l) and (not own or own not in l) and "御中" not in l:
+                g.payee = re.sub(r"(TEL|電話|〒|住所|登録番号).*$", "", l)[:60].strip()
+                break
+    return g

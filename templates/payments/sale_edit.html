@@ -2,12 +2,15 @@
 {% block title %}売上{% endblock %}
 {% block topbar %}会社の支払い・売上{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payments:sales' %}?month={{ month_param }}">← {{ month|date:"n月" }}の売上</a></p><h1>{% if x.pk %}{{ x.client }}{% else %}売上を追加{% endif %}</h1></div></div>
-<form method="post" class="card" style="max-width:560px">{% csrf_token %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payments:sales' %}?month={{ month_param }}">← {{ month|date:"n月" }}の売上</a></p><h1>{% if x.pk %}{{ x.client|default:"売上" }}{% else %}売上を追加{% endif %}</h1></div></div>
+{% if x.error_message %}<div class="notice">⚠️ {{ x.error_message }}</div>{% endif %}
+<div class="pay-edit">
+<form method="post" class="card">{% csrf_token %}
   <div class="fix-fields" style="grid-template-columns:1fr">
     <label class="fix-field"><span>取引先・内容</span><input name="client" value="{{ x.client }}" list="client-list" required autocomplete="off"></label>
     <datalist id="client-list">{% for c in clients %}<option value="{{ c }}">{% endfor %}</datalist>
     <label class="fix-field fix-amount"><span>金額</span><div class="yen"><input name="amount" value="{{ x.amount|default_if_none:'' }}" inputmode="numeric" required><em>円</em></div></label>
+    <label class="fix-field"><span>入金予定日</span><input type="date" name="due_date" value="{{ x.due_date|date:'Y-m-d' }}"></label>
     <label class="fix-field"><span>メモ</span><input name="memo" value="{{ x.memo }}"></label>
     <label class="fix-field"><span>何月の売上か</span><input type="month" name="month" value="{{ month_param }}"></label>
   </div>
@@ -15,4 +18,13 @@
   <div class="form-row"><button class="btn btn-primary" type="submit">保存</button>
     {% if x.pk %}<button class="btn" type="submit" name="action" value="delete" formnovalidate onclick="return confirm('この売上を消しますか？')">削除</button>{% endif %}</div>
 </form>
+{% if x.file %}
+<div class="card">
+  <p class="card-title">資料</p>
+  {% if x.original_name|lower|slice:"-4:" == ".pdf" %}<a class="btn" href="{% url 'payments:sale_file' x.pk %}" target="_blank">PDFを開く</a>
+  {% else %}<a href="{% url 'payments:sale_file' x.pk %}" target="_blank"><img src="{% url 'payments:sale_file' x.pk %}" alt="資料" style="max-width:100%;border-radius:8px"></a>{% endif %}
+  {% if x.ocr_text %}<details class="small" style="margin-top:8px"><summary>読み取った文字</summary><pre style="white-space:pre-wrap">{{ x.ocr_text }}</pre></details>{% endif %}
+</div>
+{% endif %}
+</div>
 {% endblock %}

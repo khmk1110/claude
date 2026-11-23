@@ -114,11 +114,11 @@ def month_totals(month):
     pays = Payment.objects.filter(month=month, status__in=[P.UNPAID, P.PAID])
     pr = payroll_row(month)
     pay_total = sum(p.amount or 0 for p in pays) + (pr["amount"] if pr else 0)
-    sales = Sale.objects.filter(month=month)
-    sale_total = sum(x.amount for x in sales)
+    sales = Sale.objects.filter(month=month, state=Sale.State.OK)
+    sale_total = sum(x.amount or 0 for x in sales)
     return {"sales": sale_total, "payments": pay_total, "diff": sale_total - pay_total,
             "unpaid": sum(p.amount or 0 for p in pays if p.status == P.UNPAID) + (pr["amount"] if pr and not pr["paid"] else 0),
-            "unreceived": sum(x.amount for x in sales if not x.received)}
+            "unreceived": sum(x.amount or 0 for x in sales if not x.received)}
 
 
 @payments_view
@@ -326,13 +326,75 @@ def import_sheet(request):
 
 
 
+def _read_sale(pk: int) -> None:
+    x = Sale.objects.get(pk=pk)
+    try:
+        with x.file.open("rb") as fh:
+            data = fh.read()
+        text = invoice.text_from_file(data, x.original_name or x.file.name)
+        clients = sorted(set(Sale.objects.exclude(client="").values_list("client", flat=True)))
+        g = invoice.guess_sale(text, own_company=settings.COMPANY_NAME, known_clients=clients, today=timezone.localdate())
+        x.ocr_text, x.client, x.amount, x.due_date = text[:8000], g.payee[:200], g.amount, g.due_date
+        x.error_message = "" if (g.amount and g.payee) else "読み取れなかった項目があります。確認して入力してください。"
+    except Exception as e:  # noqa: BLE001
+        x.error_message = f"読み取れませんでした（{type(e).__name__}）。手で入力してください。"
+    x.state = Sale.State.DRAFT
+    x.save()
+
+
+def _start_sale_read(pk: int) -> None:
+    def run():
+        close_old_connections()
+        try:
+            _read_sale(pk)
+        finally:
+            close_old_connections()
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+@payments_view
+@require_POST
+def sale_upload(request):
+    month = month_from_request(request)
+    n = 0
+    for f in request.FILES.getlist("files")[:10]:
+        if not f.name.lower().endswith(IMAGE_EXT):
+            messages.error(request, f"{f.name}: 写真（PNG/JPEG）かPDFを選んでください。")
+            continue
+        x = Sale.objects.create(month=month, state=Sale.State.PROCESSING, file=f, original_name=f.name[:255], created_by=request.user)
+        audit.log("payments.sale_upload", target=x, after={"file": f.name}, user=request.user)
+        if getattr(settings, "OCR_IN_BACKGROUND", True):
+            transaction.on_commit(lambda pk=x.pk: _start_sale_read(pk))
+        else:
+            _read_sale(x.pk)
+        n += 1
+    if n:
+        messages.success(request, f"{n}件を読み取っています。終わったら「確認待ち」に出ます。")
+    return redirect(f"/payments/sales/?month={month:%Y-%m}")
+
+
+@payments_view
+def sale_file(request, pk):
+    x = get_object_or_404(Sale, pk=pk)
+    if not x.file:
+        raise Http404
+    return FileResponse(x.file.open("rb"), filename=x.original_name or "file", as_attachment=False)
+
+
 @payments_view
 def sales(request):
     month = month_from_request(request)
+    stale = timezone.now() - timedelta(minutes=5)
+    Sale.objects.filter(state=Sale.State.PROCESSING, created_at__lt=stale).update(
+        state=Sale.State.DRAFT, error_message="読み取りが終わりませんでした。手で入力してください。")
     items = list(Sale.objects.filter(month=month))
+    ok = [x for x in items if x.state == Sale.State.OK]
+    drafts = [x for x in items if x.state != Sale.State.OK]
     return render(request, "payments/sales.html", {
-        **month_context(month), "tab": "sales", "totals": month_totals(month),
-        "waiting": [x for x in items if not x.received], "received": [x for x in items if x.received],
+        **month_context(month), "tab": "sales", "totals": month_totals(month), "drafts": drafts,
+        "processing": any(x.state == Sale.State.PROCESSING for x in drafts),
+        "waiting": [x for x in ok if not x.received], "received": [x for x in ok if x.received],
     })
 
 
@@ -353,6 +415,9 @@ def sale_edit(request, pk=None):
         else:
             before = {"取引先": x.client, "金額": x.amount} if x.pk else None
             x.client, x.amount, x.memo = client[:200], amount, request.POST.get("memo", "").strip()[:255]
+            due = request.POST.get("due_date") or None
+            x.due_date = date.fromisoformat(due) if due else None
+            x.state, x.error_message = Sale.State.OK, ""
             m = request.POST.get("month")
             if m:
                 x.month = month_start(date.fromisoformat(m + "-01"))

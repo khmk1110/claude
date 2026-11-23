@@ -69,8 +69,19 @@ class Sale(models.Model):
     """売上（その月の入金予定・入金）。"""
 
     month = models.DateField("対象月", validators=[validate_month_start], db_index=True)
-    client = models.CharField("取引先・内容", max_length=200)
-    amount = models.IntegerField("金額")
+    class State(models.TextChoices):
+        PROCESSING = "processing", "読み取り中"
+        DRAFT = "draft", "確認待ち"
+        OK = "ok", "登録済み"
+
+    client = models.CharField("取引先・内容", max_length=200, blank=True)
+    amount = models.IntegerField("金額", null=True, blank=True)
+    state = models.CharField("状態", max_length=16, choices=State.choices, default=State.OK, db_index=True)
+    due_date = models.DateField("入金予定日", null=True, blank=True)
+    file = models.FileField("資料", upload_to="sales/%Y/%m/", blank=True)
+    original_name = models.CharField("ファイル名", max_length=255, blank=True)
+    ocr_text = models.TextField("読み取った文字", blank=True)
+    error_message = models.CharField("エラー", max_length=255, blank=True)
     received = models.BooleanField("入金済み", default=False)
     received_at = models.DateTimeField("入金を確認した日時", null=True, blank=True)
     memo = models.CharField("メモ", max_length=255, blank=True)
