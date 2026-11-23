@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -16,13 +17,20 @@ from apps.shifts.models import ShiftEntry
 from apps.shifts.services import members_for_month
 
 
+@transaction.non_atomic_requests  # 毎回のトランザクション（BEGIN/COMMIT）でもデータベースに接続しないように
 def healthz(request):
-    """死活監視用（ログイン不要。中身は返さない）。"""
-    from django.db import connection
+    """死活監視・スリープ防止用（ログイン不要。中身は返さない）。
+
+    データベースには触らない（無料のデータベースを休ませて、使える時間を節約するため）。
+    データベースまで確かめたい時は ?db=1。
+    """
     from django.http import HttpResponse
 
-    with connection.cursor() as c:
-        c.execute("SELECT 1")
+    if request.GET.get("db") == "1":
+        from django.db import connection
+
+        with connection.cursor() as c:
+            c.execute("SELECT 1")
     return HttpResponse("ok", content_type="text/plain")
 
 

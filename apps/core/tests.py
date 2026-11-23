@@ -159,3 +159,12 @@ class CsrfFailureTests(TestCase):
         page = c.get("/login/")
         self.assertContains(page, "もう一度ログインしてください")
         self.assertIn("no-store", page["Cache-Control"])
+
+
+class HealthzTests(TestCase):
+    def test_healthz_does_not_touch_database(self):
+        # スリープ防止で数分おきに呼ばれても、無料のデータベースを起こさない
+        with self.assertNumQueries(0):
+            res = self.client.get("/healthz")
+        self.assertEqual(res.content, b"ok")
+        self.assertEqual(self.client.get("/healthz?db=1").status_code, 200)
