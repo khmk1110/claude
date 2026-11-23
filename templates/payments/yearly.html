@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}年間収支{% endblock %}
+{% block topbar %}会社の支払い・売上{% endblock %}
+{% block content %}
+{% include "payments/_head.html" %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>月</th><th class="num">売上</th><th class="num">支払い</th><th class="num">差引</th></tr></thead>
+  <tbody>
+  {% for r in rows %}<tr><td class="nowrap"><a href="{% url 'payments:index' %}?month={{ r.month|date:'Y-m' }}">{{ r.month|date:"Y年n月" }}</a></td>
+    <td class="num">{{ r.sales|intcomma }}</td><td class="num">{{ r.payments|intcomma }}</td>
+    <td class="num strong {% if r.diff < 0 %}text-danger{% endif %}">{{ r.diff|intcomma }}</td></tr>{% endfor %}
+  </tbody>
+  <tfoot><tr><th>合計</th><th class="num">{{ sum.sales|intcomma }}</th><th class="num">{{ sum.payments|intcomma }}</th><th class="num {% if sum.diff < 0 %}text-danger{% endif %}">{{ sum.diff|intcomma }}</th></tr></tfoot>
+</table></div>
+<p class="small muted">支払いには、給与（個人事業主・インターン）の確定額も入っています。</p>
+{% endblock %}

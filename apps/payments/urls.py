@@ -12,4 +12,9 @@ urlpatterns = [
     path("<int:pk>/file/", views.invoice_file, name="file"),
     path("monthly/", views.add_monthly, name="add_monthly"),
     path("import-sheet/", views.import_sheet, name="import_sheet"),
+    path("sales/", views.sales, name="sales"),
+    path("sales/new/", views.sale_edit, name="sale_new"),
+    path("sales/<int:pk>/", views.sale_edit, name="sale_edit"),
+    path("sales/<int:pk>/received/", views.sale_toggle, name="sale_toggle"),
+    path("year/", views.yearly, name="yearly"),
 ]

@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from apps.accounts import stepup
 
 from . import invoice
-from .models import Payee, Payment
+from .models import Payee, Payment, Sale
 
 NOV = date(2026, 11, 1)
 
@@ -112,3 +112,50 @@ class PaymentFlowTests(TestCase):
         f2 = SimpleUploadedFile("sheet.xlsx", buf.getvalue())
         self.client.post("/payments/import-sheet/?month=2026-11", {"file": f2})  # 二重に入れない
         self.assertEqual(Payment.objects.count(), 2)
+
+
+@override_settings(OCR_IN_BACKGROUND=False)
+class SalesAndPayrollRowTests(TestCase):
+    def setUp(self):
+        stepup.set_password("payroll", "pay-pass")
+        self.client.post("/stepup/payroll/", {"password": "pay-pass", "next": "/payments/"})
+
+    def test_payroll_confirmed_total_is_added_automatically(self):
+        from apps.members.models import Member
+        from apps.payroll.models import PayrollStatement, StatementDelivery
+
+        m = Member.objects.create(name="大石 一郎", employment_type="contractor")
+        st = PayrollStatement.objects.create(member=m, month=NOV, employment_type="contractor")
+        PayrollStatement.objects.filter(pk=st.pk).update(status="confirmed", net_amount=250000, snapshot={"lines": []})
+        Payment.objects.create(month=NOV, payee_name="事務所家賃", amount=30000, status="unpaid")
+        page = self.client.get("/payments/?month=2026-11")
+        self.assertContains(page, "個人事業主・インターン給与")
+        self.assertContains(page, "280,000")  # 支払い合計に給与の確定額が入る
+        StatementDelivery.objects.create(statement_id=st.pk, paid_at="2026-11-30T10:00:00+09:00")
+        self.assertContains(self.client.get("/payments/?month=2026-11"), "全員振込済み")
+
+    def test_sales_manual_entry_and_yearly(self):
+        self.client.post("/payments/sales/new/?month=2026-11", {"client": "架空商事", "amount": "500,000", "month": "2026-11"})
+        x = Sale.objects.get()
+        self.assertFalse(x.received)
+        self.client.post(f"/payments/sales/{x.pk}/received/", {"on": "1"})
+        x.refresh_from_db()
+        self.assertTrue(x.received)
+        self.client.post("/payments/new/?month=2026-11", {"payee_name": "事務所家賃", "amount": "120000", "month": "2026-11"})
+        page = self.client.get("/payments/year/?month=2026-11")
+        self.assertContains(page, "500,000")
+        self.assertContains(page, "380,000")  # 500,000 − 120,000
+
+    def test_sheet_import_includes_sales(self):
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws["A1"] = "2026年10月 収支表"
+        ws["A9"], ws["B9"], ws["C9"] = "架空商事", 668736, "入金済"
+        ws["D9"], ws["E9"] = "架空運送", 1000
+        buf = io.BytesIO()
+        wb.save(buf)
+        self.client.post("/payments/import-sheet/?month=2026-11", {"file": SimpleUploadedFile("s.xlsx", buf.getvalue())})
+        sale = Sale.objects.get()
+        self.assertEqual((sale.client, sale.amount, sale.received), ("架空商事", 668736, True))

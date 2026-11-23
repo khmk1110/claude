@@ -1,0 +1,11 @@
+{% load humanize %}
+<li class="tr-row {% if pr.paid %}is-paid{% endif %}">
+  <a class="tr-name" href="{% url 'payroll:transfers' %}?month={{ month_param }}" style="color:inherit;text-decoration:none;flex-direction:column;align-items:flex-start;gap:2px">
+    <b>個人事業主・インターン給与 <span class="chip">自動</span></b>
+    <span class="small muted">給与・確定 {{ pr.count }}人{% if pr.unconfirmed %}（未確定 {{ pr.unconfirmed }}人は含まない）{% endif %}・振込 {{ pr.paid_count }}/{{ pr.count }}人</span>
+  </a>
+  <span class="tr-amt" style="cursor:default">{{ pr.amount|intcomma }}<small>円</small></span>
+  <div class="tr-checks" style="grid-template-columns:1fr">
+    <a class="tr-chk {% if pr.paid %}on{% endif %}" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="{% url 'payroll:transfers' %}?month={{ month_param }}">{% if pr.paid %}✓ 全員振込済み{% else %}振込の画面で1人ずつチェック ›{% endif %}</a>
+  </div>
+</li>

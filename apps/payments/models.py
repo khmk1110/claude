@@ -63,3 +63,24 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"{self.month:%Y-%m} {self.payee_name} {self.amount}"
+
+
+class Sale(models.Model):
+    """売上（その月の入金予定・入金）。"""
+
+    month = models.DateField("対象月", validators=[validate_month_start], db_index=True)
+    client = models.CharField("取引先・内容", max_length=200)
+    amount = models.IntegerField("金額")
+    received = models.BooleanField("入金済み", default=False)
+    received_at = models.DateTimeField("入金を確認した日時", null=True, blank=True)
+    memo = models.CharField("メモ", max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        verbose_name = "売上"
+        verbose_name_plural = "売上"
+        ordering = ["received", "id"]
+
+    def __str__(self):
+        return f"{self.month:%Y-%m} {self.client} {self.amount}"

@@ -1,0 +1,12 @@
+{% load humanize %}
+<div class="page-head"><div><h1>{{ month|date:"n月" }}の収支</h1></div>{% include "includes/monthnav.html" %}</div>
+<div class="kpi3">
+  <div><span>売上</span><b>{{ totals.sales|intcomma }}</b></div>
+  <div><span>支払い</span><b>{{ totals.payments|intcomma }}</b></div>
+  <div class="{% if totals.diff < 0 %}neg{% endif %}"><span>差引</span><b>{{ totals.diff|intcomma }}</b></div>
+</div>
+<nav class="tabs">
+  <a href="{% url 'payments:index' %}?month={{ month_param }}" class="{% if tab == 'pay' %}active{% endif %}">支払い</a>
+  <a href="{% url 'payments:sales' %}?month={{ month_param }}" class="{% if tab == 'sales' %}active{% endif %}">売上</a>
+  <a href="{% url 'payments:yearly' %}?month={{ month_param }}" class="{% if tab == 'year' %}active{% endif %}">年間</a>
+</nav>

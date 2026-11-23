@@ -3,11 +3,11 @@
 {% block title %}会社の支払い{% endblock %}
 {% block topbar %}会社の支払い{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>{{ month|date:"n月" }}の支払い</h1></div>{% include "includes/monthnav.html" %}</div>
+{% include "payments/_head.html" %}
 
 <div class="tr-sum">
   <div><div class="small muted">まだ払っていない</div><div class="xbig">{{ unpaid_total|intcomma }}<small>円</small></div></div>
-  <div class="tr-progress">今月の支払い合計<br><b style="font-size:1.1rem">{{ total|intcomma }}円</b></div>
+  <div class="tr-progress">支払い合計<br><b style="font-size:1.1rem">{{ total|intcomma }}円</b></div>
 </div>
 
 <form method="post" action="{% url 'payments:upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="xupload">{% csrf_token %}
@@ -15,7 +15,7 @@
     <span class="drop-icon">📄</span><span class="drop-text">請求書（写真・PDF）を読み込む</span></label>
 </form>
 <div class="form-row" style="margin:8px 0 14px">
-  <a class="btn" href="{% url 'payments:new' %}?month={{ month_param }}">＋ 手で追加</a>
+  <a class="btn btn-primary" href="{% url 'payments:new' %}?month={{ month_param }}">＋ 支払いを追加（請求書なし）</a>
   {% if monthly_missing %}<form method="post" action="{% url 'payments:add_monthly' %}?month={{ month_param }}">{% csrf_token %}
     <button class="btn" type="submit">毎月の支払いを入れる（{{ monthly_missing|length }}件）</button></form>{% endif %}
 </div>
@@ -38,12 +38,13 @@
 
 <h2>未払い</h2>
 <ul class="tr-list pay-list">
-  {% for p in unpaid %}{% include "payments/_row.html" %}{% empty %}<li class="muted" style="padding:6px 2px">ありません</li>{% endfor %}
+  {% if pr and not pr.paid %}{% include "payments/_payroll_row.html" %}{% endif %}
+  {% for p in unpaid %}{% include "payments/_row.html" %}{% empty %}{% if not pr or pr.paid %}<li class="muted" style="padding:6px 2px">ありません</li>{% endif %}{% endfor %}
 </ul>
 
-{% if paid %}
+{% if paid or pr.paid %}
 <h2 style="margin-top:18px">支払い済み</h2>
-<ul class="tr-list pay-list">{% for p in paid %}{% include "payments/_row.html" %}{% endfor %}</ul>
+<ul class="tr-list pay-list">{% if pr and pr.paid %}{% include "payments/_payroll_row.html" %}{% endif %}{% for p in paid %}{% include "payments/_row.html" %}{% endfor %}</ul>
 {% endif %}
 
 {% if by_cat %}

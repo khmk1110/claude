@@ -23,7 +23,7 @@ from apps.core.monthnav import month_context, month_from_request
 from apps.core.months import month_start, prev_month
 
 from . import invoice
-from .models import CATEGORY_CHOICES, Payee, Payment
+from .models import CATEGORY_CHOICES, Payee, Payment, Sale
 
 P = Payment.Status
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".pdf")
@@ -95,6 +95,32 @@ def _start_read(pk: int) -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
+def payroll_row(month):
+    """給与（個人事業主・インターン）の確定額。確定した明細から自動で出す（手で入れない）。"""
+    from apps.payroll.models import PayrollStatement, StatementDelivery
+
+    sts = list(PayrollStatement.objects.filter(month=month, status="confirmed"))
+    if not sts:
+        return None
+    if Payment.objects.filter(month=month, payee_name__regex=r"(個人事業主|インターン).*給与").exclude(status=P.DRAFT).exists():
+        return None  # シートから取り込んだ・手で入れた給与の行がある月は、二重に数えない
+    paid = StatementDelivery.objects.filter(statement__in=sts, paid_at__isnull=False).count()
+    return {"amount": sum(st.net_amount or 0 for st in sts), "count": len(sts), "paid_count": paid,
+            "paid": paid == len(sts), "unconfirmed": PayrollStatement.objects.filter(month=month).exclude(status="confirmed").count()}
+
+
+def month_totals(month):
+    """その月の売上・支払い・差引（支払いには給与の確定額を含む）。"""
+    pays = Payment.objects.filter(month=month, status__in=[P.UNPAID, P.PAID])
+    pr = payroll_row(month)
+    pay_total = sum(p.amount or 0 for p in pays) + (pr["amount"] if pr else 0)
+    sales = Sale.objects.filter(month=month)
+    sale_total = sum(x.amount for x in sales)
+    return {"sales": sale_total, "payments": pay_total, "diff": sale_total - pay_total,
+            "unpaid": sum(p.amount or 0 for p in pays if p.status == P.UNPAID) + (pr["amount"] if pr and not pr["paid"] else 0),
+            "unreceived": sum(x.amount for x in sales if not x.received)}
+
+
 @payments_view
 def index(request):
     month = month_from_request(request)
@@ -118,14 +144,18 @@ def index(request):
     drafts = [p for p in items if p.status in (P.PROCESSING, P.DRAFT)]
     unpaid = [p for p in items if p.status == P.UNPAID]
     paid = [p for p in items if p.status == P.PAID]
-    total = sum(p.amount or 0 for p in unpaid + paid)
+    pr = payroll_row(month)
+    totals = month_totals(month)
+    total = totals["payments"]
     by_cat: dict[str, int] = {}
     for p in unpaid + paid:
         by_cat[p.category or "未分類"] = by_cat.get(p.category or "未分類", 0) + (p.amount or 0)
     monthly = Payee.objects.filter(monthly=True).exclude(payments__month=month)
+    if pr:
+        by_cat["給与"] = by_cat.get("給与", 0) + pr["amount"]
     return render(request, "payments/index.html", {
-        **month_context(month), "drafts": drafts, "unpaid": unpaid, "paid": paid, "total": total,
-        "unpaid_total": sum(p.amount or 0 for p in unpaid), "by_cat": sorted(by_cat.items(), key=lambda x: -x[1]),
+        **month_context(month), "drafts": drafts, "unpaid": unpaid, "paid": paid, "total": total, "pr": pr, "totals": totals,
+        "tab": "pay", "unpaid_total": totals["unpaid"], "by_cat": sorted(by_cat.items(), key=lambda x: -x[1]),
         "monthly_missing": list(monthly), "processing": any(p.status == P.PROCESSING for p in drafts),
         "categories": CATEGORY_CHOICES, "payees": Payee.objects.all(),
     })
@@ -266,6 +296,15 @@ def import_sheet(request):
             if not m or "収支" not in title:
                 continue
             sheet_month = date(int(m[1]), int(m[2]), 1)
+            for row in ws.iter_rows(min_row=9, min_col=1, max_col=3, values_only=True):
+                client, amount, status = (list(row) + [None] * 3)[:3]
+                amount = _int(amount)
+                if not client or amount is None or Sale.objects.filter(month=sheet_month, client=str(client).strip(), amount=amount).exists():
+                    continue
+                done = "済" in str(status or "")
+                Sale.objects.create(month=sheet_month, client=str(client).strip()[:200], amount=amount, received=done,
+                                    received_at=timezone.now() if done else None, created_by=request.user)
+                added += 1
             for row in ws.iter_rows(min_row=9, min_col=4, max_col=8, values_only=True):
                 name, amount, status, cat, note = (list(row) + [None] * 5)[:5]
                 amount = _int(amount)
@@ -284,3 +323,79 @@ def import_sheet(request):
     audit.log("payments.import_sheet", target_type="payments", target_id="sheet", after={"file": f.name, "件数": added}, user=request.user)
     messages.success(request, f"シートから {added}件 取り込みました。")
     return _back(month)
+
+
+
+@payments_view
+def sales(request):
+    month = month_from_request(request)
+    items = list(Sale.objects.filter(month=month))
+    return render(request, "payments/sales.html", {
+        **month_context(month), "tab": "sales", "totals": month_totals(month),
+        "waiting": [x for x in items if not x.received], "received": [x for x in items if x.received],
+    })
+
+
+@payments_view
+def sale_edit(request, pk=None):
+    x = get_object_or_404(Sale, pk=pk) if pk else Sale(month=month_from_request(request))
+    if request.method == "POST":
+        if request.POST.get("action") == "delete" and x.pk:
+            audit.log("payments.sale_delete", target=x, before={"取引先": x.client, "金額": x.amount}, user=request.user)
+            month = x.month
+            x.delete()
+            messages.success(request, "削除しました。")
+            return redirect(f"/payments/sales/?month={month:%Y-%m}")
+        client = request.POST.get("client", "").strip()
+        amount = _int(request.POST.get("amount"))
+        if not client or amount is None:
+            messages.error(request, "取引先と金額を入れてください。")
+        else:
+            before = {"取引先": x.client, "金額": x.amount} if x.pk else None
+            x.client, x.amount, x.memo = client[:200], amount, request.POST.get("memo", "").strip()[:255]
+            m = request.POST.get("month")
+            if m:
+                x.month = month_start(date.fromisoformat(m + "-01"))
+            received = bool(request.POST.get("received"))
+            if received and not x.received:
+                x.received_at = timezone.now()
+            if not received:
+                x.received_at = None
+            x.received = received
+            if not x.created_by_id:
+                x.created_by = request.user
+            x.save()
+            audit.log("payments.sale_save", target=x, before=before, after={"取引先": x.client, "金額": x.amount,
+                                                                            "入金": "済" if x.received else "未"}, user=request.user)
+            messages.success(request, f"{x.client} {x.amount:,}円 を保存しました。")
+            return redirect(f"/payments/sales/?month={x.month:%Y-%m}")
+    return render(request, "payments/sale_edit.html", {"x": x, "month": x.month, "month_param": f"{x.month:%Y-%m}",
+                                                       "clients": sorted(set(Sale.objects.values_list("client", flat=True)))})
+
+
+@payments_view
+@require_POST
+def sale_toggle(request, pk):
+    x = get_object_or_404(Sale, pk=pk)
+    on = request.POST.get("on") == "1"
+    x.received, x.received_at = on, (timezone.now() if on else None)
+    x.save()
+    audit.log("payments.sale_received" if on else "payments.sale_unreceived", target=x,
+              after={"取引先": x.client, "金額": x.amount}, user=request.user)
+    return JsonResponse({"ok": True, "on": on})
+
+
+@payments_view
+def yearly(request):
+    """年間収支：月ごとの売上・支払い・差引（直近12か月）。"""
+    month = month_from_request(request)
+    months = [month]
+    for _ in range(11):
+        months.append(prev_month(months[-1]))
+    months.reverse()
+    rows = [{"month": m, **month_totals(m)} for m in months]
+    rows = [r for r in rows if r["sales"] or r["payments"]] or rows[-1:]
+    return render(request, "payments/yearly.html", {
+        **month_context(month), "tab": "year", "rows": rows,
+        "sum": {k: sum(r[k] for r in rows) for k in ("sales", "payments", "diff")},
+    })

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}売上{% endblock %}
+{% block topbar %}会社の支払い・売上{% endblock %}
+{% block content %}
+{% include "payments/_head.html" %}
+<div class="form-row" style="margin:4px 0 14px"><a class="btn btn-primary" href="{% url 'payments:sale_new' %}?month={{ month_param }}">＋ 売上を追加</a>
+  {% if totals.unreceived %}<span class="chip chip-warn">未入金 {{ totals.unreceived|intcomma }}円</span>{% endif %}</div>
+
+<h2>未入金</h2>
+<ul class="tr-list sale-list">
+  {% for x in waiting %}{% include "payments/_sale_row.html" %}{% empty %}<li class="muted" style="padding:6px 2px">ありません</li>{% endfor %}
+</ul>
+{% if received %}
+<h2 style="margin-top:18px">入金済み</h2>
+<ul class="tr-list sale-list">{% for x in received %}{% include "payments/_sale_row.html" %}{% endfor %}</ul>
+{% endif %}
+<script>
+(() => {
+  const csrf = () => document.cookie.split("; ").find(c => c.startsWith("csrftoken="))?.split("=")[1];
+  document.querySelectorAll(".sale-list").forEach(list => list.addEventListener("click", async e => {
+    const b = e.target.closest(".tr-chk"); if (!b) return;
+    e.preventDefault(); b.disabled = true;
+    const res = await fetch(b.dataset.url, {method: "POST", headers: {"X-CSRFToken": csrf()}, body: new URLSearchParams({on: b.classList.contains("on") ? "0" : "1"})});
+    if (!res.ok) { b.disabled = false; alert("保存できませんでした。"); return; }
+    location.reload();
+  }));
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}売上{% endblock %}
+{% block topbar %}会社の支払い・売上{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payments:sales' %}?month={{ month_param }}">← {{ month|date:"n月" }}の売上</a></p><h1>{% if x.pk %}{{ x.client }}{% else %}売上を追加{% endif %}</h1></div></div>
+<form method="post" class="card" style="max-width:560px">{% csrf_token %}
+  <div class="fix-fields" style="grid-template-columns:1fr">
+    <label class="fix-field"><span>取引先・内容</span><input name="client" value="{{ x.client }}" list="client-list" required autocomplete="off"></label>
+    <datalist id="client-list">{% for c in clients %}<option value="{{ c }}">{% endfor %}</datalist>
+    <label class="fix-field fix-amount"><span>金額</span><div class="yen"><input name="amount" value="{{ x.amount|default_if_none:'' }}" inputmode="numeric" required><em>円</em></div></label>
+    <label class="fix-field"><span>メモ</span><input name="memo" value="{{ x.memo }}"></label>
+    <label class="fix-field"><span>何月の売上か</span><input type="month" name="month" value="{{ month_param }}"></label>
+  </div>
+  <label class="check" style="margin:12px 0"><input type="checkbox" name="received" value="1" {% if x.received %}checked{% endif %}> 入金済み</label>
+  <div class="form-row"><button class="btn btn-primary" type="submit">保存</button>
+    {% if x.pk %}<button class="btn" type="submit" name="action" value="delete" formnovalidate onclick="return confirm('この売上を消しますか？')">削除</button>{% endif %}</div>
+</form>
+{% endblock %}
