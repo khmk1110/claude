@@ -17,6 +17,7 @@
       <a href="{% url 'dashboard' %}" class="{% if p == '/' %}active{% endif %}"><span class="ico">🏠</span>ホーム</a>
       <a href="{% url 'shifts:grid' %}" class="{% if p|slice:':8' == '/shifts/' or p|slice:':12' == '/attendance/' and p|slice:':18' != '/attendance/leave/' %}active{% endif %}"><span class="ico">📅</span>シフト・勤怠</a>
       <a href="{% url 'payroll:index' %}" class="{% if p|slice:':9' == '/payroll/' %}active{% endif %}"><span class="ico">💴</span>給与・経費<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>
+      <a href="{% url 'payments:index' %}" class="{% if p|slice:':10' == '/payments/' %}active{% endif %}"><span class="ico">🏦</span>会社の支払い<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>
       <a href="{% url 'attendance:leave_list' %}" class="{% if p|slice:':18' == '/attendance/leave/' %}active{% endif %}"><span class="ico">🌴</span>有給</a>
       <a href="{% url 'members:list' %}" class="{% if p|slice:':9' == '/members/' %}active{% endif %}"><span class="ico">👥</span>メンバー</a>
       <a href="{% url 'setup' %}" class="{% if p|slice:':10' == '/settings/' %}active{% endif %}"><span class="ico">⚙️</span>設定・バックアップ<span class="lock">{% if STEPUP_VERIFIED.payroll %}開{% else %}🔒{% endif %}</span></a>

@@ -1,0 +1,12 @@
+{% load humanize %}
+<li class="tr-row {% if p.status == 'paid' %}is-paid{% endif %}">
+  <a class="tr-name" href="{% url 'payments:edit' p.pk %}" style="color:inherit;text-decoration:none;flex-direction:column;align-items:flex-start;gap:2px">
+    <b>{{ p.payee_name }}</b>
+    <span class="small muted">{{ p.category|default:"未分類" }}{% if p.due_date %}・期限 {{ p.due_date|date:"n/j" }}{% endif %}{% if p.status == 'paid' and p.paid_at %}・{{ p.paid_at|date:"n/j" }} 支払い{% endif %}</span>
+    {% if p.bank %}<span class="small muted bank-line">🏦 {{ p.bank|linebreaksbr }}</span>{% endif %}
+  </a>
+  <span class="tr-amt" style="cursor:default">{{ p.amount|default:0|intcomma }}<small>円</small></span>
+  <div class="tr-checks" style="grid-template-columns:1fr">
+    <button type="button" class="tr-chk {% if p.status == 'paid' %}on{% endif %}" data-url="{% url 'payments:toggle_paid' p.pk %}">{% if p.status == 'paid' %}✓ 支払い済み{% else %}支払った{% endif %}</button>
+  </div>
+</li>

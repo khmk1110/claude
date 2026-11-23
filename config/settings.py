@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "apps.attendance",
     "apps.payroll",
     "apps.expenses",
+    "apps.payments",
 ]
 
 MIDDLEWARE = [
@@ -149,6 +150,8 @@ STEPUP_PROTECTED_PREFIXES = {
     "/admin/expenses/": "payroll",
     # 設定（発行者・バックアップなど）も給与のパスワードで守る
     "/settings/": "payroll",
+    # 会社の支払い（代表の経費）も給与のパスワードで守る
+    "/payments/": "payroll",
 }
 
 import sys as _sys

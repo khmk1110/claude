@@ -529,3 +529,8 @@ details.card.fold .list { width: 100%; }
 .today-card .muted { color: #dbeafe; }
 .today-card .chev { color: #bfdbfe; }
 .notices { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* ===== 会社の支払い ===== */
+.pay-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.pay-edit textarea { font-size: 1rem; border-radius: 10px; padding: 8px 12px; width: 100%; box-sizing: border-box; }
+.bank-line { white-space: normal; }
+@media (max-width: 800px) { .pay-edit { grid-template-columns: 1fr; } }
