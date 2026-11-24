@@ -9,9 +9,9 @@
     <select name="type" onchange="this.form.submit()" style="width:auto"><option value="">全員</option>{% for v, l in emp_choices %}<option value="{{ v }}" {% if v == emp %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></form>
   {% if lock %}
     <span class="badge ok">月次確定済み（{{ lock.locked_at|date:"m/d H:i" }}）</span>
-    <form method="post" action="{% url 'attendance:lock' %}" style="display:inline" onsubmit="const r=prompt('確定を解除する理由を入力してください');if(!r)return false;this.reason.value=r;">
-      {% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="reason">
-      <button class="btn-light" type="submit">確定を解除</button></form>
+    <form method="post" action="{% url 'attendance:lock' %}" style="display:inline">
+      {% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="reason" value="確定をやり直す">
+      <button class="btn" type="submit">確定をやり直す</button></form>
   {% else %}
     <form method="post" action="{% url 'attendance:lock' %}" style="display:inline"
           onsubmit="return confirm('{{ month|date:"Y年n月" }}の勤怠を確定します。未確定の日は予定どおりの実績として確定されます。よろしいですか？')">

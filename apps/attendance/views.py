@@ -104,7 +104,7 @@ def lock_toggle(request):
     try:
         if request.POST.get("action") == "unlock":
             services.unlock_month(month, user=request.user, reason=request.POST.get("reason", "").strip())
-            messages.success(request, f"{month:%Y年%m月}の勤怠の確定を解除しました。")
+            messages.success(request, f"{month:%Y年%m月}の勤怠の確定を外しました。シフトを直したら、もう一度「確定」を押してください（給与は計算し直すと反映されます）。")
         else:
             services.lock_month(month, user=request.user)
             messages.success(request, f"{month:%Y年%m月}の勤怠を確定しました。")

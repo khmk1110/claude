@@ -25,14 +25,26 @@ class AttendanceTests(TestCase):
 
     def test_lock_month_confirms_pending_days(self):
         m = Member.objects.create(member_no="T1", name="テスト", employment_type="employee")
-        shifts.set_shifts([m], [date(2026, 11, 3)], wt("work"))
+        shifts.set_shifts([m], [date(2026, 11, 3), date(2026, 11, 4)], wt("work"))
+        absent = AttendanceDay.objects.get(member=m, date=date(2026, 11, 4))
+        absent.is_absence, absent.status, absent.actual_work_type = True, "modified", wt("off")
+        absent.save()
         attendance.lock_month(date(2026, 11, 1))
-        day = AttendanceDay.objects.get(member=m)
+        day = AttendanceDay.objects.get(member=m, date=date(2026, 11, 3))
         self.assertEqual((day.status, day.actual_work_type.code), ("confirmed", "work"))
-        with self.assertRaises(ValueError):
-            attendance.unlock_month(date(2026, 11, 1), reason="")
-        attendance.unlock_month(date(2026, 11, 1), reason="修正のため")
+        # 確定をやり直す：自動で確定した日は未確定に戻り、シフトを直せば勤怠にも反映される
+        attendance.unlock_month(date(2026, 11, 1))
         self.assertFalse(attendance.is_locked(date(2026, 11, 1)))
+        day.refresh_from_db()
+        self.assertEqual((day.status, day.actual_work_type), ("planned", None))
+        absent.refresh_from_db()
+        self.assertEqual(absent.status, "modified")  # 手で直した日（欠勤など）はそのまま
+        shifts.set_shifts([m], [date(2026, 11, 3)], wt("half"))
+        day.refresh_from_db()
+        self.assertEqual(day.planned_work_type.code, "half")
+        attendance.lock_month(date(2026, 11, 1))
+        day.refresh_from_db()
+        self.assertEqual(day.actual_work_type.code, "half")  # 確定し直すと直したシフトで確定
 
 
 class LeaveTests(TestCase):

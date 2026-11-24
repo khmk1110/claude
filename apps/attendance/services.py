@@ -118,12 +118,30 @@ def lock_month(month: date, *, user=None) -> AttendanceMonthLock:
 
 
 @transaction.atomic
-def unlock_month(month: date, *, user=None, reason: str) -> None:
-    if not reason:
-        raise ValueError("確定解除の理由を入力してください。")
-    lock = AttendanceMonthLock.objects.get(month=month_start(month))
-    audit.log("attendance.unlock_month", target=lock, reason=reason, user=user)
+def unlock_month(month: date, *, user=None, reason: str = "") -> None:
+    """月次確定を取り消す（確定をやり直す）。
+
+    確定した時に「予定どおり」として自動で確定した日は未確定に戻し、シフトを直せば勤怠にも反映されるようにする。
+    欠勤・遅刻・早退・メモを付けた日や、実績を予定と違う内容に直した日はそのまま残す。
+    """
+    month = month_start(month)
+    lock = AttendanceMonthLock.objects.filter(month=month).first()
+    if lock is None:
+        return
+    reverted = 0
+    for day in AttendanceDay.objects.filter(date__gte=month, date__lte=month_end(month), status=AttendanceDay.Status.CONFIRMED):
+        if (day.actual_work_type_id == day.planned_work_type_id and not day.is_absence and not day.is_late
+                and not day.is_early_leave and not day.note):
+            day.actual_work_type, day.status, day.updated_by = None, AttendanceDay.Status.PLANNED, user
+            day.save()
+            reverted += 1
+    audit.log("attendance.unlock_month", target=lock, after={"未確定に戻した日": reverted}, reason=reason or "確定をやり直す", user=user)
     lock.delete()
+    # 確定を外している間に変えたシフトを勤怠の予定に合わせ直す
+    from apps.shifts.models import ShiftEntry
+
+    for e in ShiftEntry.objects.filter(date__gte=month, date__lte=month_end(month)).select_related("member"):
+        sync_day(e.member, e.date)
 
 
 @dataclass
