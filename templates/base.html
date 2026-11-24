@@ -48,7 +48,7 @@
     <a href="{% url 'dashboard' %}" class="{% if p == '/' %}active{% endif %}"><span class="ico">🏠</span>ホーム</a>
     <a href="{% url 'shifts:grid' %}" class="{% if p|slice:':8' == '/shifts/' or p|slice:':12' == '/attendance/' and p|slice:':18' != '/attendance/leave/' %}active{% endif %}"><span class="ico">📅</span>シフト</a>
     <a href="{% url 'payroll:index' %}" class="{% if p|slice:':9' == '/payroll/' %}active{% endif %}"><span class="ico">💴</span>給与</a>
-    <a href="{% url 'members:list' %}" class="{% if p|slice:':9' == '/members/' %}active{% endif %}"><span class="ico">👥</span>メンバー</a>
+    <a href="{% url 'payments:index' %}" class="{% if p|slice:':10' == '/payments/' %}active{% endif %}"><span class="ico">🏦</span>経費</a>
     <a href="#" onclick="document.body.classList.toggle('nav-open');return false;"><span class="ico">☰</span>メニュー</a>
   </nav>
 </div>
