@@ -539,3 +539,13 @@ details.card.fold .list { width: 100%; }
 .kpi3 span { font-size: 0.75rem; color: #64748b; }
 .kpi3 b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
 .kpi3 .neg b { color: #b91c1c; }
+/* 商品別の件数：1行に1つ（名前は左、件数は右） */
+.prod-list { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--line, #e5e7eb); border-radius: 12px; overflow: hidden; background: #fff; }
+.prod-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; }
+.prod-list li + li { border-top: 1px solid #eef2f7; }
+.prod-list label { font-weight: 700; display: flex; flex-direction: column; }
+.prod-list label small { font-weight: 400; color: #64748b; font-size: 0.75rem; }
+.prod-list .yen { width: 120px; flex: none; }
+.prod-list .yen input { font-size: 1.05rem; min-height: 42px; border-radius: 10px; width: 100%; box-sizing: border-box; padding: 6px 40px 6px 10px; }
+.prod-add { margin-bottom: 12px; }
+.prod-add summary { color: #2563eb; cursor: pointer; font-weight: 700; margin-bottom: 8px; }

@@ -968,3 +968,23 @@ class RememberTodayTests(TestCase):
 class BackupReminderTests(TestCase):
     def test_home_shows_backup_notice(self):
         self.assertContains(self.client.get("/"), "バックアップがまだありません")
+
+
+class ProductMemberConfirmedImportTests(TableScreenshotTests):
+    def test_confirmed_sheet_goes_to_houmon_denki_for_product_member(self):
+        from apps.payroll.models import PayrollItemDefinition, Product
+
+        PayrollItemDefinition.objects.get(code="sales_commission").excluded_members.add(self.a)
+        PayrollItemDefinition.objects.get(code="product_houmon_denki").members.add(self.a)
+        text = "営業\t合計\n大石一郎\t119\n吉野健太\t30\n月合計\t149"
+        self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "text": text})
+        plan = self.client.session["counts_import"]
+        data = {"step": "apply"}
+        for r in plan["rows"]:
+            data[f"count_{r['i']}"] = r["count"]
+            data[f"member_{r['i']}"] = r["member_id"]
+        self.client.post("/payroll/counts/?month=2026-11", data)
+        houmon = Product.objects.get(code="houmon_denki")
+        self.assertEqual(SalesCount.objects.get(member=self.a, month=NOV, kind="confirmed", product=houmon).count, 119)
+        self.assertFalse(SalesCount.objects.filter(member=self.a, month=NOV, kind="confirmed", product__isnull=True).exists())
+        self.assertEqual(SalesCount.objects.get(member=self.b, month=NOV, kind="confirmed", product__isnull=True).count, 30)

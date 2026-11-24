@@ -419,6 +419,9 @@ def review(request):
                             "auto": None if not bi or bi.auto_value is None else f"{bi.auto_value.normalize():f}"})
     unit_inp = inp.get(PayrollInput.Key.UNIT_PRICE)
     return render(request, "payroll/review.html", {
+        # 商品別の人は全部の商品、それ以外の人は件数が入っている商品（都市ガスなど）だけ出す。ほかは「追加」から
+        "shown_products": [x for x in products if x["personal"] or calc.is_product_member(cur.member) or x["count"] is not None],
+        "addable_products": [x for x in products if not (x["personal"] or calc.is_product_member(cur.member) or x["count"] is not None)],
         "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
         "blocks": confirm_checks(cur)[0] if not cur.is_confirmed else [], "cautions": confirm_checks(cur)[1] if not cur.is_confirmed else [],
         # 入力欄はふだん閉じておき、足りない数字がある時だけ開く
@@ -1126,8 +1129,10 @@ def sales(request):
         rows.append({
             "member": m, "att": att, "acq": val(SalesCount.Kind.ACQUIRED), "conf": val(SalesCount.Kind.CONFIRMED),
             "payroll": payroll, "product_based": bool(own),
-            "products": [(p, val(SalesCount.Kind.CONFIRMED, p)) for p in own],
-            "common": [(p, val(SalesCount.Kind.CONFIRMED, p), p not in own) for p in common_products] if payroll else [],
+            # 商品別の人は全部の商品（全員共通の都市ガスなども含む）、それ以外の人は件数が入っている都市ガスなどだけ
+            "products": [(p, val(SalesCount.Kind.CONFIRMED, p)) for p in own + ([c for c in common_products if c not in own] if own else [])],
+            "common_with_count": [(p, val(SalesCount.Kind.CONFIRMED, p)) for p in common_products
+                                  if not own and val(SalesCount.Kind.CONFIRMED, p) != ""] if payroll else [],
         })
     return render(request, "payroll/sales.html", {
         **month_context(month), "prev": pm, "rows": rows, "common_products": common_products,
@@ -1266,6 +1271,20 @@ def _resolve_year(month_no: int, base: date) -> date:
     y = base.year if month_no <= base.month else base.year - 1
     return date(y, month_no, 1)
 
+
+
+CONFIRMED_SHEET_PRODUCT = "houmon_denki"  # 入金確定シートの件数は「訪問電気」の件数
+
+
+def confirmed_product_for(member, month):
+    """商品別に報酬を計算する人なら、入金確定シートの件数を入れる商品（訪問電気）。それ以外は None（通常の入金確定件数）。"""
+    if not calc.is_product_member(member):
+        return None
+    personal, common = _product_members(month)
+    for p in personal.get(member.pk, []) + common:
+        if p.code == CONFIRMED_SHEET_PRODUCT:
+            return p
+    return None
 
 
 def _known_names():
@@ -1464,14 +1483,16 @@ def counts_import(request):
                     from apps.members.models import MemberAlias
 
                     MemberAlias.objects.get_or_create(member=m, alias=r["name"], defaults={"note": "営業件数の資料の表記"})
-                row = SalesCount.objects.filter(member=m, month=target, kind=kind, product__isnull=True).first()
+                # 商品別に計算する人（堀田さんなど）の入金確定件数は、入金確定シートの数＝訪問電気の件数として入れる
+                product = confirmed_product_for(m, target) if kind == SalesCount.Kind.CONFIRMED else None
+                row = SalesCount.objects.filter(member=m, month=target, kind=kind, product=product).first()
                 before = row.count if row else None
                 if row:
                     row.count, row.source, row.updated_by = count, SalesCount.Source.IMAGE, request.user
                     row.save()
                 else:
-                    SalesCount.objects.create(member=m, month=target, kind=kind, count=count, source=SalesCount.Source.IMAGE,
-                                              updated_by=request.user)
+                    SalesCount.objects.create(member=m, month=target, kind=kind, product=product, count=count,
+                                              source=SalesCount.Source.IMAGE, updated_by=request.user)
                 if before != count:
                     label = SalesCount.Kind(kind).label
                     audit.log("payroll.sales_count", target=m, before={"count": before}, after={"month": target, "kind": label, "count": count},

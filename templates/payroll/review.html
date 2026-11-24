@@ -72,14 +72,20 @@
       </form>
     </details>
     {% endif %}
-    {% if products and not st.is_confirmed %}
+    {% if shown_products or addable_products %}{% if not st.is_confirmed %}
     <details class="card fold" {% if open_products %}open{% endif %}>
       <summary class="card-title">商品別の件数{% if is_product_member %}（プロパン・都市ガスなど）{% else %}（都市ガスなど）{% endif %}</summary>
       <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="products">
-        <div class="prod-grid">
-          {% for x in products %}<label class="prod"><span>{{ x.p.name }}</span>
-            <div class="yen"><input name="count_{{ x.p.pk }}" value="{{ x.count|default_if_none:'' }}" inputmode="numeric"><em>件</em></div></label>{% endfor %}
-        </div>
+        <ul class="prod-list">
+          {% for x in shown_products %}<li><label for="pc{{ x.p.pk }}">{{ x.p.name }}{% if x.p.code == "houmon_denki" and is_product_member %}<small>入金確定シートの件数</small>{% endif %}</label>
+            <div class="yen"><input id="pc{{ x.p.pk }}" name="count_{{ x.p.pk }}" value="{{ x.count|default_if_none:'' }}" inputmode="numeric"><em>件</em></div></li>{% endfor %}
+        </ul>
+        {% if addable_products %}
+        <details class="prod-add"><summary>＋ {% for x in addable_products %}{{ x.p.name }}{% if not forloop.last %}・{% endif %}{% endfor %}を追加</summary>
+          <ul class="prod-list">{% for x in addable_products %}<li><label for="pc{{ x.p.pk }}">{{ x.p.name }}</label>
+            <div class="yen"><input id="pc{{ x.p.pk }}" name="count_{{ x.p.pk }}" value="" inputmode="numeric"><em>件</em></div></li>{% endfor %}</ul>
+        </details>
+        {% endif %}{% endif %}
         <button class="btn btn-primary" type="submit">保存して計算</button>
       </form>
     </details>

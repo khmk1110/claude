@@ -7,22 +7,23 @@
 
 <form method="post">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
 <div class="table-wrap"><table class="table counts-table">
-  <thead><tr><th>名前</th><th class="num">{{ prev|date:"n月" }}出勤<div class="small muted">シフトから</div></th><th class="num">{{ prev|date:"n月" }}獲得</th><th class="num">{{ month|date:"n月" }}入金確定</th>
-    {% for p in common_products %}<th class="num">{{ p.name }}</th>{% endfor %}</tr></thead>
+  <thead><tr><th>名前</th><th class="num">{{ prev|date:"n月" }}出勤<div class="small muted">シフトから</div></th><th class="num">{{ prev|date:"n月" }}獲得</th><th class="num">{{ month|date:"n月" }}入金確定</th></tr></thead>
   <tbody>
   {% for r in rows %}
   <tr><td class="strong nowrap">{{ r.member.name }}{% if not r.payroll %}<div class="small muted">正社員</div>{% endif %}</td>
     <td class="num">{{ r.att|default_if_none:"-" }}</td>
     <td class="num"><input name="acq_{{ r.member.pk }}" value="{{ r.acq }}" inputmode="numeric"></td>
-    <td class="num">{% if not r.payroll %}<span class="muted">-</span>{% elif r.product_based %}<span class="small muted">下の商品別</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric">{% endif %}</td>
-    {% for p, v, editable in r.common %}<td class="num">{% if editable %}<input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric">{% endif %}</td>{% endfor %}
+    <td class="num">{% if not r.payroll %}<span class="muted">-</span>{% elif r.product_based %}<span class="small muted">下の商品別へ</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric">{% endif %}</td>
   </tr>
-  {% if r.product_based %}<tr class="sub"><td colspan="{{ common_products|length|add:4 }}">
-    <span class="small muted">{{ r.member.name }}さんの商品別</span>
-    <div class="prod-inline">{% for p, v in r.products %}<label>{{ p.name }}<input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric"></label>{% endfor %}</div></td></tr>{% endif %}
+  {% if r.product_based or r.common_with_count %}<tr class="sub"><td colspan="4">
+    <ul class="prod-list" style="margin:2px 0">
+      {% for p, v in r.products %}<li><label>{{ p.name }}{% if p.code == "houmon_denki" %}<small>入金確定シートの件数</small>{% endif %}</label><div class="yen"><input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric"><em>件</em></div></li>{% endfor %}
+      {% for p, v in r.common_with_count %}<li><label>{{ p.name }}</label><div class="yen"><input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric"><em>件</em></div></li>{% endfor %}
+    </ul></td></tr>{% endif %}
   {% empty %}<tr><td colspan="4" class="muted">対象のメンバーがいません。</td></tr>{% endfor %}
   </tbody>
 </table></div>
+<p class="small muted">都市ガスなどを付ける人は「1人ずつ確認」の「商品別の件数」から追加できます。</p>
 <div class="review-bar"><span></span><button class="btn btn-primary" type="submit">保存して計算</button><span></span></div>
 </form>
 {% endblock %}
