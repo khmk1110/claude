@@ -656,7 +656,12 @@ details.step.done:not([open]){padding-top:10px;padding-bottom:10px}
 .wiz-people .a{font-weight:700;font-variant-numeric:tabular-nums}
 .wiz-people .chev{color:var(--muted)}
 .wiz-done{background:var(--ok-weak);color:var(--ok);font-weight:700;border-radius:12px;padding:16px;text-align:center}
-.wiz-bar{position:sticky;bottom:0;z-index:6;display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);padding:10px 0}
+.wiz-bar{position:fixed;left:var(--sidebar);right:0;bottom:0;z-index:12;display:flex;justify-content:space-between;align-items:center;gap:10px;
+  background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -2px 10px rgba(16,24,40,.06);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.wiz-bar-space{height:84px}
+@media (max-width: 960px){
+  .wiz-bar{left:0;bottom:calc(58px + env(safe-area-inset-bottom));padding-bottom:10px}
+}
 .wiz-bar form{margin:0}
 .btn-next{font-weight:700;min-height:46px;padding:0 18px;border-radius:12px}
 .btn-next.is-go{background:var(--primary);color:#fff;border-color:var(--primary)}

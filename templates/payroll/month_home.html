@@ -77,7 +77,8 @@
 {% endif %}
 </section>
 
-{# 下のボタン：戻る・次へ（いつも同じ場所） #}
+<div class="wiz-bar-space"></div>
+{# 下のボタン：戻る・次へ（いつも画面の下の同じ場所） #}
 <div class="wiz-bar">
   {% if step > 1 %}<a class="btn" href="?month={{ month_param }}&step={{ step|add:-1 }}">‹ 戻る</a>{% else %}<span></span>{% endif %}
   {% if step == 3 %}
