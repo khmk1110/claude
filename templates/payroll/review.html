@@ -60,14 +60,17 @@
   <div class="review-side">
     {% if not st.is_confirmed %}
     <details class="card fold" {% if open_base %}open{% endif %}>
-      <summary class="card-title">計算のもとの数字（前月の出勤・獲得、入金確定）</summary>
+      <summary class="card-title">計算のもとの数字・単価{% if unit_price is not None %}（単価 {{ unit_price|floatformat:0|intcomma }}円）{% endif %}</summary>
       <p class="small muted" style="margin-top:-4px">入れると単価と金額を自動で計算します。金額を直接直す時は、明細の「金額を直す」から。</p>
       <form method="post" action="{% url 'payroll:review_action' st.pk %}">{% csrf_token %}<input type="hidden" name="action" value="base">
         <div class="prod-grid">
           {% for b in base_inputs %}<label class="prod"><span>{{ b.label }}{% if b.overridden %} <span class="chip chip-open">手入力</span>{% endif %}</span>
             <div class="yen"><input name="{{ b.key }}" value="{{ b.value }}" inputmode="decimal" {% if b.auto %}placeholder="{{ b.auto }}"{% endif %}><em>{% if "days" in b.key %}日{% else %}件{% endif %}</em></div></label>{% endfor %}
         </div>
-        <p class="small">単価 <b>{% if unit_price is not None %}{{ unit_price|floatformat:0|intcomma }}円{% else %}未定（出勤日数と獲得件数を入れてください）{% endif %}</b></p>
+        <label class="prod unit-field"><span>単価{% if unit_override is not None %} <span class="chip chip-open">手入力</span>{% endif %}</span>
+          <div class="yen"><input name="unit_price" value="{% if unit_override is not None %}{{ unit_override|floatformat:0 }}{% endif %}" inputmode="numeric"
+            placeholder="{% if unit_auto is not None %}{{ unit_auto|floatformat:0 }}{% else %}自動{% endif %}"><em>円</em></div></label>
+        <p class="small muted">{% if unit_override is not None %}この月だけ手入力の単価です（自動なら {% if unit_auto is not None %}{{ unit_auto|floatformat:0|intcomma }}円{% else %}未定{% endif %}）。空にすると自動に戻ります。{% else %}空欄＝出勤日数と獲得件数から自動。この月だけ変える時は数字を入れる。{% endif %}</p>
         <button class="btn btn-primary" type="submit">保存して計算</button>
       </form>
     </details>

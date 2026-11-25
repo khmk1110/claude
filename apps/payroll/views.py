@@ -481,6 +481,8 @@ def review(request):
         "shown_products": [x for x in products if x["personal"] or calc.is_product_member(cur.member) or x["count"] is not None],
         "addable_products": [x for x in products if not (x["personal"] or calc.is_product_member(cur.member) or x["count"] is not None)],
         "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
+        "unit_auto": unit_inp.auto_value if unit_inp else None,
+        "unit_override": unit_inp.override_value if unit_inp else None,
         "blocks": confirm_checks(cur)[0] if not cur.is_confirmed else [], "cautions": confirm_checks(cur)[1] if not cur.is_confirmed else [],
         # 入力欄はふだん閉じておき、足りない数字がある時だけ開く
         "open_base": any(("前月" in e or "入金確定件数" in e or "単価" in e) for e in errors),
@@ -565,6 +567,19 @@ def review_action(request, pk):
                     new_override = None if value is None or value == auto else value
                     if (cur_inp.override_value if cur_inp else None) != new_override:
                         calc.set_input_override(st, key, new_override, reason="1人ずつ確認で入力" if new_override is not None else "", user=user)
+                # 単価：空欄なら単価表の自動単価。数字を入れたらこの月だけその単価（出勤日数・獲得件数はそのまま）
+                key = PayrollInput.Key.UNIT_PRICE
+                if key in p:
+                    raw = p.get(key, "").replace(",", "").replace("円", "").strip()
+                    value = _int_or_none(raw) if raw else None
+                    if raw and (value is None or value < 0):
+                        raise ValueError("単価は数字で入れてください。")
+                    cur_inp = st.inputs.filter(key=key).first()
+                    auto = cur_inp.auto_value if cur_inp else None
+                    new_override = None if value is None or (auto is not None and value == auto) else value
+                    if (cur_inp.override_value if cur_inp else None) != new_override:
+                        calc.set_input_override(st, key, new_override, user=user,
+                                                reason="この月の事情で単価を手入力" if new_override is not None else "")
                 st.refresh_from_db()
                 calc.calculate(st, user=user, log=False)
                 messages.success(request, "保存して計算し直しました。")
@@ -1241,6 +1256,8 @@ def sales(request):
 
     rows = []
     tables: dict = {}
+    unit_overrides = dict(PayrollInput.objects.filter(statement__month=month, key=PayrollInput.Key.UNIT_PRICE,
+                                                      override_value__isnull=False).values_list("statement__member_id", "override_value"))
     for m in members:
         def val(kind, product=None):
             row = existing.get((m.pk, kind, product.pk if product else None))
@@ -1260,8 +1277,12 @@ def sales(request):
                     unit = table.lookup(att, acq_val)
                 except ValueError:
                     unit = None
+        manual_unit = unit_overrides.get(m.pk)
+        if manual_unit is not None:
+            unit = int(manual_unit)  # 1人ずつ確認で手入力した単価を優先
         rows.append({
             "member": m, "att": att, "acq": val(SalesCount.Kind.ACQUIRED), "conf": val(SalesCount.Kind.CONFIRMED), "unit": unit,
+            "unit_manual": manual_unit is not None,
             "payroll": payroll, "product_based": bool(own),
             # 商品別の人は全部の商品（全員共通の都市ガスなども含む）、それ以外の人は件数が入っている都市ガスなどだけ
             "products": [(p, val(SalesCount.Kind.CONFIRMED, p)) for p in own + ([c for c in common_products if c not in own] if own else [])],

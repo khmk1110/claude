@@ -12,7 +12,7 @@
   <tbody>
   {% for r in rows %}
   <tr><td class="strong nowrap">{{ r.member.name }}{% if r.member.status != "active" %} <span class="chip">退職</span>{% endif %}
-      {% if not r.payroll %}<div class="small muted">正社員</div>{% elif r.unit %}<div class="small muted unit-hint">単価 <b>{{ r.unit|intcomma }}円</b>{% if r.conf and not r.product_based %} × {{ r.conf }}件 = {{ r.unit|mul:r.conf|intcomma }}円{% endif %}</div>{% else %}<div class="small muted unit-hint">単価 -（出勤・獲得を入れると出ます）</div>{% endif %}</td>
+      {% if not r.payroll %}<div class="small muted">正社員</div>{% elif r.unit %}<div class="small muted unit-hint">単価 <b>{{ r.unit|intcomma }}円</b>{% if r.unit_manual %}（手入力）{% endif %}{% if r.conf and not r.product_based %} × {{ r.conf }}件 = {{ r.unit|mul:r.conf|intcomma }}円{% endif %}</div>{% else %}<div class="small muted unit-hint">単価 -（出勤・獲得を入れると出ます）</div>{% endif %}</td>
     <td class="num">{{ r.att|default_if_none:"-" }}</td>
     <td class="num"><input name="acq_{{ r.member.pk }}" value="{{ r.acq }}" inputmode="numeric"></td>
     <td class="num">{% if not r.payroll %}<span class="muted">-</span>{% elif r.product_based %}<span class="small muted">下の商品別へ</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric">{% endif %}</td>

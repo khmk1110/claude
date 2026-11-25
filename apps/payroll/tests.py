@@ -1157,3 +1157,26 @@ class PropaneDenkiTests(TableScreenshotTests):
         st = PayrollStatement.objects.get(member=self.a, month=NOV)
         h, p = st.lines.get(code="product_houmon_denki"), st.lines.get(code="product_propane_denki")
         self.assertEqual(h.amount // 4, p.amount // 3)  # 単価は訪問電気と同じ
+
+
+class UnitPriceOverrideTests(TableScreenshotTests):
+    def test_manual_unit_price_keeps_days_and_counts(self):
+        from .models import PayrollInput
+
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        days_before = st.inputs.get(key="prev_attendance_days").value
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "base", "unit_price": "7,777"})
+        st.refresh_from_db()
+        unit = st.inputs.get(key="unit_price")
+        self.assertEqual(int(unit.value), 7777)
+        self.assertEqual(st.inputs.get(key="prev_attendance_days").value, days_before)  # 出勤日数はそのまま
+        line = st.lines.get(code="sales_commission")
+        if line.quantity:
+            self.assertEqual(line.unit_price, 7777)
+        # 全員を計算し直しても手入力の単価は残る
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        self.assertEqual(int(PayrollInput.objects.get(statement=st, key="unit_price").value), 7777)
+        # 空にすると自動に戻る
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "base", "unit_price": ""})
+        self.assertIsNone(PayrollInput.objects.get(statement=st, key="unit_price").override_value)
