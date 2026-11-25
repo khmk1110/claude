@@ -21,6 +21,12 @@
     <button class="btn" type="submit">毎月の支払いを入れる（{{ monthly_missing|length }}件）</button></form>{% endif %}
 </div>
 
+<details class="more" style="margin:0 0 14px"><summary>📝 文で入れる（口頭・LINEで言われた支払い）</summary>
+  <form method="post" action="{% url 'payments:text_import' %}?month={{ month_param }}" style="margin-top:8px">{% csrf_token %}
+    <textarea name="text" rows="6" style="width:100%" placeholder="1行に1件。「支払い済」と書くと支払い済みで入ります&#10;家賃 30,000円 支払い済&#10;熊沢給与 70000&#10;返済 30万"></textarea>
+    <div class="form-row"><button class="btn btn-primary" type="submit">取り込む</button></div>
+  </form>
+</details>
 {% if drafts %}
 <h2>確認待ち <span class="chip chip-warn">{{ drafts|length }}</span></h2>
 {% if retry_count %}<form method="post" action="{% url 'payments:reread_all' %}?month={{ month_param }}" style="margin-bottom:8px">{% csrf_token %}

@@ -12,6 +12,12 @@
   <a class="btn" href="{% url 'payments:sales_bulk' %}?month={{ month_param }}">✎ まとめて直す</a>
   {% if totals.unreceived %}<span class="chip chip-warn">未入金 {{ totals.unreceived|intcomma }}円</span>{% endif %}</div>
 
+<details class="more" style="margin:0 0 14px"><summary>📝 文で入れる</summary>
+  <form method="post" action="{% url 'payments:sales_text_import' %}?month={{ month_param }}" style="margin-top:8px">{% csrf_token %}
+    <textarea name="text" rows="5" style="width:100%" placeholder="1行に1件。「入金済」と書くと入金済みで入ります&#10;(株)〇〇 668,736円 入金済&#10;〇〇株式会社 146000"></textarea>
+    <div class="form-row"><button class="btn btn-primary" type="submit">取り込む</button></div>
+  </form>
+</details>
 {% if drafts %}
 <h2>確認待ち <span class="chip chip-warn">{{ drafts|length }}</span></h2>
 {% if processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>

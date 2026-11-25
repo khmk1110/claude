@@ -253,3 +253,31 @@ class BulkEditTests(TestCase):
         self.client.post("/payments/sales/bulk/?month=2026-11", {f"name_{s.pk}": "サンプル電力", f"amount_{s.pk}": "668,736", f"due_{s.pk}": ""})
         s.refresh_from_db()
         self.assertEqual((s.client, s.state), ("サンプル電力", "ok"))
+
+
+class TextImportAndStatementTests(TestCase):
+    def setUp(self):
+        stepup.set_password("payroll", "pay-pass")
+        self.client.post("/stepup/payroll/", {"password": "pay-pass", "next": "/payments/"})
+
+    def test_parse_lines(self):
+        rows = invoice.parse_text_lines("事務所家賃 105,500円 支払い済\n税金 100,000円\n返済 30万円\n家賃 3万5000\nメモだけ")
+        self.assertEqual([(r.name, r.amount, r.done) for r in rows],
+                         [("事務所家賃", 105500, True), ("税金", 100000, False), ("返済", 300000, False), ("家賃", 35000, False)])
+        self.assertEqual(rows[0].category, "家賃")
+
+    def test_text_import_and_statement_includes_payroll(self):
+        from apps.members.models import Member
+        from apps.payroll.models import PayrollStatement
+
+        self.client.post("/payments/text/?month=2026-11", {"text": "事務所家賃 30,000円 支払い済\n税金 100000"})
+        self.assertEqual({p.payee_name: p.status for p in Payment.objects.all()}, {"事務所家賃": "paid", "税金": "unpaid"})
+        self.client.post("/payments/sales/text/?month=2026-11", {"text": "架空商事 500,000円 入金済"})
+        self.assertTrue(Sale.objects.get().received)
+        m = Member.objects.create(name="大石 一郎", employment_type="contractor")
+        st = PayrollStatement.objects.create(member=m, month=NOV, employment_type="contractor")
+        PayrollStatement.objects.filter(pk=st.pk).update(status="confirmed", net_amount=200000, snapshot={"lines": []})
+        page = self.client.get("/payments/list/?month=2026-11")
+        self.assertContains(page, "個人事業主・インターン給与")
+        self.assertContains(page, "330,000円")   # 支出 = 30,000 + 100,000 + 給与 200,000
+        self.assertContains(page, "170,000円")   # 差引 = 500,000 − 330,000

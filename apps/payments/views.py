@@ -620,3 +620,55 @@ def sales_bulk_edit(request):
         return redirect(f"/payments/sales/bulk/?month={month:%Y-%m}" if errors else f"/payments/sales/?month={month:%Y-%m}")
     clients = sorted(set(Sale.objects.exclude(client="").values_list("client", flat=True)))
     return render(request, "payments/bulk.html", {**month_context(month), "items": items, "clients": clients, "kind": "sale"})
+
+
+@payments_view
+@require_POST
+def text_import(request):
+    """口頭・LINEで言われた支払い（「家賃 30,000円 支払い済」など）を、1行1件で取り込む。"""
+    month = month_from_request(request)
+    lines = invoice.parse_text_lines(request.POST.get("text", ""))
+    if not lines:
+        messages.error(request, "「名前 金額」の行が見つかりませんでした（例：家賃 30,000円 支払い済）。")
+        return _back(month)
+    with transaction.atomic():
+        for t in lines:
+            payee = Payee.objects.filter(name=t.name).first()
+            cat = t.category or (payee.category if payee else "")
+            p = Payment.objects.create(month=month, payee_name=t.name, amount=t.amount, category=cat,
+                                       bank=payee.bank if payee else "", payee=_save_payee(t.name, cat, ""),
+                                       status=P.PAID if t.done else P.UNPAID, paid_at=timezone.now() if t.done else None,
+                                       paid_by=request.user if t.done else None, created_by=request.user, memo="文で入力")
+            audit.log("payments.text_import", target=p, after={"支払先": p.payee_name, "金額": p.amount, "状態": p.get_status_display()},
+                      user=request.user)
+    messages.success(request, f"{len(lines)}件を入れました。違う所は「まとめて直す」で直せます。")
+    return _back(month)
+
+
+@payments_view
+@require_POST
+def sales_text_import(request):
+    month = month_from_request(request)
+    lines = invoice.parse_text_lines(request.POST.get("text", ""))
+    if not lines:
+        messages.error(request, "「取引先 金額」の行が見つかりませんでした（例：〇〇株式会社 146,000円 入金済）。")
+        return redirect(f"/payments/sales/?month={month:%Y-%m}")
+    with transaction.atomic():
+        for t in lines:
+            x = Sale.objects.create(month=month, client=t.name, amount=t.amount, received=t.done,
+                                    received_at=timezone.now() if t.done else None, memo="文で入力", created_by=request.user)
+            audit.log("payments.sale_text_import", target=x, after={"取引先": x.client, "金額": x.amount}, user=request.user)
+    messages.success(request, f"{len(lines)}件を入れました。")
+    return redirect(f"/payments/sales/?month={month:%Y-%m}")
+
+
+@payments_view
+def statement(request):
+    """収支表：その月の売上と支出の一覧（スプレッドシートと同じ形）。支出には給与の確定額を自動で入れる。"""
+    month = month_from_request(request)
+    sales = list(Sale.objects.filter(month=month, state=Sale.State.OK).order_by("id"))
+    pays = list(Payment.objects.filter(month=month, status__in=[P.UNPAID, P.PAID]).order_by("id"))
+    pr = payroll_row(month)
+    return render(request, "payments/statement.html", {
+        **month_context(month), "tab": "list", "totals": month_totals(month), "sales": sales, "pays": pays, "pr": pr,
+    })

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}収支表{% endblock %}
+{% block topbar %}会社の支払い・売上{% endblock %}
+{% block content %}
+{% include "payments/_head.html" %}
+<div class="ledger">
+  <section class="card">
+    <div class="ledger-head"><b>売上</b><span>{{ totals.sales|intcomma }}円</span></div>
+    <ul class="ledger-list">
+      {% for x in sales %}<li><a href="{% url 'payments:sale_edit' x.pk %}">{{ x.client }}</a><span class="amt">{{ x.amount|default:0|intcomma }}</span>
+        <span class="st {% if x.received %}ok{% endif %}">{% if x.received %}入金済{% else %}未入金{% endif %}</span></li>
+      {% empty %}<li class="muted">まだありません</li>{% endfor %}
+    </ul>
+    <a class="small" href="{% url 'payments:sales' %}?month={{ month_param }}">＋ 売上を入れる</a>
+  </section>
+  <section class="card">
+    <div class="ledger-head"><b>支出</b><span>{{ totals.payments|intcomma }}円</span></div>
+    <ul class="ledger-list">
+      {% if pr %}<li class="auto"><a href="{% url 'payroll:transfers' %}?month={{ month_param }}">個人事業主・インターン給与 <span class="chip">自動</span></a><span class="amt">{{ pr.amount|intcomma }}</span>
+        <span class="st {% if pr.paid %}ok{% endif %}">{% if pr.paid %}支払い済{% else %}振込 {{ pr.paid_count }}/{{ pr.count }}{% endif %}</span></li>{% endif %}
+      {% for p in pays %}<li><a href="{% url 'payments:edit' p.pk %}">{{ p.payee_name }}{% if p.category %} <small class="muted">{{ p.category }}</small>{% endif %}</a><span class="amt">{{ p.amount|default:0|intcomma }}</span>
+        <span class="st {% if p.status == 'paid' %}ok{% endif %}">{% if p.status == 'paid' %}支払い済{% else %}未払い{% endif %}</span></li>
+      {% empty %}{% if not pr %}<li class="muted">まだありません</li>{% endif %}{% endfor %}
+    </ul>
+    <a class="small" href="{% url 'payments:index' %}?month={{ month_param }}">＋ 支払いを入れる</a>
+  </section>
+</div>
+<div class="ledger-diff {% if totals.diff < 0 %}neg{% endif %}"><span>差引収支</span><b>{{ totals.diff|intcomma }}円</b></div>
+{% endblock %}

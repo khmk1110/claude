@@ -276,3 +276,50 @@ def guess_sale(text: str, *, own_company: str = "", known_clients: list[str] | N
                 g.payee = re.sub(r"(TEL|電話|〒|住所|登録番号).*$", "", l)[:60].strip()
                 break
     return g
+
+
+@dataclass
+class TextLine:
+    name: str
+    amount: int
+    done: bool = False      # 支払い済み・入金済み
+    category: str = ""
+    line: str = ""
+
+
+def _category_from_name(name: str) -> str:
+    for word, cat in (("家賃", "家賃"), ("給与", "給与"), ("給料", "給与"), ("税", "税金"), ("返済", "返済"), ("広告", "広告"),
+                      ("委託", "外注・業務委託"), ("外注", "外注・業務委託")):
+        if word in name:
+            return cat
+    return ""
+
+
+def parse_text_lines(text: str) -> list[TextLine]:
+    """「まろくん宅家賃 105,500円 支払い済」「家賃 3万」「(株)adbuys：165000」のような1行1件の文を読む。"""
+    out = []
+    for raw in (text or "").splitlines():
+        line = nfkc(raw).strip().strip("・-*●")
+        if not line:
+            continue
+        # 「返済」の「済」は状況ではないので、「支払い済」「済」（単独）などの時だけ済みにする
+        status = r"(支払い?済み?|払い?済み?|振込済み?|入金済み?|払った|入金あり|(?<=[\s　:：])済み?(?=\s|$)|^済み?(?=\s|$))"
+        done = bool(re.search(status, line))
+        body = re.sub(status + r"|未払い?|未入金", " ", line)
+        m = None
+        for m in re.finditer(r"(\d+(?:\.\d+)?)\s*万(\d{1,4})?|[¥￥]?(\d{1,3}(?:,\d{3})+|\d+)\s*円?", body):
+            pass  # 行の最後の金額を使う
+        if not m:
+            continue
+        if m.group(1):
+            amount = int(round(float(m.group(1)) * 10000)) + (int(m.group(2)) if m.group(2) else 0)
+        else:
+            amount = int(m.group(3).replace(",", ""))
+        name = body[:m.start()].strip(" :：、,=＝-")
+        if not name:
+            name = body[m.end():].strip(" :：、,=＝-")
+        name = re.sub(r"\s+", " ", name)[:200]
+        if not name or amount <= 0:
+            continue
+        out.append(TextLine(name=name, amount=amount, done=done, category=_category_from_name(name), line=raw.strip()))
+    return out
