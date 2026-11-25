@@ -299,3 +299,53 @@ class TransportReimportTests(TestCase):
         again = importer.import_file(data, "inv.png", kind="transport", target_month=_d(2026, 11, 1))  # 重複でも読み直す
         self.assertEqual(again.pk, sf.pk)
         self.assertEqual(again.records.count(), 2)
+
+
+@override_settings(OCR_IN_BACKGROUND=True)
+class StuckProcessingRecoveryTests(TestCase):
+    """サーバーの再起動などで裏の読み取りが消えても、「読み取り中」のまま止まらない。"""
+
+    def _sf(self, minutes_ago):
+        from datetime import timedelta
+        from unittest import mock
+
+        from django.utils import timezone
+
+        sf = SourceFile.objects.create(original_name="t.jpg", sha256=f"x{minutes_ago}", size=1, file_format="image",
+                                       document_kind="transport", status="processing",
+                                       processing_started_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return sf, mock
+
+    def test_lost_job_is_requeued(self):
+        sf, mock = self._sf(1)
+        with mock.patch.object(importer, "_start_background") as start:
+            importer.recover_processing()
+        start.assert_called_once_with(sf.pk)
+
+    def test_queued_job_is_left_alone(self):
+        from apps.core import jobs
+
+        sf, mock = self._sf(1)
+        with mock.patch.object(jobs, "is_queued", return_value=True), mock.patch.object(importer, "_start_background") as start:
+            importer.recover_processing()
+        start.assert_not_called()
+
+    def test_too_old_becomes_error_with_retry(self):
+        sf, _ = self._sf(30)
+        importer.recover_processing()
+        sf.refresh_from_db()
+        self.assertEqual(sf.status, "error")
+        self.assertIn("もう一度読み取る", sf.error_message)
+
+    def test_jobs_run_one_at_a_time_and_dedupe(self):
+        import threading
+
+        from apps.core import jobs
+
+        done = threading.Event()
+        gate = threading.Event()
+        self.assertTrue(jobs.submit(("t", 1), lambda: (gate.wait(5), done.set())))
+        self.assertFalse(jobs.submit(("t", 1), lambda: None))
+        self.assertTrue(jobs.is_queued(("t", 1)))
+        gate.set()
+        self.assertTrue(done.wait(5))

@@ -6,13 +6,10 @@
 from __future__ import annotations
 
 import hashlib
-import queue
 import re
-import threading
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db import close_old_connections
 from django.utils import timezone
 
 from apps.core import audit
@@ -20,11 +17,6 @@ from apps.core import audit
 from .models import DocumentKind, ExpenseIssue, ExpenseRecord, SourceFile
 
 RECEIPT_KEYS = ("合計", "お会計", "御会計", "お買上計", "お買上げ計", "領収金額", "ご請求額", "お支払い", "お支払金額", "現計", "計")
-
-_jobs: "queue.Queue" = queue.Queue()
-_lock = threading.Lock()
-_worker = None
-
 
 def _read(sf_id: int) -> None:
     from apps.payments import invoice
@@ -63,29 +55,13 @@ def _read(sf_id: int) -> None:
         ExpenseIssue.objects.create(record=rec, source_file=sf, code=ExpenseIssue.Code.LOW_CONFIDENCE, message="金額を入れてください。")
 
 
-def _loop():
-    while True:
-        sf_id = _jobs.get()
-        close_old_connections()
-        try:
-            _read(sf_id)
-        except Exception:  # noqa: BLE001
-            pass
-        finally:
-            close_old_connections()
-            _jobs.task_done()
-
-
 def enqueue(sf_id: int) -> None:
-    global _worker
     if not getattr(settings, "OCR_IN_BACKGROUND", True):
         _read(sf_id)
         return
-    with _lock:
-        if _worker is None or not _worker.is_alive():
-            _worker = threading.Thread(target=_loop, daemon=True, name="receipt-reader")
-            _worker.start()
-    _jobs.put(sf_id)
+    from apps.core import jobs
+
+    jobs.submit(("receipt", sf_id), _read, sf_id)
 
 
 def add_receipts(files, *, member, category, month, user) -> tuple[int, list[str]]:
@@ -101,7 +77,7 @@ def add_receipts(files, *, member, category, month, user) -> tuple[int, list[str
         fmt = SourceFile.Format.PDF if ext == "pdf" else SourceFile.Format.IMAGE
         sf = SourceFile(original_name=f.name[:255], sha256=sha, size=len(data), file_format=fmt, uploaded_by=user,
                         target_month=month, document_kind=DocumentKind.OTHER_EXPENSE, document_kind_auto=DocumentKind.OTHER_EXPENSE,
-                        status=SourceFile.Status.PROCESSING, row_count=1)
+                        status=SourceFile.Status.PROCESSING, processing_started_at=timezone.now(), row_count=1)
         sf.file.save(f"{sha[:16]}.{ext}", ContentFile(data), save=False)
         sf.save()
         rec = ExpenseRecord(source_file=sf, row_number=1, member=member, category=category, auto_category=category,

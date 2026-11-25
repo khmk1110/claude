@@ -73,7 +73,7 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
     if existing:
         audit.log("expenses.duplicate_file", target=existing, after={"filename": filename}, user=user)
         wrong_kind = kind in DocumentKind.values and kind != DocumentKind.UNKNOWN and existing.document_kind != kind
-        stuck = existing.status == SourceFile.Status.PROCESSING and existing.uploaded_at < timezone.now() - timedelta(minutes=10)
+        stuck = existing.status == SourceFile.Status.PROCESSING and (existing.processing_started_at or existing.uploaded_at) < timezone.now() - timedelta(minutes=3)
         failed = stuck or existing.status == SourceFile.Status.ERROR or (existing.status == SourceFile.Status.PARSED and not existing.row_count)
         locked = existing.records.exclude(status__in=[R.IMPORTED, R.UNCHECKED, R.PENDING]).exists()
         if (wrong_kind or failed) and not locked:
@@ -88,8 +88,8 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
             audit.log("expenses.reimport", target=existing, before=before,
                       after={"kind": existing.document_kind, "target_month": existing.target_month}, user=user)
             if existing.file_format in ("image", "pdf") and getattr(settings, "OCR_IN_BACKGROUND", True):
-                existing.status = SourceFile.Status.PROCESSING
-                existing.save(update_fields=["status"])
+                existing.status, existing.processing_started_at = SourceFile.Status.PROCESSING, timezone.now()
+                existing.save(update_fields=["status", "processing_started_at"])
                 transaction.on_commit(lambda: _start_background(existing.pk))
                 return existing
             process(existing, data=data, user=user)
@@ -104,8 +104,8 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
     audit.log("expenses.import", target=sf, after={"filename": filename, "format": fmt, "size": len(data)}, user=user)
     if fmt in ("image", "pdf") and getattr(settings, "OCR_IN_BACKGROUND", True):
         # 画像の読み取り（OCR）は時間がかかるため、保存後に裏で読み取る（画面は「読み取り中」と表示）
-        sf.status = SourceFile.Status.PROCESSING
-        sf.save(update_fields=["status"])
+        sf.status, sf.processing_started_at = SourceFile.Status.PROCESSING, timezone.now()
+        sf.save(update_fields=["status", "processing_started_at"])
         transaction.on_commit(lambda: _start_background(sf.pk))
         return sf
     process(sf, data=data, user=user)
@@ -113,22 +113,53 @@ def import_file(data: bytes, filename: str, *, user=None, kind: str | None = Non
 
 
 def _start_background(pk: int) -> None:
-    import threading
+    """裏で読み取る。全部の読み取りを1本の順番待ちに入れる（同時に読むと遅くなって止まるため）。"""
+    from apps.core import jobs
 
-    threading.Thread(target=_process_in_background, args=(pk,), daemon=True).start()
+    jobs.submit(("expense", pk), _process_in_background, pk)
 
 
 def _process_in_background(pk: int) -> None:
-    from django.db import close_old_connections
-
-    close_old_connections()
     try:
         sf = SourceFile.objects.get(pk=pk)
+        if sf.status != SourceFile.Status.PROCESSING:
+            return
         process(sf)
     except Exception as e:  # noqa: BLE001
         SourceFile.objects.filter(pk=pk).update(status=SourceFile.Status.ERROR, error_message=f"読み取れませんでした: {e}")
-    finally:
-        close_old_connections()
+
+
+STUCK_AFTER = timedelta(minutes=8)
+
+
+def recover_processing(files=None) -> None:
+    """「読み取り中」のまま止まったファイルを直す。
+
+    サーバーの再起動（更新・メモリ不足）で裏の読み取りが消えると、ずっと「読み取り中」のままになる。
+    画面を開いた時に、順番待ちに無いものは入れ直す。長く終わらないものは「読み取れなかった」にして、
+    もう一度読むか消すかを選べるようにする（グルグルが終わらない状態を残さない）。
+    """
+    from apps.core import jobs
+
+    if not getattr(settings, "OCR_IN_BACKGROUND", True):
+        return
+    qs = files if files is not None else SourceFile.objects.filter(status=SourceFile.Status.PROCESSING)
+    now = timezone.now()
+    for sf in qs:
+        if sf.status != SourceFile.Status.PROCESSING or jobs.is_queued(("expense", sf.pk)) or jobs.is_queued(("receipt", sf.pk)):
+            continue
+        started = sf.processing_started_at or sf.uploaded_at
+        if now - started > STUCK_AFTER:
+            SourceFile.objects.filter(pk=sf.pk, status=SourceFile.Status.PROCESSING).update(
+                status=SourceFile.Status.ERROR, error_message="読み取りが途中で止まりました。「もう一度読み取る」を押してください。")
+            sf.status = SourceFile.Status.ERROR
+            sf.error_message = "読み取りが途中で止まりました。「もう一度読み取る」を押してください。"
+        elif sf.document_kind == DocumentKind.OTHER_EXPENSE:
+            from . import receipts
+
+            receipts.enqueue(sf.pk)
+        else:
+            _start_background(sf.pk)
 
 
 def import_google_sheet(url: str, *, user=None, kind=None, target_month=None) -> SourceFile:

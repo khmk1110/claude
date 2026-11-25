@@ -151,6 +151,11 @@ def _expense_panels(month, members):
 
     files = list(SourceFile.objects.filter(target_month=month).order_by("-uploaded_at"))
     processing = [f for f in files if f.status == "processing"]
+    if processing:
+        from apps.expenses import importer as _imp
+
+        _imp.recover_processing(processing)  # 再起動などで止まった読み取りを入れ直す／長すぎるものはエラーにする
+        processing = [f for f in files if f.status == "processing"]
     errors = [f for f in files if f.status == "error"]
 
     gas_recs = _month_expense_records(month, codes={"gasoline"})

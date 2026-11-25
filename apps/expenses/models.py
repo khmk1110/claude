@@ -117,6 +117,7 @@ class SourceFile(models.Model):
     source_total = models.IntegerField("資料上の合計金額", null=True, blank=True)
     error_message = models.TextField("エラー内容", blank=True)
     uploaded_at = models.DateTimeField("取り込み日時", auto_now_add=True)
+    processing_started_at = models.DateTimeField("読み取り開始", null=True, blank=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
