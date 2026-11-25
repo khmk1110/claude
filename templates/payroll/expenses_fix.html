@@ -36,6 +36,7 @@
       <div class="fix-opts">
         {% if r.name_text %}<label class="check small fix-alias" hidden><input type="checkbox" name="alias_{{ r.pk }}" value="1" checked> 次回から「{{ r.name_text }}」はこの人にする</label>{% endif %}
         <label class="check small"><input type="checkbox" name="exclude_{{ r.pk }}" value="1" {% if x.excluded %}checked{% endif %} data-exclude> 給与に入れない（対象外）</label>
+        {% if r.status != "reflected" %}<label class="check small fix-del"><input type="checkbox" name="delete_{{ r.pk }}" value="1" data-delete> 削除する（間違えて取り込んだ）</label>{% endif %}
       </div>
     </li>
   {% endwith %}{% empty %}
@@ -64,7 +65,11 @@ document.querySelectorAll('[data-card]').forEach(function(card){
     if (alias) alias.hidden = !(sel && sel.value && sel.value !== sel.dataset.orig);
     card.classList.toggle('is-excluded', ex && ex.checked);
     if (sel && sel.value && !ex.checked) card.classList.remove('is-attn');
+    const del = card.querySelector('[data-delete]');
+    card.classList.toggle('is-deleted', !!(del && del.checked));
   }
+  const del = card.querySelector('[data-delete]');
+  if (del) del.addEventListener('change', upd);
   if (sel) sel.addEventListener('change', upd);
   if (ex) ex.addEventListener('change', upd);
 });

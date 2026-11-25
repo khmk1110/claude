@@ -576,3 +576,5 @@ details.card.fold .list { width: 100%; }
 .receipt-form { margin: 12px 0; }
 .receipt-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .receipt-row select { font-size: 1rem; min-height: 44px; border-radius: 10px; width: 100%; }
+.fix-del { color: #b91c1c; }
+.fix-card.is-deleted { opacity: 0.45; background: #fef2f2; border-color: #fecaca; }

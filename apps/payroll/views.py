@@ -297,6 +297,21 @@ def expenses_fix(request):
                 label = r.name_text or (f"カード {r.card_code}" if r.card_code else f"{r.row_number}行目")
                 want_excluded = bool(request.POST.get(f"exclude_{r.pk}"))
                 try:
+                    if request.POST.get(f"delete_{r.pk}"):
+                        # 間違えて取り込んだ行を消す（確定済みの給与に入ったものは消せない）
+                        if r.status == "reflected":
+                            raise ValueError("確定済みの給与に入っているため消せません（給与の確定を取り消してから）")
+                        sf = r.source_file
+                        audit.log("expenses.record_delete", target=r, before={"対象者": str(r.effective_member or r.name_text),
+                                                                              "金額": r.effective_amount, "状態": r.get_status_display()},
+                                  user=request.user, reason="給与の画面で削除（間違えて取り込んだ）")
+                        r.issues.all().delete()
+                        r.delete()
+                        if sf and not sf.records.exists():
+                            sf.issues.all().delete()
+                            sf.delete()
+                        changed += 1
+                        continue
                     if want_excluded and r.status != "excluded":
                         importer.exclude([r], user=request.user, reason="給与の画面で対象外にした")
                         changed += 1

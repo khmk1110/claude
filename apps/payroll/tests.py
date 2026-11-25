@@ -1055,3 +1055,26 @@ class RetiredAndUnitHintTests(TableScreenshotTests):
         page = self.client.get("/payroll/sales/?month=2026-11")
         self.assertContains(page, "単価")
         self.assertContains(page, "× 40件")
+
+
+class ExpenseDeleteTests(TableScreenshotTests):
+    def test_delete_mistaken_records(self):
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
+
+        cat = ExpenseCategory.objects.get(code="transport")
+        sf = SourceFile.objects.create(original_name="m.png", sha256="m" * 64, file_format="image", document_kind="transport",
+                                       target_month=NOV, status="parsed")
+        a = ExpenseRecord.objects.create(source_file=sf, row_number=1, auto_member=self.a, auto_category=cat, auto_amount=590,
+                                         auto_target_month=NOV, dedupe_key="m1", status="approved")
+        st_b = PayrollStatement.objects.create(member=self.b, month=NOV, employment_type=C)
+        b = ExpenseRecord.objects.create(source_file=sf, row_number=2, auto_member=self.b, auto_category=cat, auto_amount=4499,
+                                         auto_target_month=NOV, dedupe_key="m2", status="reflected", reflected_statement=st_b)
+        page = self.client.get("/payroll/expenses/fix/?month=2026-11&group=transport")
+        self.assertContains(page, f'name="delete_{a.pk}"')
+        self.assertNotContains(page, f'name="delete_{b.pk}"')  # 確定済みの給与に入ったものは消せない
+        self.client.post("/payroll/expenses/fix/", {"month": "2026-11", "group": "transport", "then": "",
+                                                   f"member_{a.pk}": self.a.pk, f"amount_{a.pk}": "590", f"delete_{a.pk}": "1",
+                                                   f"member_{b.pk}": self.b.pk, f"amount_{b.pk}": "4499"})
+        self.assertFalse(ExpenseRecord.objects.filter(pk=a.pk).exists())
+        self.assertTrue(ExpenseRecord.objects.filter(pk=b.pk).exists())
+        self.assertTrue(SourceFile.objects.filter(pk=sf.pk).exists())  # まだ行が残っているので資料は残す
