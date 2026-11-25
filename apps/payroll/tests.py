@@ -1141,3 +1141,19 @@ class TransportNoSubtractTests(TableScreenshotTests):
         self.assertEqual(st.lines.get(code="transport_contractor").amount, 15000)
         self.client.post("/payroll/settings/transport/", {f"m_{self.a.pk}": "1"})
         self.assertEqual(st.lines.get(code="transport_contractor").amount, 50000)  # 引かない設定で全額
+
+
+class PropaneDenkiTests(TableScreenshotTests):
+    def test_propane_denki_same_unit_as_houmon_denki(self):
+        from .models import PayrollItemDefinition, Product
+
+        item = PayrollItemDefinition.objects.get(code="product_propane_denki")
+        self.assertEqual(item.params, {"product": "propane_denki", "unit_price": "auto"})
+        PayrollItemDefinition.objects.get(code="product_houmon_denki").members.add(self.a)
+        item.members.add(self.a)
+        for code, n in (("houmon_denki", 4), ("propane_denki", 3)):
+            SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", product=Product.objects.get(code=code), count=n)
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        h, p = st.lines.get(code="product_houmon_denki"), st.lines.get(code="product_propane_denki")
+        self.assertEqual(h.amount // 4, p.amount // 3)  # 単価は訪問電気と同じ
