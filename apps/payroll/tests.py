@@ -504,7 +504,8 @@ class CountsImportFlowTests(TestCase):
         self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "text": text})
         self.assertContains(self.client.get("/payroll/counts/?month=2026-11"), "一致しました")
         page = self.client.get("/payroll/?month=2026-11")
-        self.assertContains(page, "明細を確認して確定")
+        self.assertContains(page, "確認・確定")
+        self.assertContains(page, 'class="stepper"')  # 進み具合が上に出る
 
 
 def _table_png(rows):
@@ -1189,3 +1190,36 @@ class ProductOrderTests(TableScreenshotTests):
         codes = list(PayrollItemDefinition.objects.filter(code__startswith="product_").order_by("display_order", "id")
                      .values_list("code", flat=True))
         self.assertEqual(codes.index("product_propane_denki"), codes.index("product_propane_nobath") + 1)
+
+
+
+class AutoCalcAndBulkConfirmTests(TableScreenshotTests):
+    """「計算する」を押さなくても自動で計算し、問題のない人だけまとめて確定できる。"""
+
+    def test_counts_change_recalculates_automatically(self):
+        from .models import Product
+
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=10)
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.assertFalse(st.stale)
+        first = st.calculated_at
+        SalesCount.objects.filter(member=self.a, month=NOV, kind="confirmed").update(count=10)  # update()は印を付けない
+        row = SalesCount.objects.get(member=self.a, month=NOV, kind="confirmed")
+        row.count = 12
+        row.save()
+        st.refresh_from_db()
+        self.assertTrue(st.stale)  # 件数が変わったら印が付く
+        self.client.get("/payroll/?month=2026-11")
+        st.refresh_from_db()
+        self.assertFalse(st.stale)
+        self.assertGreater(st.calculated_at, first)
+
+    def test_bulk_confirm_skips_people_needing_review(self):
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        sts = list(PayrollStatement.objects.filter(month=NOV))
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "confirm_all"})
+        for st in sts:
+            st.refresh_from_db()
+            if st.blocking_errors:
+                self.assertNotEqual(st.status, "confirmed")  # 入力不足の人は確定しない

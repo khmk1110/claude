@@ -389,6 +389,7 @@ class PayrollStatement(models.Model):
     deductions_total = models.IntegerField("控除合計", null=True, blank=True)
     net_amount = models.IntegerField("差引支給額", null=True, blank=True)
     calculated_at = models.DateTimeField("計算日時", null=True, blank=True)
+    stale = models.BooleanField("計算し直しが必要", default=True)  # 件数・経費・勤怠などが変わったら立つ（画面を開くと自動で計算）
     confirmed_at = models.DateTimeField("確定日時", null=True, blank=True)
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"

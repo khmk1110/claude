@@ -396,6 +396,26 @@ def recompute_totals(st: PayrollStatement) -> None:
     st.earnings_total, st.deductions_total, st.net_amount = earn, ded, earn - ded
 
 
+def refresh_month(month: date, *, user=None) -> int:
+    """給与の画面を開いた時に呼ぶ。件数が入り始めた月は給与データを作り、もとのデータが変わった給与だけ計算し直す。
+
+    「計算する」「全員を計算し直す」を押さなくても、いつも最新の金額になる（押し忘れて古い金額で確定するのを防ぐ）。
+    確定済みの給与は変えない。
+    """
+    month = month_start(month)
+    started = (PayrollStatement.objects.filter(month=month).exists()
+               or SalesCount.objects.filter(month=month, kind=SalesCount.Kind.CONFIRMED).exists()
+               or SalesCount.objects.filter(month=prev_month(month), kind=SalesCount.Kind.ACQUIRED).exists())
+    if not started:
+        return 0
+    prepare_month(month, user=user)
+    n = 0
+    for st in PayrollStatement.objects.filter(month=month, stale=True).exclude(status=PayrollStatement.Status.CONFIRMED):
+        calculate(st, user=user, log=False)
+        n += 1
+    return n
+
+
 def refresh_for_expenses(month: date, *, user=None, member_ids=None) -> int:
     """経費が変わった人の明細を自動で計算し直す（確定前の明細だけ）。
 
@@ -477,6 +497,7 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
     st.calc_messages = ctx.messages
     st.status = PayrollStatement.Status.IN_PROGRESS if st.blocking_errors else PayrollStatement.Status.CALCULATED
     st.calculated_at = timezone.now()
+    st.stale = False
     st.save()
     if log:
         audit.log("payroll.calculate", target=st, after={"earnings": st.earnings_total, "deductions": st.deductions_total,

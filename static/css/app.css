@@ -595,3 +595,18 @@ details.card.fold .list { width: 100%; }
 .next-card .btn{margin-left:auto}
 .next-card.is-done{background:var(--ok-weak);border-color:#a7f3d0}
 .next-card.is-done b{color:var(--ok)}
+
+/* 給与の手順：上に固定した進み具合と、終わった手順を閉じる */
+.stepper{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--bg);padding:8px 0;margin:0 0 4px}
+.stepper a{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;border-radius:10px;color:var(--muted);text-decoration:none;font-size:12px;border:1px solid var(--line);background:var(--surface)}
+.stepper .no{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--line);color:var(--fg);font-size:12px}
+.stepper a.is-cur{border-color:var(--primary);color:var(--primary-dark);font-weight:700}
+.stepper a.is-cur .no{background:var(--primary);color:#fff}
+.stepper a.is-done .no{background:var(--ok);color:#fff}
+details.step>summary{list-style:none;cursor:pointer}
+details.step>summary::-webkit-details-marker{display:none}
+details.step>summary.step-head{margin-bottom:0}
+details.step[open]>summary.step-head{margin-bottom:10px}
+details.step>summary.step-head::after{content:"›";margin-left:auto;color:var(--muted);font-size:20px;transition:transform .15s}
+details.step[open]>summary.step-head::after{transform:rotate(90deg)}
+details.step.done:not([open]){padding-top:10px;padding-bottom:10px}

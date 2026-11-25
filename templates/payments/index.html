@@ -7,7 +7,7 @@
 
 {% if drafts %}<div class="next-card"><b>次にやること</b><span>読み込んだ請求書 {{ drafts|length }}件の金額を確かめる</span><a class="btn btn-primary" href="#drafts">確かめる</a></div>
 {% elif unpaid %}<div class="next-card"><b>次にやること</b><span>払ったら「支払った」を押す（未払い {{ unpaid|length }}件・{{ unpaid_total|intcomma }}円）</span></div>
-{% else %}<div class="next-card is-done"><b>✓</b><span>この月の支払いはすべて済んでいます</span></div>{% endif %}
+{% elif paid %}<div class="next-card is-done"><b>✓</b><span>この月の支払いはすべて済んでいます</span></div>{% endif %}
 
 <form method="post" action="{% url 'payments:upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="xupload">{% csrf_token %}
   <label class="drop"><input type="file" name="files" multiple accept="image/*,.pdf" onchange="this.form.querySelector('.drop-text').textContent='読み取り中…';this.form.submit()">

@@ -6,3 +6,8 @@ class PayrollConfig(AppConfig):
     name = "apps.payroll"
     label = "payroll"
     verbose_name = "給与・報酬管理"
+
+    def ready(self):
+        from . import signals
+
+        signals.connect()

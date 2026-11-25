@@ -439,10 +439,11 @@ def confirm_checks(st):
 def review(request):
     """1人ずつ確認：明細のプレビュー＋その人の件数・当月の項目の修正＋確定。"""
     month = month_from_request(request)
+    calc.refresh_month(month, user=request.user)
     sts = list(PayrollStatement.objects.filter(month=month).select_related("member")
                .order_by("member__display_order", "member_id"))
     if not sts:
-        messages.info(request, "先に「計算する」を押してください。")
+        messages.info(request, "先に件数を取り込んでください。")
         return redirect(f"/payroll/?month={month:%Y-%m}")
     cur = None
     if request.GET.get("st", "").isdigit():
@@ -764,7 +765,7 @@ def month_home(request):
     # 自分で追加したその他の経費（確認待ちのまま残っているもの）は承認し、承認・追加された経費は開いた時に自動で計算に入れる
     _imp.auto_approve_added([r for r in _month_expense_records(month, exclude_codes={"gasoline", "transport"}) if r.status in OPEN_EXPENSE],
                             user=request.user)
-    calc.refresh_for_expenses(month, user=request.user)
+    calc.refresh_month(month, user=request.user)  # 件数・経費・勤怠が変わった人は自動で計算し直す
     members = list(calc.payroll_members(month))  # 退職後に報酬がある人も含む
     acq = set(SalesCount.objects.filter(month=pm, kind="acquired", member__in=members).values_list("member", flat=True))
     conf = set(SalesCount.objects.filter(month=month, kind="confirmed", member__in=members).values_list("member", flat=True))
@@ -812,16 +813,36 @@ def month_home(request):
     pay_sts = [st for st in sts if st.is_confirmed and (st.net_amount or 0) > 0]
     n_paid = StatementDelivery.objects.filter(statement__in=pay_sts, paid_at__isnull=False).count()
     staff_unsaved = sum(1 for r in staff_svc.staff_rows(month) if not r["saved"])
+    exp_busy = bool(exp["open_total"] or exp["tr"]["processing"] or exp["gas"]["processing"] or exp["other"]["processing"])
+    # まとめて確定できる人（入力不足・未承認の経費・先月と大きく違う、がない人）
+    bulk = [st for st in sts if st.status in (S.CALCULATED, S.REVIEW) and not st.blocking_errors
+            and not any(confirm_checks(st))]
+    # 手順：①件数 ②経費 ③確認・確定 ④振込。終わった手順は閉じ、今の手順だけ開く
+    steps = [
+        {"no": 1, "id": "step1", "title": "件数", "done": step1,
+         "summary": f"{prev_month(month).month}月の獲得 {len(acq)}/{len(members)}人・{month.month}月の入金確定 {len(conf)}/{len(members)}人"},
+        {"no": 2, "id": "step2", "title": "経費", "done": step1 and not exp_busy,
+         "summary": (f"確認待ち {exp['open_total']}件" if exp_busy else
+                     "承認済み" if (exp["gas"]["rows"] or exp["tr"]["files"] or exp["other"]["rows"]) else "なし")},
+        {"no": 3, "id": "step3", "title": "確認・確定", "done": bool(sts) and n_conf == len(sts),
+         "summary": f"確定 {n_conf}/{len(sts)}人" if sts else "件数を入れると自動で計算します"},
+        {"no": 4, "id": "step4", "title": "振込", "done": bool(pay_sts) and n_paid == len(pay_sts) and n_conf == len(sts) and not staff_unsaved,
+         "summary": f"振込済み {n_paid}/{len(pay_sts)}人" + (f"・正社員の給与 未保存 {staff_unsaved}人" if staff_unsaved else "")},
+    ]
+    cur = next((x["no"] for x in steps if not x["done"]), None)
+    for x in steps:  # 件数と経費は並行して進められるので、どちらも終わるまでは両方開く
+        x["open"] = not x["done"] and cur is not None and x["no"] <= max(cur, 2)
+    step_by = {x["no"]: x for x in steps}
     if not step1:
         nxt = ("件数を取り込む", f"{prev_month(month).month}月の獲得件数・{month.month}月の入金確定件数", reverse("payroll:counts_import") + q, "取り込む")
-    elif exp["open_total"] or exp["tr"]["processing"] or exp["gas"]["processing"]:
+    elif exp_busy:
         nxt = ("経費を承認する", f"確認待ち {exp['open_total']}件", "#step2", "経費へ")
-    elif not sts:
-        nxt = ("計算する", "件数と経費がそろいました", "#step3", "計算へ")
     elif errors:
-        nxt = ("要確認の人を直す", f"{errors}人", reverse("payroll:review") + q, "直す")
+        nxt = ("入力が足りない人を直す", f"{errors}人", reverse("payroll:review") + q, "直す")
+    elif bulk and len(bulk) == len(sts) - n_conf:
+        nxt = ("明細を確定する", f"全員問題なし（{len(bulk)}人）", "#step3", "確定へ")
     elif n_conf < len(sts):
-        nxt = ("明細を確定する", f"確定 {n_conf}/{len(sts)}人", reverse("payroll:review") + q, "確定へ")
+        nxt = ("明細を確認して確定する", f"確定 {n_conf}/{len(sts)}人", reverse("payroll:review") + q, "確認へ")
     elif staff_unsaved:
         nxt = ("正社員の給与を保存", f"{staff_unsaved}人 未保存", reverse("payroll:staff") + q, "正社員へ")
     elif n_paid < len(pay_sts):
@@ -837,7 +858,8 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt,
+        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "bulk": bulk, "s1": step_by[1], "s2": step_by[2], "s3": step_by[3], "s4": step_by[4],
+        "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
         "last_calc": max((st.calculated_at for st in sts if st.calculated_at), default=None),
         # 今月は支給なし（0円・マイナス）の人は、まとめて閉じておく
         "none_rows": [r for r in rows if r["st"].net_amount is not None and r["st"].net_amount <= 0],
@@ -870,14 +892,19 @@ def month_action(request):
         else:
             messages.success(request, msg)
     elif action == "confirm_all":
+        # 問題のない人だけまとめて確定する。入力不足・未承認の経費・先月と大きく違う人は1人ずつ確認で
+        calc.refresh_month(month, user=request.user)
         ok, skipped = 0, []
-        for st in PayrollStatement.objects.filter(month=month, status__in=[S.CALCULATED, S.REVIEW]):
-            if st.blocking_errors:
+        for st in PayrollStatement.objects.filter(month=month, status__in=[S.CALCULATED, S.REVIEW]).select_related("member"):
+            blocks, cautions = confirm_checks(st)
+            if st.blocking_errors or blocks or cautions:
                 skipped.append(st.member.name)
                 continue
             calc.confirm(st, user=request.user)
             ok += 1
-        messages.success(request, f"{ok}人分を確定しました。" + (f"（入力不足のため確定しなかった人: {'、'.join(skipped)}）" if skipped else ""))
+        messages.success(request, f"{ok}人を確定しました。")
+        if skipped:
+            messages.warning(request, f"確認が必要なので確定していません：{'、'.join(skipped)}（1人ずつ確認から）")
     elif action == "payment_date":
         pm = calc.ensure_month(month)
         try:

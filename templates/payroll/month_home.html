@@ -5,38 +5,46 @@
 {% block content %}
 <div class="page-head"><div><h1>{{ month|date:"n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
 {% include "payroll/_nav.html" %}
+
+{# 進み具合（上に固定）。押すとその手順へ移動 #}
+<nav class="stepper">
+  {% for x in steps %}<a href="#{{ x.id }}" class="{% if x.done %}is-done{% elif x.no == cur %}is-cur{% endif %}" onclick="var d=document.getElementById('{{ x.id }}');if(d&&d.tagName==='DETAILS')d.open=true">
+    <span class="no">{% if x.done %}✓{% else %}{{ x.no }}{% endif %}</span><span>{{ x.title }}</span></a>{% endfor %}
+</nav>
+
 {% if nxt %}<a class="next-card" href="{{ nxt.2 }}" style="text-decoration:none;color:inherit"><b>次にやること</b><span><b style="color:inherit">{{ nxt.0 }}</b> <span class="small muted">{{ nxt.1 }}</span></span><span class="btn btn-primary">{{ nxt.3 }} ›</span></a>
 {% else %}<div class="next-card is-done"><b>✓</b><span>{{ month|date:"n月" }}分の給与はすべて終わりました</span></div>{% endif %}
 
-<section class="step card {% if step1_done %}done{% endif %}">
-  <div class="step-head"><span class="no">{% if step1_done %}✓{% else %}1{% endif %}</span><div><b>件数</b></div></div>
-  <ul class="checks">
-    <li class="{% if acq >= members|length and members %}ok{% endif %}">{{ prev|date:"n月" }}の獲得件数 <b>{{ acq }}/{{ members|length }}人</b></li>
-    <li class="{% if conf >= members|length and members %}ok{% endif %}">{{ month|date:"n月" }}の入金確定件数 <b>{{ conf }}/{{ members|length }}人</b></li>
-  </ul>
+{# ① 件数 #}
+<details class="step card {% if s1.done %}done{% endif %}" id="step1" {% if s1.open %}open{% endif %}>
+  <summary class="step-head"><span class="no">{% if s1.done %}✓{% else %}1{% endif %}</span><div><b>件数</b><div class="small muted">{{ s1.summary }}</div></div></summary>
   <div class="form-row"><a class="btn btn-primary" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">取り込む</a>
     <a class="btn" href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で直す</a></div>
-</section>
+</details>
 
+{# ② 経費 #}
 {% include "payroll/_expenses_step.html" %}
 
-<section class="step card {% if sts and errors == 0 %}done{% endif %}" id="step3">
-  <div class="step-head"><span class="no">{% if sts and errors == 0 %}✓{% else %}3{% endif %}</span><div><b>計算結果</b>{% if last_calc %}<div class="small muted">最終計算 {{ last_calc|date:"n/j H:i" }}</div>{% endif %}</div></div>
-  <form method="post" action="{% url 'payroll:month_action' %}" class="form-row">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#step3">
-    {% if not sts %}<input type="hidden" name="action" value="prepare"><button class="btn btn-primary" type="submit" onclick="this.textContent='計算中…'">計算する</button>
-    {% else %}<input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit" onclick="this.textContent='計算中…'">全員を計算し直す</button>{% endif %}
-  </form>
-  {% if rows %}
-  <button type="button" class="linkbtn small" style="color:var(--primary)" onclick="var c=document.querySelectorAll('.pay-card'),o=this.dataset.o!=='1';c.forEach(function(d){d.open=o});this.dataset.o=o?'1':'0';this.textContent=o?'全部閉じる':'全員開く'">全員開く</button>
+{# ③ 確認・確定（計算は自動） #}
+<details class="step card {% if s3.done %}done{% endif %}" id="step3" {% if s3.open or bulk %}open{% endif %}>
+  <summary class="step-head"><span class="no">{% if s3.done %}✓{% else %}3{% endif %}</span><div><b>確認・確定</b><div class="small muted">{{ s3.summary }}{% if last_calc %}・自動計算 {{ last_calc|date:"n/j H:i" }}{% endif %}</div></div></summary>
+  {% if sts %}
+  <div class="form-row">
+    {% if bulk %}<form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('問題のない{{ bulk|length }}人を確定します。確定後は金額が変わりません。よろしいですか？')">{% csrf_token %}
+      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#step3">
+      <button class="btn btn-ok" type="submit">問題のない{{ bulk|length }}人をまとめて確定</button></form>{% endif %}
+    {% if not s3.done %}<a class="btn {% if not bulk %}btn-primary{% endif %}" href="{% url 'payroll:review' %}?month={{ month_param }}">1人ずつ確認</a>{% endif %}
+  </div>
   <div class="pay-cards">
     {% for r in rows %}{% if r.st.net_amount is None or r.st.net_amount > 0 %}
     <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
       <summary>
         <span class="pay-name">{{ r.st.member.name }}</span>
-        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}
+        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% elif r.warns %}<span class="chip chip-open">注意</span>{% endif %}
         <span class="pay-net">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></span>
       </summary>
       {% for e in r.errors %}<div class="pnote">⚠ {{ e }}</div>{% endfor %}
+      {% for w in r.warns %}<div class="pnote muted">ℹ {{ w }}</div>{% endfor %}
       <table class="pay-lines">
         {% for l in r.slip %}<tr><td>{{ l.name }}{% if l.detail %}<div class="small muted">{{ l.detail }}</div>{% endif %}</td>
           <td class="num {% if l.amount < 0 %}neg{% endif %}">{% if l.missing %}未入力{% else %}{{ l.amount|intcomma }}{% endif %}</td></tr>{% endfor %}
@@ -51,7 +59,7 @@
     <summary>今月は支給なし・マイナス（{{ none_rows|length }}人）</summary>
     <div class="pay-cards">
     {% for r in none_rows %}
-    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" >
+    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}">
       <summary>
         <span class="pay-name">{{ r.st.member.name }}</span>
         {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}
@@ -69,15 +77,18 @@
     </div>
   </details>
   {% endif %}
+  {% else %}
+  <p class="muted small">件数を取り込むと、自動で計算してここに並びます。</p>
   {% endif %}
-</section>
+</details>
 
-<section class="step card {% if sts and confirmed == sts|length %}done{% endif %}" id="step4">
-  <div class="step-head"><span class="no">{% if sts and confirmed == sts|length %}✓{% else %}4{% endif %}</span><div><b>明細を確認して確定</b><div class="small muted">確定 {{ confirmed }} / {{ sts|length }}人</div></div></div>
-  <ul class="checks">{% for label, ok in checklist %}{% if not ok %}<li class="ng">{{ label }}</li>{% endif %}{% endfor %}</ul>
+{# ④ 振込 #}
+<details class="step card {% if s4.done %}done{% endif %}" id="step4" {% if s4.open %}open{% endif %}>
+  <summary class="step-head"><span class="no">{% if s4.done %}✓{% else %}4{% endif %}</span><div><b>振込</b><div class="small muted">{{ s4.summary }}</div></div></summary>
   <div class="form-row">
-    {% if sts %}<a class="btn btn-primary" href="{% url 'payroll:review' %}?month={{ month_param }}">{% if confirmed == sts|length %}明細を見直す{% else %}1人ずつ確定する{% endif %}</a>{% endif %}
-    {% if confirmed %}<a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分のPDF（{{ confirmed }}人）</a>{% endif %}
+    {% if confirmed %}<a class="btn btn-primary" href="{% url 'payroll:transfers' %}?month={{ month_param }}">振込の画面（{{ n_paid }}/{{ pay_count }}人）</a>
+    <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分のPDF（{{ confirmed }}人）</a>{% endif %}
+    <a class="btn" href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員の給与{% if staff_unsaved %}（未保存 {{ staff_unsaved }}人）{% endif %}</a>
   </div>
-</section>
+</details>
 {% endblock %}
