@@ -620,3 +620,44 @@ details.step.done:not([open]){padding-top:10px;padding-bottom:10px}
 .do-list>li{display:flex;gap:10px;align-items:flex-start}
 .do-no{width:24px;height:24px;border-radius:50%;background:var(--primary-weak);color:var(--primary-dark);display:grid;place-items:center;font-weight:700;font-size:13px;flex:none;margin-top:2px}
 .do-body{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+
+/* ===== 給与：1画面に1つの作業（ウィザード） ===== */
+.wiz-steps{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:4px 0 12px;counter-reset:s}
+.wiz-steps a{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--muted);text-decoration:none;font-size:11px;position:relative;padding-top:2px}
+.wiz-steps a:not(:last-child)::after{content:"";position:absolute;top:14px;left:calc(50% + 15px);right:calc(-50% + 15px);height:2px;background:var(--line)}
+.wiz-steps a.is-done:not(:last-child)::after{background:var(--ok)}
+.wiz-steps .no{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:12px;background:var(--surface);border:2px solid var(--line-strong);color:var(--muted)}
+.wiz-steps a.is-done .no{background:var(--ok);border-color:var(--ok);color:#fff}
+.wiz-steps a.is-here .no{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 0 0 4px var(--primary-weak)}
+.wiz-steps a.is-here .t{color:var(--primary-dark);font-weight:700}
+.wiz-steps .t{text-align:center;line-height:1.25}
+.wiz{padding:18px 16px 20px;margin-bottom:12px}
+.wiz-count{margin:0;color:var(--muted);font-size:12px}
+.wiz-title{margin:2px 0 12px;font-size:20px}
+.wiz-lead{margin:0 0 12px;color:var(--muted);font-size:14px}
+.wiz-sub{margin:10px 0 0;font-size:14px}
+.wiz-sub.ok{color:var(--ok)}
+.btn-big{display:flex;width:100%;justify-content:center;align-items:center;min-height:52px;font-size:16px;font-weight:700;border-radius:12px}
+.wiz-checks{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:8px}
+.wiz-checks li{border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.wiz-checks li>span,.wiz-checks li>b,.wiz-checks li>a{display:flex}
+.wiz-checks li{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;gap:8px}
+.wiz-checks li>a{flex:1;justify-content:space-between;color:inherit;text-decoration:none}
+.wiz-checks li.ok{border-color:#b7e2c6;background:var(--ok-weak)}
+.wiz-checks li.ok b{color:var(--ok)}
+.wiz-checks li.ok>span::before,.wiz-checks li.ok>a>span::before{content:"✓ ";color:var(--ok);font-weight:700}
+.wiz-total{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;background:#0f172a;color:#fff;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.wiz-total b{font-size:26px}
+.wiz-total .muted{color:#cbd5e1;width:100%}
+.wiz-people{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.wiz-people li+li{border-top:1px solid var(--line)}
+.wiz-people a{display:flex;align-items:center;gap:8px;padding:12px 14px;color:inherit;text-decoration:none}
+.wiz-people .n{font-weight:700;flex:1}
+.wiz-people .a{font-weight:700;font-variant-numeric:tabular-nums}
+.wiz-people .chev{color:var(--muted)}
+.wiz-done{background:var(--ok-weak);color:var(--ok);font-weight:700;border-radius:12px;padding:16px;text-align:center}
+.wiz-bar{position:sticky;bottom:0;z-index:6;display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);padding:10px 0}
+.wiz-bar form{margin:0}
+.btn-next{font-weight:700;min-height:46px;padding:0 18px;border-radius:12px}
+.btn-next.is-go{background:var(--primary);color:#fff;border-color:var(--primary)}
+.wiz #step2 .xpanel:first-child{margin-top:0}

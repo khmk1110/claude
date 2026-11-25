@@ -246,7 +246,7 @@ def receipts_upload(request):
             messages.success(request, f"{member.name}さんのレシートを {added}枚 読み取っています（1枚ずつ順番に）。")
         for x in skipped[:5]:
             messages.warning(request, f"取り込みませんでした：{x}")
-    return redirect(f"/payroll/?month={month:%Y-%m}#other")
+    return redirect(f"/payroll/?month={month:%Y-%m}&step=2#other")
 
 
 @payroll_view
@@ -271,7 +271,7 @@ def expenses_approve_all(request):
         messages.success(request, f"{ok}件を承認しました。給与に入れて計算し直しました。")
     for msg in skipped[:5]:
         messages.warning(request, f"承認できませんでした：{msg}（「名前・金額を直す」から直してください）")
-    return redirect(f"/payroll/?month={month:%Y-%m}#step2")
+    return redirect(f"/payroll/?month={month:%Y-%m}&step=2")
 
 
 
@@ -296,7 +296,7 @@ def expenses_fix(request):
     group = request.GET.get("group") or request.POST.get("group") or "transport"
     if group not in GROUP_LABELS:
         group = "transport"
-    back = f"/payroll/?month={month:%Y-%m}#{'gas' if group == 'gasoline' else group}"
+    back = f"/payroll/?month={month:%Y-%m}&step=2#{'gas' if group == 'gasoline' else group}"
     recs = _group_records(month, group)
     members = list(Member.objects.order_by("status", "display_order", "id"))  # 退職した人も選べる
     by_id = {m.pk: m for m in members}
@@ -669,7 +669,7 @@ def review_action(request, pk):
                     go = f"/payroll/review/?month={st.month:%Y-%m}&st={nxt.pk}"
                 else:
                     messages.success(request, "全員の確定が終わりました。明細PDFをダウンロードできます。")
-                    go = f"/payroll/?month={st.month:%Y-%m}#step4"
+                    go = f"/payroll/?month={st.month:%Y-%m}&step=5"
             elif action == "reopen":
                 calc.reopen(st, user=user, reason=p.get("reason", "").strip() or "1人ずつ確認で取り消し")
                 messages.success(request, "確定を取り消しました。")
@@ -867,37 +867,23 @@ def month_home(request):
     bulk = [st for st in sts if st.status in (S.CALCULATED, S.REVIEW) and not st.blocking_errors
             and not any(confirm_checks(st))]
     # 手順：①件数 ②経費 ③確認・確定 ④振込。終わった手順は閉じ、今の手順だけ開く
+    pmonth = calc.ensure_month(month)
+    all_conf = bool(sts) and n_conf == len(sts)
+    # 1画面に1つの作業。①件数 ②経費 ③代表に確認 ④確定 ⑤送る・振込
     steps = [
-        {"no": 1, "id": "step1", "title": "件数", "done": step1,
-         "summary": f"{prev_month(month).month}月の獲得 {len(acq)}/{len(members)}人・{month.month}月の入金確定 {len(conf)}/{len(members)}人"},
-        {"no": 2, "id": "step2", "title": "経費", "done": step1 and not exp_busy,
-         "summary": (f"確認待ち {exp['open_total']}件" if exp_busy else
-                     "承認済み" if (exp["gas"]["rows"] or exp["tr"]["files"] or exp["other"]["rows"]) else "なし")},
-        {"no": 3, "id": "step3", "title": "確認・確定", "done": bool(sts) and n_conf == len(sts),
-         "summary": f"確定 {n_conf}/{len(sts)}人" if sts else "件数を入れると自動で計算します"},
-        {"no": 4, "id": "step4", "title": "振込", "done": bool(pay_sts) and n_paid == len(pay_sts) and n_conf == len(sts) and not staff_unsaved,
-         "summary": f"振込済み {n_paid}/{len(pay_sts)}人" + (f"・正社員の給与 未保存 {staff_unsaved}人" if staff_unsaved else "")},
+        {"no": 1, "title": "件数", "done": step1},
+        {"no": 2, "title": "経費", "done": not exp_busy},
+        {"no": 3, "title": "代表に確認", "done": all_conf or bool(pmonth.review_sent_at)},
+        {"no": 4, "title": "確定", "done": all_conf},
+        {"no": 5, "title": "送る・振込", "done": all_conf and bool(pmonth.slips_sent_at) and n_paid == len(pay_sts) and not staff_unsaved},
     ]
-    cur = next((x["no"] for x in steps if not x["done"]), None)
-    for x in steps:  # 件数と経費は並行して進められるので、どちらも終わるまでは両方開く
-        x["open"] = not x["done"] and cur is not None and x["no"] <= max(cur, 2)
-    step_by = {x["no"]: x for x in steps}
-    if not step1:
-        nxt = ("件数を取り込む", f"{prev_month(month).month}月の獲得件数・{month.month}月の入金確定件数", reverse("payroll:counts_import") + q, "取り込む")
-    elif exp_busy:
-        nxt = ("経費を承認する", f"確認待ち {exp['open_total']}件", "#step2", "経費へ")
-    elif errors:
-        nxt = ("入力が足りない人を直す", f"{errors}人", reverse("payroll:review") + q, "直す")
-    elif bulk and len(bulk) == len(sts) - n_conf:
-        nxt = ("明細を確定する", f"全員問題なし（{len(bulk)}人）", "#step3", "確定へ")
-    elif n_conf < len(sts):
-        nxt = ("明細を確認して確定する", f"確定 {n_conf}/{len(sts)}人", reverse("payroll:review") + q, "確認へ")
-    elif staff_unsaved:
-        nxt = ("正社員の給与を保存", f"{staff_unsaved}人 未保存", reverse("payroll:staff") + q, "正社員へ")
-    elif n_paid < len(pay_sts):
-        nxt = ("振込する", f"振込済み {n_paid}/{len(pay_sts)}人", reverse("payroll:transfers") + q, "振込へ")
-    else:
-        nxt = None
+    cur = next((x["no"] for x in steps if not x["done"]), 5)
+    try:
+        step = int(request.GET.get("step") or cur)
+    except ValueError:
+        step = cur
+    step = min(max(step, 1), 5)
+    nxt = None
     checklist = [
         ("全員分の給与データがある", bool(sts) and len(sts) >= len(members)),
         ("全員の計算が終わり、入力不足がない", bool(sts) and errors == 0 and all(st.status != S.NOT_CALCULATED for st in sts)),
@@ -907,7 +893,9 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "bulk": bulk, "rest": len(sts) - n_conf - len(bulk), "s1": step_by[1], "s2": step_by[2], "s3": step_by[3], "s4": step_by[4],
+        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "step": step, "cur_step": steps[step - 1], "next_step": steps[step] if step < 5 else None,
+        "bulk": bulk, "rest": len(sts) - n_conf - len(bulk), "n_conf": n_conf, "pmonth": pmonth, "all_conf": all_conf,
+        "pay_total": sum(st.net_amount or 0 for st in sts if (st.net_amount or 0) > 0),
         "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
         # 代表に送って確認してもらう用：全員分のPDF（確定前は「確認用」）。支給なしの人は除く
         "zip_all_url": reverse("payroll:month_pdf") + f"?month={month:%Y-%m}&all=1",
@@ -963,6 +951,14 @@ def month_action(request):
         messages.success(request, f"{ok}人を確定しました。")
         if skipped:
             messages.warning(request, f"確認が必要なので確定していません：{'、'.join(skipped)}（1人ずつ確認から）")
+    elif action in ("mark_review_sent", "mark_slips_sent"):
+        from django.utils import timezone
+
+        pm = calc.ensure_month(month)
+        field = "review_sent_at" if action == "mark_review_sent" else "slips_sent_at"
+        setattr(pm, field, timezone.now())
+        pm.save(update_fields=[field])
+        audit.log(f"payroll.{action}", target=pm, user=request.user)
     elif action == "payment_date":
         pm = calc.ensure_month(month)
         try:
@@ -1337,7 +1333,7 @@ def sales(request):
             messages.error(request, str(e))
         else:
             messages.success(request, f"{changed}件を保存して、計算し直しました。")
-            return redirect(f"/payroll/?month={month:%Y-%m}#step3")
+            return redirect(f"/payroll/?month={month:%Y-%m}&step=3")
 
     rows = []
     tables: dict = {}

@@ -352,6 +352,8 @@ class PayrollMonth(models.Model):
     month = models.DateField("対象年月", unique=True, validators=[validate_month_start])
     payment_date = models.DateField("支払日", help_text="初期値は月末")
     note = models.TextField("メモ", blank=True)
+    review_sent_at = models.DateTimeField("確認用を代表に送った日時", null=True, blank=True)
+    slips_sent_at = models.DateTimeField("明細をみんなに送った日時", null=True, blank=True)
 
     class Meta:
         verbose_name = "給与月"

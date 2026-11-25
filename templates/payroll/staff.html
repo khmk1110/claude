@@ -12,7 +12,7 @@
 </div>
 
 {% if unsaved %}<div class="next-card"><b>次にやること</b><span>給与の額を確かめて「保存」（{{ unsaved }}人 未保存）</span></div>{% endif %}
-{% if open %}<div class="notice">⚠️ 確認待ちの経費が {{ open }}件 あります。<a href="{% url 'payroll:index' %}?month={{ month_param }}#step2">給与の画面で承認</a>すると合計に入ります。</div>{% endif %}
+{% if open %}<div class="notice">⚠️ 確認待ちの経費が {{ open }}件 あります。<a href="{% url 'payroll:index' %}?month={{ month_param }}&step=2#step2">給与の画面で承認</a>すると合計に入ります。</div>{% endif %}
 
 <form method="post">{% csrf_token %}
 <ul class="staff-list">

@@ -504,8 +504,9 @@ class CountsImportFlowTests(TestCase):
         self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "text": text})
         self.assertContains(self.client.get("/payroll/counts/?month=2026-11"), "一致しました")
         page = self.client.get("/payroll/?month=2026-11")
-        self.assertContains(page, "確認・確定")
-        self.assertContains(page, 'class="stepper"')  # 進み具合が上に出る
+        self.assertContains(page, "代表に確認")
+        self.assertContains(page, 'class="wiz-steps"')  # 進み具合が上に出る
+        self.assertContains(page, "次へ")  # 下に「次へ」のボタン
 
 
 def _table_png(rows):
@@ -586,7 +587,7 @@ class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
         from apps.members.models import CardCode
 
         CardCode.objects.create(member=self.a, code="0007")
-        page = self.client.get("/payroll/?month=2026-11")
+        page = self.client.get("/payroll/?month=2026-11&step=2")
         self.assertContains(page, "/payroll/expenses/upload/")
         self.assertNotContains(page, "経費を開く（パスワード）")
         res = self.client.post("/payroll/expenses/gasoline-text/", {"text": "0007 82049", "target_month": "2026-11",
@@ -594,7 +595,7 @@ class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
         self.assertEqual(res["Location"], "/payroll/?month=2026-11")
         rec = ExpenseRecord.objects.get()
         self.assertEqual(rec.effective_amount, 82049)
-        page = self.client.get("/payroll/?month=2026-11")
+        page = self.client.get("/payroll/?month=2026-11&step=2")
         self.assertContains(page, "まとめて承認（1件）")
         self.assertContains(page, "82,049")
         self.client.post("/payroll/expenses/approve-all/", {"month": "2026-11", "group": "gasoline"})
@@ -675,7 +676,7 @@ class TransportPanelTests(TableScreenshotTests):
                                        target_month=NOV, status="parsed")
         ExpenseRecord.objects.create(source_file=sf, row_number=1, auto_member=self.a, auto_category=cat, auto_amount=52000,
                                      auto_target_month=NOV, dedupe_key="t1")
-        page = self.client.get("/payroll/?month=2026-11")
+        page = self.client.get("/payroll/?month=2026-11&step=2")
         self.assertContains(page, "52,000 − 35,000")
         self.assertContains(page, "17,000")
         self.assertContains(page, "0 − 35,000")  # 交通費がない個人事業主も表示（0円）
@@ -685,15 +686,15 @@ class ExpenseRedirectTests(TableScreenshotTests):
     def test_upload_errors_return_to_payroll_page(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
-        data = {"kind": "transport", "target_month": "2026-11", "next": "/payroll/?month=2026-11#transport"}
+        data = {"kind": "transport", "target_month": "2026-11", "next": "/payroll/?month=2026-11&step=2#transport"}
         csv = "名前,金額\n大石一郎,52000\n".encode()
         r1 = self.client.post("/payroll/expenses/upload/", {**data, "files": SimpleUploadedFile("t.csv", csv)})
-        self.assertEqual(r1["Location"], "/payroll/?month=2026-11#transport")
+        self.assertEqual(r1["Location"], "/payroll/?month=2026-11&step=2#transport")
         # 同じファイルをもう一度（重複エラー）でも給与の画面に戻る
         r2 = self.client.post("/payroll/expenses/upload/", {**data, "files": SimpleUploadedFile("t.csv", csv)})
-        self.assertEqual(r2["Location"], "/payroll/?month=2026-11#transport")
+        self.assertEqual(r2["Location"], "/payroll/?month=2026-11&step=2#transport")
         r3 = self.client.post("/payroll/expenses/line/", {"category": "999999", "target_month": "", "text": "x",
-                                                          "next": "/payroll/?month=2026-11#transport"})
+                                                          "next": "/payroll/?month=2026-11&step=2#transport"})
         self.assertIn(r3.status_code, (302, 404))
 
 
@@ -721,7 +722,7 @@ class ExpensesFixPageTests(TableScreenshotTests):
             f"member_{boss.pk}": "", f"amount_{boss.pk}": "10000", f"exclude_{boss.pk}": "1",
             "add_member": self.c.pk, "add_amount": "3000",
         })
-        self.assertEqual(res["Location"], "/payroll/?month=2026-11#transport")
+        self.assertEqual(res["Location"], "/payroll/?month=2026-11&step=2#transport")
         unknown.refresh_from_db(); wrong_amt.refresh_from_db(); boss.refresh_from_db()
         self.assertEqual((unknown.effective_member, unknown.status), (self.a, "approved"))
         self.assertEqual((wrong_amt.effective_amount, wrong_amt.status), (6822, "approved"))
@@ -729,7 +730,7 @@ class ExpensesFixPageTests(TableScreenshotTests):
         self.assertTrue(MemberAlias.objects.filter(member=self.a, alias="大右").exists())
         added = ExpenseRecord.objects.get(source_file=sf, row_number=4)
         self.assertEqual((added.effective_member, added.effective_amount, added.effective_target_month), (self.c, 3000, NOV))
-        self.assertContains(self.client.get("/payroll/?month=2026-11"), "52,080 − 35,000")
+        self.assertContains(self.client.get("/payroll/?month=2026-11&step=2"), "52,080 − 35,000")
 
 
 class ApproveWithOcrWarningsTests(TableScreenshotTests):
@@ -1252,3 +1253,20 @@ class ConsultOrderTests(TableScreenshotTests):
         houmon = PayrollItemDefinition.objects.get(code="product_houmon_denki").display_order
         for it in PayrollItemDefinition.objects.filter(scope="member", method="fixed", kind="earning"):
             self.assertGreater(it.display_order, houmon)
+
+
+
+class WizardFlowTests(TableScreenshotTests):
+    """給与の画面は1画面に1つの作業。代表に送った印・明細を送った印で次の手順に進む。"""
+
+    def test_each_step_renders_and_sent_marks_advance(self):
+        from .models import PayrollMonth
+
+        for n in range(1, 6):
+            self.assertEqual(self.client.get(f"/payroll/?month=2026-11&step={n}").status_code, 200)
+        r = self.client.post("/payroll/action/", {"month": "2026-11", "action": "mark_review_sent",
+                                                   "next": "/payroll/?month=2026-11&step=4"})
+        self.assertEqual(r["Location"], "/payroll/?month=2026-11&step=4")
+        self.assertIsNotNone(PayrollMonth.objects.get(month=NOV).review_sent_at)
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "mark_slips_sent"})
+        self.assertIsNotNone(PayrollMonth.objects.get(month=NOV).slips_sent_at)

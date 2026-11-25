@@ -6,93 +6,86 @@
 <div class="page-head"><div><h1>{{ month|date:"n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
 {% include "payroll/_nav.html" %}
 
-{# 進み具合（上に固定）。押すとその手順へ移動 #}
-<nav class="stepper">
-  {% for x in steps %}<a href="#{{ x.id }}" class="{% if x.done %}is-done{% elif x.no == cur %}is-cur{% endif %}" onclick="var d=document.getElementById('{{ x.id }}');if(d&&d.tagName==='DETAILS')d.open=true">
-    <span class="no">{% if x.done %}✓{% else %}{{ x.no }}{% endif %}</span><span>{{ x.title }}</span></a>{% endfor %}
+{# 進み具合：押すとその画面へ #}
+<nav class="wiz-steps" aria-label="手順">
+  {% for x in steps %}<a href="?month={{ month_param }}&step={{ x.no }}" class="{% if x.no == step %}is-here{% endif %} {% if x.done %}is-done{% endif %}">
+    <span class="no">{% if x.done %}✓{% else %}{{ x.no }}{% endif %}</span><span class="t">{{ x.title }}</span></a>{% endfor %}
 </nav>
 
-{% if nxt %}<a class="next-card" href="{{ nxt.2 }}" style="text-decoration:none;color:inherit"><b>次にやること</b><span><b style="color:inherit">{{ nxt.0 }}</b> <span class="small muted">{{ nxt.1 }}</span></span><span class="btn btn-primary">{{ nxt.3 }} ›</span></a>
-{% else %}<div class="next-card is-done"><b>✓</b><span>{{ month|date:"n月" }}分の給与はすべて終わりました</span></div>{% endif %}
+<section class="wiz card">
+  <p class="wiz-count">ステップ {{ step }} / 5</p>
 
-{# ① 件数 #}
-<details class="step card {% if s1.done %}done{% endif %}" id="step1" {% if s1.open %}open{% endif %}>
-  <summary class="step-head"><span class="no">{% if s1.done %}✓{% else %}1{% endif %}</span><div><b>件数</b><div class="small muted">{{ s1.summary }}</div></div></summary>
-  <div class="form-row"><a class="btn btn-primary" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">取り込む</a>
-    <a class="btn" href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で直す</a></div>
-</details>
+{% if step == 1 %}
+  <h2 class="wiz-title">件数を入れる</h2>
+  <ul class="wiz-checks">
+    <li class="{% if acq >= members|length and members %}ok{% endif %}"><span>{{ prev|date:"n月" }}の獲得件数</span><b>{{ acq }} / {{ members|length }}人</b></li>
+    <li class="{% if conf >= members|length and members %}ok{% endif %}"><span>{{ month|date:"n月" }}の入金確定件数</span><b>{{ conf }} / {{ members|length }}人</b></li>
+  </ul>
+  <a class="btn btn-primary btn-big" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">件数を取り込む（スクショ・文）</a>
+  <p class="wiz-sub"><a href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で直す ›</a></p>
 
-{# ② 経費 #}
-{% include "payroll/_expenses_step.html" %}
+{% elif step == 2 %}
+  <h2 class="wiz-title">経費を確かめる</h2>
+  <p class="wiz-lead">資料を入れて、確認待ちがあれば承認します。ない月はそのまま次へ。</p>
+  {% include "payroll/_expenses_step.html" %}
 
-{# ③ 確認・確定（計算は自動） #}
-<details class="step card {% if s3.done %}done{% endif %}" id="step3" {% if s3.open or bulk or s3.done and share_confirmed and not s4.done %}open{% endif %}>
-  <summary class="step-head"><span class="no">{% if s3.done %}✓{% else %}3{% endif %}</span><div><b>確認・確定</b><div class="small muted">{{ s3.summary }}{% if last_calc %}・自動計算 {{ last_calc|date:"n/j H:i" }}{% endif %}</div></div></summary>
-  {% if sts %}
-  {% if not s3.done %}
-  <ol class="do-list">
-    <li><span class="do-no">1</span><div class="do-body"><b>代表に確認してもらう</b>
-      {% if share_files %}{% include "payroll/_share_pdfs.html" with files=share_files label="確認用PDFをLINEで送る" btn_class="" zip_url=zip_all_url %}{% endif %}</div></li>
-    <li><span class="do-no">2</span><div class="do-body"><b>OKなら確定</b>
-      {% if bulk %}<form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('{{ bulk|length }}人を確定します。よろしいですか？')">{% csrf_token %}
-        <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#step3">
-        <button class="btn btn-ok" type="submit">✓ 確定する（{{ bulk|length }}人）</button></form>{% endif %}
-      {% if rest %}<a class="small" href="{% url 'payroll:review' %}?month={{ month_param }}">確認が必要な人 {{ rest }}人 ›</a>{% endif %}</div></li>
-  </ol>
+{% elif step == 3 %}
+  <h2 class="wiz-title">代表に確認してもらう</h2>
+  <div class="wiz-total"><span>支払い合計</span><b>{{ pay_total|intcomma }}<small>円</small></b><span class="small muted">{{ rows|length }}人・自動で計算済み</span></div>
+  {% if errors %}<div class="notice">⚠️ 入力が足りない人が {{ errors }}人 います。下の名前を押して直してください。</div>{% endif %}
+  <ul class="wiz-people">
+    {% for r in rows %}<li><a href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">
+      <span class="n">{{ r.st.member.name }}</span>
+      {% if r.errors %}<span class="chip chip-warn">要入力</span>{% elif r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% endif %}
+      <span class="a {% if r.st.net_amount is not None and r.st.net_amount <= 0 %}muted{% endif %}">{{ r.st.net_amount|default_if_none:"-"|intcomma }}円</span><span class="chev">›</span></a></li>
+    {% empty %}<li class="muted">件数を入れると、ここに全員の金額が並びます。</li>{% endfor %}
+  </ul>
+  {% if share_files %}
+  {% url 'payroll:month_action' as act %}
+  {% include "payroll/_share_pdfs.html" with files=share_files label="確認用PDFをLINEで送る" zip_url=zip_all_url mark=act|add:"|month="|add:month_param|add:"|action=mark_review_sent|next=/payroll/%3Fmonth%3D"|add:month_param|add:"%26step%3D4" %}
+  {% if pmonth.review_sent_at %}<p class="wiz-sub ok">✓ {{ pmonth.review_sent_at|date:"n/j H:i" }} に送りました</p>{% endif %}
+  {% endif %}
+
+{% elif step == 4 %}
+  <h2 class="wiz-title">確定する</h2>
+  {% if all_conf %}
+    <div class="wiz-done">✓ 全員（{{ n_conf }}人）確定しました</div>
   {% else %}
-  {% if share_confirmed %}{% include "payroll/_share_pdfs.html" with files=share_confirmed label="明細をLINEでみんなに送る" btn_class="btn-primary" zip_url=zip_confirmed_url %}{% endif %}
+    <p class="wiz-lead">代表のOKが出たら押してください。確定すると金額は変わりません。</p>
+    {% if bulk %}<form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('{{ bulk|length }}人を確定します。よろしいですか？')">{% csrf_token %}
+      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="/payroll/?month={{ month_param }}&step=4">
+      <button class="btn btn-ok btn-big" type="submit">✓ 確定する（{{ bulk|length }}人）</button></form>{% endif %}
+    {% if rest %}
+    <p class="wiz-lead" style="margin-top:14px">次の人は1人ずつ確かめてから確定します：</p>
+    <ul class="wiz-people">{% for r in rows %}{% if not r.st.is_confirmed and r.st not in bulk %}<li><a href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">
+      <span class="n">{{ r.st.member.name }}</span><span class="small muted">{% if r.errors %}入力が足りない{% else %}要確認{% endif %}</span><span class="chev">›</span></a></li>{% endif %}{% endfor %}</ul>
+    {% endif %}
+    {% if n_conf %}<p class="wiz-sub">確定済み {{ n_conf }}人</p>{% endif %}
   {% endif %}
-  <div class="pay-cards">
-    {% for r in rows %}{% if r.st.net_amount is None or r.st.net_amount > 0 %}
-    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
-      <summary>
-        <span class="pay-name">{{ r.st.member.name }}</span>
-        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% elif r.warns %}<span class="chip chip-open">注意</span>{% endif %}
-        <span class="pay-net">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></span>
-      </summary>
-      {% for e in r.errors %}<div class="pnote">⚠ {{ e }}</div>{% endfor %}
-      {% for w in r.warns %}<div class="pnote muted">ℹ {{ w }}</div>{% endfor %}
-      <table class="pay-lines">
-        {% for l in r.slip %}<tr><td>{{ l.name }}{% if l.detail %}<div class="small muted">{{ l.detail }}</div>{% endif %}</td>
-          <td class="num {% if l.amount < 0 %}neg{% endif %}">{% if l.missing %}未入力{% else %}{{ l.amount|intcomma }}{% endif %}</td></tr>{% endfor %}
-        <tr class="net"><td>差引支払額</td><td class="num">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td></tr>
-      </table>
-      <a class="btn" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{% if r.st.is_confirmed %}明細を見る{% else %}入力・修正する{% endif %}</a>
-    </details>
-    {% endif %}{% endfor %}
-  </div>
-  {% if none_rows %}
-  <details class="none-group">
-    <summary>今月は支給なし・マイナス（{{ none_rows|length }}人）</summary>
-    <div class="pay-cards">
-    {% for r in none_rows %}
-    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}">
-      <summary>
-        <span class="pay-name">{{ r.st.member.name }}</span>
-        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}
-        <span class="pay-net">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></span>
-      </summary>
-      {% for e in r.errors %}<div class="pnote">⚠ {{ e }}</div>{% endfor %}
-      <table class="pay-lines">
-        {% for l in r.slip %}<tr><td>{{ l.name }}{% if l.detail %}<div class="small muted">{{ l.detail }}</div>{% endif %}</td>
-          <td class="num {% if l.amount < 0 %}neg{% endif %}">{% if l.missing %}未入力{% else %}{{ l.amount|intcomma }}{% endif %}</td></tr>{% endfor %}
-        <tr class="net"><td>差引支払額</td><td class="num">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td></tr>
-      </table>
-      <a class="btn" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{% if r.st.is_confirmed %}明細を見る{% else %}入力・修正する{% endif %}</a>
-    </details>
-    {% endfor %}
-    </div>
-  </details>
-  {% endif %}
-  {% else %}
-  <p class="muted small">件数を取り込むと、自動で計算してここに並びます。</p>
-  {% endif %}
-</details>
 
-{# ④ 振込 #}
-<details class="step card {% if s4.done %}done{% endif %}" id="step4" {% if s4.open %}open{% endif %}>
-  <summary class="step-head"><span class="no">{% if s4.done %}✓{% else %}4{% endif %}</span><div><b>振込</b><div class="small muted">{{ s4.summary }}</div></div></summary>
-  {% if confirmed %}<a class="btn btn-primary" href="{% url 'payroll:transfers' %}?month={{ month_param }}">振込の画面（{{ n_paid }}/{{ pay_count }}人）</a>{% endif %}
-  <p class="small" style="margin:8px 0 0"><a href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員の給与{% if staff_unsaved %}（未保存 {{ staff_unsaved }}人）{% endif %} ›</a></p>
-</details>
+{% else %}
+  <h2 class="wiz-title">明細を送る・振り込む</h2>
+  {% if share_confirmed %}
+  {% url 'payroll:month_action' as act %}
+  {% include "payroll/_share_pdfs.html" with files=share_confirmed label="明細をLINEでみんなに送る" zip_url=zip_confirmed_url mark=act|add:"|month="|add:month_param|add:"|action=mark_slips_sent|next=/payroll/%3Fmonth%3D"|add:month_param|add:"%26step%3D5" %}
+  {% if pmonth.slips_sent_at %}<p class="wiz-sub ok">✓ {{ pmonth.slips_sent_at|date:"n/j H:i" }} に送りました</p>{% endif %}
+  {% else %}<p class="wiz-lead">確定すると、ここから明細を送れます。</p>{% endif %}
+  <ul class="wiz-checks" style="margin-top:16px">
+    <li class="{% if pay_count and n_paid == pay_count %}ok{% endif %}"><a href="{% url 'payroll:transfers' %}?month={{ month_param }}"><span>振込</span><b>{{ n_paid }} / {{ pay_count }}人 ›</b></a></li>
+    <li class="{% if not staff_unsaved %}ok{% endif %}"><a href="{% url 'payroll:staff' %}?month={{ month_param }}"><span>正社員の給与</span><b>{% if staff_unsaved %}未保存 {{ staff_unsaved }}人{% else %}保存済み{% endif %} ›</b></a></li>
+  </ul>
+{% endif %}
+</section>
+
+{# 下のボタン：戻る・次へ（いつも同じ場所） #}
+<div class="wiz-bar">
+  {% if step > 1 %}<a class="btn" href="?month={{ month_param }}&step={{ step|add:-1 }}">‹ 戻る</a>{% else %}<span></span>{% endif %}
+  {% if step == 3 %}
+    <form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
+      <input type="hidden" name="action" value="mark_review_sent"><input type="hidden" name="next" value="/payroll/?month={{ month_param }}&step=4">
+      <button class="btn btn-next {% if cur_step.done %}is-go{% endif %}" type="submit">送った → 次へ ›</button></form>
+  {% elif next_step %}
+    <a class="btn btn-next {% if cur_step.done %}is-go{% endif %}" href="?month={{ month_param }}&step={{ step|add:1 }}">次へ：{{ next_step.title }} ›</a>
+  {% else %}<span></span>{% endif %}
+</div>
 {% endblock %}
