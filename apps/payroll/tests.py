@@ -1345,3 +1345,20 @@ class TeamBonusAsMonthlyItemTests(TableScreenshotTests):
         self.assertFalse([m for m in st.calc_messages if m.get("item") == "team_bonus"])
         page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
         self.assertContains(page, "確定できない理由")  # 確定できない時は理由をボタンの場所に出す
+
+
+class DismissMessageTests(TableScreenshotTests):
+    def test_dismissed_error_disappears_and_stays_gone(self):
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=30)
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        errs = [m["text"] for m in st.calc_messages if m["level"] == "error"]
+        self.assertTrue(errs)
+        for t in errs:
+            self.client.post(f"/payroll/review/{st.pk}/", {"action": "dismiss", "text": t})
+        st.refresh_from_db()
+        self.assertFalse([m for m in st.calc_messages if m["level"] == "error"])
+        PayrollStatement.objects.filter(pk=st.pk).update(stale=True)
+        self.client.get("/payroll/?month=2026-11")  # 計算し直しても出ない
+        st.refresh_from_db()
+        self.assertFalse([m for m in st.calc_messages if m["level"] == "error"])

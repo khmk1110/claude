@@ -35,7 +35,10 @@
     <span class="dot"></span>{{ x.member.name }}</a>{% endfor %}
 </nav>
 
-{% for e in errors %}<div class="notice">⚠️ {{ e }}</div>{% endfor %}
+{% for e in errors %}<div class="notice notice-fix"><span>⚠️ {{ e }}</span>{% if not st.is_confirmed %}
+  <form method="post" action="{% url 'payroll:review_action' st.pk %}" onsubmit="return confirm('もう入力済みなどで対応が終わっている時だけ押してください。この表示を消しますか？')">{% csrf_token %}
+    <input type="hidden" name="action" value="dismiss"><input type="hidden" name="text" value="{{ e }}">
+    <button class="btn btn-sm" type="submit">対応済み（消す）</button></form>{% endif %}</div>{% endfor %}
 {% for b in blocks %}<div class="notice notice-stop">⛔ {{ b }}</div>{% endfor %}
 {% for c in cautions %}<div class="notice notice-stop">⚠️ {{ c }} 確定する前に内容を確かめてください。</div>{% endfor %}
 {% for w in warns %}<div class="notice info">ℹ️ {{ w }}</div>{% endfor %}

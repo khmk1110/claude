@@ -632,13 +632,24 @@ def review_action(request, pk):
                 calc.set_line_override(line, amount if amount != line.auto_amount else None,
                                        reason=p.get("reason", "").strip() or "1人ずつ確認で修正", user=user)
                 messages.success(request, f"{line.name}を{amount:,}円にしました。")
+            elif action == "dismiss":
+                text = p.get("text", "")[:500]
+                checks = dict(st.checks or {})
+                checks["_dismissed"] = sorted(set(checks.get("_dismissed") or []) | {text})
+                PayrollStatement.objects.filter(pk=st.pk).update(checks=checks)
+                st.refresh_from_db()
+                audit.log("payroll.dismiss_message", target=st, after={"注意": text}, user=user)
+                calc.calculate(st, user=user, log=False)
+                messages.success(request, "対応済みにしました。この表示はもう出ません。")
             elif action == "checks":
                 checks = {k: True for k, _ in STATEMENT_CHECKS if p.get(f"chk_{k}")}
+                if (st.checks or {}).get("_dismissed"):
+                    checks["_dismissed"] = st.checks["_dismissed"]
                 PayrollStatement.objects.filter(pk=st.pk).update(checks=checks)  # 確定後でも記録できるよう直接保存
                 if request.headers.get("x-requested-with") == "fetch":
                     from django.http import JsonResponse
 
-                    return JsonResponse({"ok": True, "done": len(checks), "total": len(STATEMENT_CHECKS)})
+                    return JsonResponse({"ok": True, "done": sum(1 for k, _ in STATEMENT_CHECKS if checks.get(k)), "total": len(STATEMENT_CHECKS)})
                 messages.success(request, "確認チェックを保存しました。")
             elif action == "adhoc_add" and p.get("monthly"):
                 # 毎月入れる項目（例：コンサル代）：この人専用の固定額の項目にして、この月から毎月自動で入れる

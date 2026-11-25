@@ -533,6 +533,9 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
             line.delete()
 
     recompute_totals(st)
+    dismissed = set((st.checks or {}).get("_dismissed") or [])
+    if dismissed:  # 「対応済み」にした注意は出さない（ほかの方法で入れた時など）
+        ctx.messages = [m for m in ctx.messages if m["text"] not in dismissed]
     st.calc_messages = ctx.messages
     st.status = PayrollStatement.Status.IN_PROGRESS if st.blocking_errors else PayrollStatement.Status.CALCULATED
     st.calculated_at = timezone.now()
