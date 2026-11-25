@@ -521,8 +521,8 @@ def review_action(request, pk):
                         row.count, row.updated_by = value, user
                         row.save()
                     else:
-                        SalesCount.objects.create(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED,
-                                                  product=x["p"], count=value, updated_by=user)
+                        SalesCount.objects.update_or_create(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED,
+                                                            product=x["p"], defaults={"count": value, "updated_by": user})
                     audit.log("payroll.sales_count", target=st.member, before={"count": x["count"]},
                               after={"month": st.month, "kind": f"入金確定件数（{x['p'].name}）", "count": value}, user=user)
                     changed.append(x["p"].name)
@@ -550,8 +550,8 @@ def review_action(request, pk):
                         row.count, row.source, row.updated_by = value, SalesCount.Source.MANUAL, user
                         row.save()
                     else:
-                        SalesCount.objects.create(member=st.member, month=target, kind=kind, count=value,
-                                                  source=SalesCount.Source.MANUAL, updated_by=user)
+                        SalesCount.objects.update_or_create(member=st.member, month=target, kind=kind, product=None,
+                                                            defaults={"count": value, "source": SalesCount.Source.MANUAL, "updated_by": user})
                     audit.log("payroll.sales_count", target=st.member, before={"count": before},
                               after={"month": target, "kind": SalesCount.Kind(kind).label, "count": value}, user=user)
                 key = PayrollInput.Key.PREV_ATTENDANCE_DAYS
@@ -962,8 +962,8 @@ def detail_action(request, pk):
                     row.count, row.updated_by = value, user
                     row.save()
                 else:
-                    SalesCount.objects.create(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED, product=product,
-                                              count=value, updated_by=user)
+                    SalesCount.objects.update_or_create(member=st.member, month=st.month, kind=SalesCount.Kind.CONFIRMED, product=product,
+                                                        defaults={"count": value, "updated_by": user})
                 audit.log("payroll.sales_count", target=st.member, before={"count": before},
                           after={"month": st.month, "kind": f"入金確定件数（{product.name}）", "count": value}, user=user)
                 calc.calculate(st, user=user, log=False)
@@ -1217,13 +1217,12 @@ def sales(request):
                         if before == value:
                             continue
                         if value is None:
-                            row.delete()
-                        elif row:
-                            row.count, row.source, row.updated_by = value, SalesCount.Source.MANUAL, request.user
-                            row.save()
+                            SalesCount.objects.filter(member=m, month=target, kind=kind, product=product).delete()
                         else:
-                            SalesCount.objects.create(member=m, month=target, kind=kind, product=product, count=value,
-                                                      source=SalesCount.Source.MANUAL, updated_by=request.user)
+                            # 2回押した時など、同時に保存しても重複エラーにならないよう「あれば更新・なければ作成」
+                            SalesCount.objects.update_or_create(
+                                member=m, month=target, kind=kind, product=product,
+                                defaults={"count": value, "source": SalesCount.Source.MANUAL, "updated_by": request.user})
                         label = f"{SalesCount.Kind(kind).label}{'（' + product.name + '）' if product else ''}"
                         audit.log("payroll.sales_count", target=m, before={"count": before},
                                   after={"month": target, "kind": label, "count": value}, user=request.user)
@@ -1626,8 +1625,8 @@ def counts_import(request):
                     row.count, row.source, row.updated_by = count, SalesCount.Source.IMAGE, request.user
                     row.save()
                 else:
-                    SalesCount.objects.create(member=m, month=target, kind=kind, product=product, count=count,
-                                              source=SalesCount.Source.IMAGE, updated_by=request.user)
+                    SalesCount.objects.update_or_create(member=m, month=target, kind=kind, product=product,
+                                                        defaults={"count": count, "source": SalesCount.Source.IMAGE, "updated_by": request.user})
                 if before != count:
                     label = SalesCount.Kind(kind).label
                     audit.log("payroll.sales_count", target=m, before={"count": before}, after={"month": target, "kind": label, "count": count},

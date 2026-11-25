@@ -6,7 +6,7 @@
 <div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:index' %}?month={{ month_param }}">← {{ month|date:"n月" }}分の給与</a></p><h1>件数を直す</h1></div>
   <a class="btn btn-primary" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">📷 スクショ・文から取り込む</a></div>
 
-<form method="post">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
+<form method="post" onsubmit="if(this.dataset.sent)return false;this.dataset.sent=1;this.querySelectorAll('button[type=submit]').forEach(function(b){b.textContent='保存中…'})">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
 <div class="table-wrap"><table class="table counts-table">
   <thead><tr><th>名前</th><th class="num">{{ prev|date:"n月" }}出勤<div class="small muted">シフトから</div></th><th class="num">{{ prev|date:"n月" }}獲得</th><th class="num">{{ month|date:"n月" }}入金確定</th></tr></thead>
   <tbody>
