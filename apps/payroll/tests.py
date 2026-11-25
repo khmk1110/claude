@@ -1240,7 +1240,6 @@ class MonthlyItemAndShareTests(TableScreenshotTests):
         self.assertFalse(item.applies_to(self.b, dec))  # ほかの人には入らない
         page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
         self.assertContains(page, "毎月の項目")
-        self.assertContains(page, "LINE・Googleドライブで送る")
         self.client.post(f"/payroll/review/{st.pk}/", {"action": "monthly_stop", "item_id": item.pk})
         item.refresh_from_db()
         self.assertFalse(item.applies_to(self.a, NOV))

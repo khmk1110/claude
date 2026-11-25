@@ -26,16 +26,22 @@
 {% include "payroll/_expenses_step.html" %}
 
 {# ③ 確認・確定（計算は自動） #}
-<details class="step card {% if s3.done %}done{% endif %}" id="step3" {% if s3.open or bulk %}open{% endif %}>
+<details class="step card {% if s3.done %}done{% endif %}" id="step3" {% if s3.open or bulk or s3.done and share_confirmed and not s4.done %}open{% endif %}>
   <summary class="step-head"><span class="no">{% if s3.done %}✓{% else %}3{% endif %}</span><div><b>確認・確定</b><div class="small muted">{{ s3.summary }}{% if last_calc %}・自動計算 {{ last_calc|date:"n/j H:i" }}{% endif %}</div></div></summary>
   {% if sts %}
-  <div class="form-row">
-    {% if bulk %}<form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('問題のない{{ bulk|length }}人を確定します。確定後は金額が変わりません。よろしいですか？')">{% csrf_token %}
-      <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#step3">
-      <button class="btn btn-ok" type="submit">問題のない{{ bulk|length }}人をまとめて確定</button></form>{% endif %}
-    {% if not s3.done %}<a class="btn {% if not bulk %}btn-primary{% endif %}" href="{% url 'payroll:review' %}?month={{ month_param }}">1人ずつ確認</a>{% endif %}
-  </div>
-  {% if share_files %}<div class="share-row">{% include "payroll/_share_pdfs.html" with files=share_files label="代表に送る（全員分のPDF）" btn_class="" zip_url=zip_all_url %}</div>{% endif %}
+  {% if not s3.done %}
+  <ol class="do-list">
+    <li><span class="do-no">1</span><div class="do-body"><b>代表に確認してもらう</b>
+      {% if share_files %}{% include "payroll/_share_pdfs.html" with files=share_files label="確認用PDFをLINEで送る" btn_class="" zip_url=zip_all_url %}{% endif %}</div></li>
+    <li><span class="do-no">2</span><div class="do-body"><b>OKなら確定</b>
+      {% if bulk %}<form method="post" action="{% url 'payroll:month_action' %}" onsubmit="return confirm('{{ bulk|length }}人を確定します。よろしいですか？')">{% csrf_token %}
+        <input type="hidden" name="month" value="{{ month_param }}"><input type="hidden" name="action" value="confirm_all"><input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#step3">
+        <button class="btn btn-ok" type="submit">✓ 確定する（{{ bulk|length }}人）</button></form>{% endif %}
+      {% if rest %}<a class="small" href="{% url 'payroll:review' %}?month={{ month_param }}">確認が必要な人 {{ rest }}人 ›</a>{% endif %}</div></li>
+  </ol>
+  {% else %}
+  {% if share_confirmed %}{% include "payroll/_share_pdfs.html" with files=share_confirmed label="明細をLINEでみんなに送る" btn_class="btn-primary" zip_url=zip_confirmed_url %}{% endif %}
+  {% endif %}
   <div class="pay-cards">
     {% for r in rows %}{% if r.st.net_amount is None or r.st.net_amount > 0 %}
     <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
@@ -86,11 +92,7 @@
 {# ④ 振込 #}
 <details class="step card {% if s4.done %}done{% endif %}" id="step4" {% if s4.open %}open{% endif %}>
   <summary class="step-head"><span class="no">{% if s4.done %}✓{% else %}4{% endif %}</span><div><b>振込</b><div class="small muted">{{ s4.summary }}</div></div></summary>
-  <div class="form-row">
-    {% if confirmed %}<a class="btn btn-primary" href="{% url 'payroll:transfers' %}?month={{ month_param }}">振込の画面（{{ n_paid }}/{{ pay_count }}人）</a>
-    <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分のPDF（{{ confirmed }}人）</a>{% endif %}
-    {% if share_confirmed %}{% include "payroll/_share_pdfs.html" with files=share_confirmed label="確定した明細をLINEで送る" btn_class="btn-primary" zip_url=zip_confirmed_url %}{% endif %}
-    <a class="btn" href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員の給与{% if staff_unsaved %}（未保存 {{ staff_unsaved }}人）{% endif %}</a>
-  </div>
+  {% if confirmed %}<a class="btn btn-primary" href="{% url 'payroll:transfers' %}?month={{ month_param }}">振込の画面（{{ n_paid }}/{{ pay_count }}人）</a>{% endif %}
+  <p class="small" style="margin:8px 0 0"><a href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員の給与{% if staff_unsaved %}（未保存 {{ staff_unsaved }}人）{% endif %} ›</a></p>
 </details>
 {% endblock %}

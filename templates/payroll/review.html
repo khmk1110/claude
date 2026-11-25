@@ -50,11 +50,7 @@
       <div><span class="lbl">発行者</span>{{ snap.issuer.company }}</div>{% if snap.issuer.representative %}<div><span class="lbl">代表取締役</span>{{ snap.issuer.representative }}</div>{% endif %}
       {% if snap.issuer.address %}<div><span class="lbl">所在地</span>{{ snap.issuer.address }}</div>{% endif %}{% if snap.issuer.tel %}<div><span class="lbl">TEL</span>{{ snap.issuer.tel }}</div>{% endif %}
     </div>
-    <div class="form-row" style="margin-top:12px">
-      <a class="btn" href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る</a>
-      <a class="btn" href="{% url 'payroll:statement_pdf' st.pk %}?download=1">ダウンロード</a>
-    </div>
-    <div class="share-row">{% include "payroll/_share_pdfs.html" with files=share_files label="LINE・Googleドライブで送る" btn_class="" %}</div>
+    <p style="margin:12px 0 0"><a href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る ›</a></p>
   </section>
 
   {# ── この人の入力 ── #}

@@ -907,7 +907,7 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "bulk": bulk, "s1": step_by[1], "s2": step_by[2], "s3": step_by[3], "s4": step_by[4],
+        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "bulk": bulk, "rest": len(sts) - n_conf - len(bulk), "s1": step_by[1], "s2": step_by[2], "s3": step_by[3], "s4": step_by[4],
         "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
         # 代表に送って確認してもらう用：全員分のPDF（確定前は「確認用」）。支給なしの人は除く
         "zip_all_url": reverse("payroll:month_pdf") + f"?month={month:%Y-%m}&all=1",
