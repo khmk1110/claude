@@ -26,3 +26,12 @@ def kv(value) -> str:
                  "auto": "自動値", "key": "項目", "name": "項目", "amount": "金額", "kind": "区分", "note": "内容"}
         return "、".join(f"{names.get(k, k)}: {v if v is not None else '-'}" for k, v in value.items())
     return str(value)
+
+
+@register.filter
+def mul(value, arg):
+    """掛け算（件数×単価の表示用）。数字でなければ空。"""
+    try:
+        return int(value) * int(arg)
+    except (TypeError, ValueError):
+        return ""

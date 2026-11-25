@@ -355,14 +355,27 @@ def ensure_month(month: date) -> PayrollMonth:
 
 
 @transaction.atomic
-def prepare_month(month: date, *, user=None) -> int:
-    """その月の計算対象（個人事業主・インターン）の給与データを作成する。"""
+def payroll_members(month: date):
+    """その月の給与の対象者。在籍中の人に加えて、退職した人でもその月の件数・経費がある人を入れる
+    （契約の約2か月後に報酬を払うため、退職後に給与が出ることがある）。"""
+    from apps.expenses.models import ExpenseRecord
     from apps.shifts.services import members_for_month
 
     month = month_start(month)
+    ids = set(members_for_month(month).filter(employment_type__in=PAYROLL_TYPES).values_list("pk", flat=True))
+    ids |= set(SalesCount.objects.filter(month=month, kind=SalesCount.Kind.CONFIRMED).values_list("member_id", flat=True))
+    ids |= set(SalesCount.objects.filter(month=prev_month(month), kind=SalesCount.Kind.ACQUIRED).values_list("member_id", flat=True))
+    recs = ExpenseRecord.objects.filter(Q(target_month=month) | Q(target_month__isnull=True, auto_target_month=month)).exclude(status="excluded")
+    ids |= {mid for pair in recs.values_list("member_id", "auto_member_id") for mid in pair if mid}
+    return Member.objects.filter(pk__in=ids, employment_type__in=PAYROLL_TYPES).order_by("display_order", "id")
+
+
+def prepare_month(month: date, *, user=None) -> int:
+    """その月の計算対象（個人事業主・インターン。退職後に報酬がある人も）の給与データを作成する。"""
+    month = month_start(month)
     ensure_month(month)
     n = 0
-    for m in members_for_month(month).filter(employment_type__in=PAYROLL_TYPES):
+    for m in payroll_members(month):
         _, created = PayrollStatement.objects.get_or_create(member=m, month=month, defaults={"employment_type": m.employment_type})
         n += created
     if n:

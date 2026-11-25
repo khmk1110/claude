@@ -54,7 +54,7 @@ document.querySelectorAll('form.card').forEach(function(f){f.addEventListener('s
         <td class="strong">{{ r.name }}</td>
         <td><select name="member_{{ r.i }}">
             <option value="skip" {% if not r.member_id or r.ignored %}selected{% endif %}>取り込まない</option>
-            {% for m in members %}<option value="{{ m.pk }}" {% if m.pk == r.member_id and not r.ignored %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+            {% for m in members %}<option value="{{ m.pk }}" {% if m.pk == r.member_id and not r.ignored %}selected{% endif %}>{{ m.name }}{% if m.status != "active" %}（退職）{% endif %}</option>{% endfor %}
           </select>
           {% if not r.member_id %}<label class="check small"><input type="checkbox" name="ignore_{{ r.i }}" value="1" {% if r.ignored %}checked{% endif %}> 次回も取り込まない</label>{% endif %}
           {% if r.method == "guess" and r.member_id %}<div><span class="badge-guess">推定</span> <span class="small muted">似た名前から選びました。違えば選び直してください</span></div>{% elif r.method == "ambiguous" %}<div class="small text-warn">同じ名前の人が複数います。選んでください</div>{% elif not r.member_id and not r.ignored %}<div class="small text-warn">誰か選んでください（選ぶと次回から自動）</div>{% endif %}</td>

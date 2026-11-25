@@ -26,7 +26,7 @@
         <label class="fix-field"><span>対象の人</span>
           <select name="member_{{ r.pk }}" data-member data-orig="{{ x.member.pk|default:'' }}">
             <option value="">― 選んでください ―</option>
-            {% for m in members %}<option value="{{ m.pk }}" {% if x.member and m.pk == x.member.pk %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+            {% for m in members %}<option value="{{ m.pk }}" {% if x.member and m.pk == x.member.pk %}selected{% endif %}>{{ m.name }}{% if m.status != "active" %}（退職）{% endif %}</option>{% endfor %}
           </select>
         </label>
         <label class="fix-field fix-amount"><span>金額</span>
@@ -45,7 +45,7 @@
 
   <details class="fix-add more"><summary>＋ 資料にない人を追加する</summary>
     <div class="fix-fields" style="margin-top:10px">
-      <label class="fix-field"><span>対象の人</span><select name="add_member"><option value="">― 選んでください ―</option>{% for m in members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select></label>
+      <label class="fix-field"><span>対象の人</span><select name="add_member"><option value="">― 選んでください ―</option>{% for m in members %}<option value="{{ m.pk }}">{{ m.name }}{% if m.status != "active" %}（退職）{% endif %}</option>{% endfor %}</select></label>
       <label class="fix-field fix-amount"><span>金額</span><div class="yen"><input name="add_amount" inputmode="numeric" autocomplete="off"><em>円</em></div></label>
     </div>
   </details>

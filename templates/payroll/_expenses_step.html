@@ -140,7 +140,7 @@
     </summary>
     <form method="post" action="{% url 'payroll:receipts_upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="receipt-form">{% csrf_token %}
       <div class="receipt-row">
-        <label class="fix-field"><span>① 誰の経費</span><select name="member" required><option value="">選んでください</option>{% for m in receipt_members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select></label>
+        <label class="fix-field"><span>① 誰の経費</span><select name="member" required><option value="">選んでください</option>{% for m in receipt_members %}<option value="{{ m.pk }}">{{ m.name }}{% if m.status != "active" %}（退職）{% endif %}</option>{% endfor %}</select></label>
         <label class="fix-field"><span>② 項目</span><select name="category" required>{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></label>
       </div>
       <label class="drop"><input type="file" name="files" multiple accept="image/*,.pdf" onchange="if(!this.form.member.value){alert('先に「誰の経費」を選んでください');this.value='';return;}this.form.querySelector('.drop-text').textContent='取り込み中…';this.form.submit()">

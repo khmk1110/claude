@@ -35,6 +35,7 @@ from .models import (
     PayrollLine,
     PayrollStatement,
     Product,
+    RateTable,
     SalesCount,
     SalesEvidence,
 )
@@ -284,7 +285,7 @@ def expenses_fix(request):
         group = "transport"
     back = f"/payroll/?month={month:%Y-%m}#{'gas' if group == 'gasoline' else group}"
     recs = _group_records(month, group)
-    members = list(Member.objects.filter(status=Member.Status.ACTIVE).order_by("display_order", "id"))
+    members = list(Member.objects.order_by("status", "display_order", "id"))  # 退職した人も選べる
     by_id = {m.pk: m for m in members}
 
     if request.method == "POST":
@@ -681,7 +682,7 @@ def month_home(request):
 
     month = month_from_request(request)
     pm = prev_month(month)
-    members = list(members_for_month(month).filter(employment_type__in=calc.PAYROLL_TYPES))
+    members = list(calc.payroll_members(month))  # 退職後に報酬がある人も含む
     acq = set(SalesCount.objects.filter(month=pm, kind="acquired", member__in=members).values_list("member", flat=True))
     conf = set(SalesCount.objects.filter(month=month, kind="confirmed", member__in=members).values_list("member", flat=True))
     sts = list(PayrollStatement.objects.filter(month=month).select_related("member").prefetch_related("lines", "inputs")
@@ -734,7 +735,7 @@ def month_home(request):
         "confirmable": len(confirmable), "confirmed": sum(1 for st in sts if st.is_confirmed), "sts": sts,
         "checklist": checklist, "step1_done": members and len(acq) >= len(members) and len(conf) >= len(members),
         "categories": ExpenseCategory.objects.filter(is_active=True).exclude(code__in=["gasoline", "transport"]),
-        "receipt_members": Member.objects.filter(status=Member.Status.ACTIVE).order_by("display_order", "id"),
+        "receipt_members": Member.objects.order_by("status", "display_order", "id"),
         "transport_category": ExpenseCategory.objects.filter(code="transport").first(),
     })
 
@@ -1096,6 +1097,7 @@ def sales(request):
     month = month_from_request(request)
     pm = prev_month(month)
     members = list(members_for_month(month))
+    members += [m for m in calc.payroll_members(month) if m not in members]  # 退職後に報酬がある人も
     prod_map, common_products = _product_members(month)
     existing = {(s.member_id, s.kind, s.product_id): s for s in SalesCount.objects.filter(month=month, kind=SalesCount.Kind.CONFIRMED)}
     existing.update({(s.member_id, s.kind, s.product_id): s for s in
@@ -1145,6 +1147,7 @@ def sales(request):
             return redirect(f"/payroll/?month={month:%Y-%m}#step3")
 
     rows = []
+    tables: dict = {}
     for m in members:
         def val(kind, product=None):
             row = existing.get((m.pk, kind, product.pk if product else None))
@@ -1152,8 +1155,20 @@ def sales(request):
         own = prod_map.get(m.pk, [])
         att, _ = attendance_services.actual_attendance_days(m, pm)
         payroll = m.employment_type in calc.PAYROLL_TYPES
+        # 前月の出勤日数と獲得件数から、単価表でインセンティブ単価を出す（参考表示）
+        unit = None
+        acq_val = val(SalesCount.Kind.ACQUIRED)
+        if payroll and att is not None and acq_val != "":
+            table = tables.get(m.employment_type)
+            if table is None and m.employment_type not in tables:
+                table = tables[m.employment_type] = RateTable.for_month(m.employment_type, month)
+            if table:
+                try:
+                    unit = table.lookup(att, acq_val)
+                except ValueError:
+                    unit = None
         rows.append({
-            "member": m, "att": att, "acq": val(SalesCount.Kind.ACQUIRED), "conf": val(SalesCount.Kind.CONFIRMED),
+            "member": m, "att": att, "acq": val(SalesCount.Kind.ACQUIRED), "conf": val(SalesCount.Kind.CONFIRMED), "unit": unit,
             "payroll": payroll, "product_based": bool(own),
             # 商品別の人は全部の商品（全員共通の都市ガスなども含む）、それ以外の人は件数が入っている都市ガスなどだけ
             "products": [(p, val(SalesCount.Kind.CONFIRMED, p)) for p in own + ([c for c in common_products if c not in own] if own else [])],
@@ -1314,10 +1329,10 @@ def confirmed_product_for(member, month):
 
 
 def _known_names():
-    """在籍メンバーと別名（資料の表記）。名前の読み取り・照合に使う。"""
+    """メンバー（退職した人も含む）と別名（資料の表記）。名前の読み取り・照合に使う。"""
     from apps.members.models import MemberAlias
 
-    active = list(Member.objects.filter(status=Member.Status.ACTIVE))
+    active = list(Member.objects.all())
     aliases = list(MemberAlias.objects.filter(member__in=active))
     known = [m.name for m in active] + [m.name.split()[0] for m in active if " " in m.name] + [a.alias for a in aliases]
     return active, aliases, known
@@ -1358,7 +1373,7 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
         entries.append(e)
     rows, taken = [], set()
     for i, e in enumerate(entries):
-        res = match_member(e.name, include_retired=False)
+        res = match_member(e.name, include_retired=True)  # 退職した人にも報酬が出ることがある（在籍中を優先）
         member_id, method, note = (res.member.pk if res.ok else None), res.method, e.note
         is_ignored = normalize_name(e.name) in ignored
         if member_id is None and not is_ignored and res.method != "ambiguous":
@@ -1535,7 +1550,7 @@ def counts_import(request):
         target = date.fromisoformat(plan["month"])
         from apps.attendance import services as attendance_services
 
-        members = Member.objects.filter(status=Member.Status.ACTIVE)
+        members = Member.objects.order_by("status", "display_order", "id")  # 在籍中→退職の順
         existing = {s.member_id: s.count for s in SalesCount.objects.filter(month=target, kind=plan["kind"], product__isnull=True)}
         rows = []
         for r in plan["rows"]:

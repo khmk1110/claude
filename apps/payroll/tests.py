@@ -1030,3 +1030,28 @@ class ReceiptAndLayoutTests(TableScreenshotTests):
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
         st = PayrollStatement.objects.get(member=self.a, month=NOV)
         self.assertFalse(st.lines.filter(code="team_bonus").exists())  # リーダーでない人には項目を出さない
+
+
+class RetiredAndUnitHintTests(TableScreenshotTests):
+    def test_retired_member_with_counts_gets_statement_and_is_matched(self):
+        from apps.members.matching import match_member
+
+        old = Member.objects.create(name="退職 太郎", employment_type=C, status=Member.Status.RETIRED, retired_on=date(2026, 9, 30))
+        SalesCount.objects.create(member=old, month=NOV, kind="confirmed", count=5)
+        self.assertEqual(match_member("退職").member, old)
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        self.assertTrue(PayrollStatement.objects.filter(member=old, month=NOV).exists())
+        page = self.client.get("/payroll/sales/?month=2026-11")
+        self.assertContains(page, "退職 太郎")
+
+    def test_unit_hint_on_counts_list(self):
+        from apps.shifts.models import WorkType
+
+        SalesCount.objects.create(member=self.a, month=OCT, kind="acquired", count=65)
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=40)
+        from apps.payroll.models import PayrollStatement as _PS  # noqa: F401
+
+        work_days(self.a, OCT, 20)
+        page = self.client.get("/payroll/sales/?month=2026-11")
+        self.assertContains(page, "単価")
+        self.assertContains(page, "× 40件")
