@@ -120,8 +120,8 @@ class MonthlyFlowTests(TestCase):
         net = a.net_amount
         self.client.post("/expenses/line/", {"text": "青木 1,000", "category": ExpenseCategory.objects.get(code="advance").pk,
                                              "target_month": "2026-11"})
-        rec = ExpenseRecord.objects.get(status="unchecked")
-        self.client.post(f"/expenses/files/{rec.source_file_id}/action/", {"action": "approve", "records": [rec.pk]})
+        rec = ExpenseRecord.objects.latest("pk")
+        self.assertEqual(rec.status, "approved")  # 自分で入れた立替金・その他の経費はそのまま承認される
         a.refresh_from_db()
         self.assertEqual((a.net_amount, a.needs_review), (net, True))
         # 主要な操作がすべて監査ログに残っている

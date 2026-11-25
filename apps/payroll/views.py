@@ -260,7 +260,8 @@ def expenses_approve_all(request):
     with transaction.atomic():
         ok, skipped = importer.approve(recs, user=request.user, confirm_soft_issues=True)
     if ok:
-        messages.success(request, f"{ok}件を承認しました。給与に入ります。")
+        calc.refresh_for_expenses(month, user=request.user)
+        messages.success(request, f"{ok}件を承認しました。給与に入れて計算し直しました。")
     for msg in skipped[:5]:
         messages.warning(request, f"承認できませんでした：{msg}（「名前・金額を直す」から直してください）")
     return redirect(f"/payroll/?month={month:%Y-%m}#step2")
@@ -295,6 +296,7 @@ def expenses_fix(request):
 
     if request.method == "POST":
         changed, errors = 0, []
+        touched = {r.effective_member.pk for r in recs if r.effective_member}  # 名前を付け替えた時は前の人も計算し直す
         with transaction.atomic():
             for r in recs:
                 if f"amount_{r.pk}" not in request.POST:
@@ -358,6 +360,9 @@ def expenses_fix(request):
                     changed += 1
                 except (ValueError, KeyError, importer.RecordLocked) as e:
                     errors.append(f"追加: {e}")
+            if group == "other" and request.POST.get("then") != "approve":
+                # その他の経費は自分で入れたものなので、保存したらそのまま給与に入れる
+                importer.auto_approve_added([r for r in _group_records(month, group)], user=request.user)
             if request.POST.get("then") == "approve" and not errors:
                 # 誰の分か決まっていない行（対象外にしなかった行）は承認せずに残す
                 fresh = [r for r in _group_records(month, group) if r.status in OPEN_EXPENSE]
@@ -370,6 +375,8 @@ def expenses_fix(request):
                 for msg in skipped[:5]:
                     errors.append(f"承認できませんでした：{msg}")
         if changed:
+            calc.refresh_for_expenses(month, user=request.user, member_ids=touched)
+            calc.refresh_for_expenses(month, user=request.user)
             messages.success(request, f"{changed}件を保存しました。")
         for e in errors[:10]:
             messages.error(request, e)
@@ -702,6 +709,12 @@ def month_home(request):
 
     month = month_from_request(request)
     pm = prev_month(month)
+    from apps.expenses import importer as _imp
+
+    # 自分で追加したその他の経費（確認待ちのまま残っているもの）は承認し、承認・追加された経費は開いた時に自動で計算に入れる
+    _imp.auto_approve_added([r for r in _month_expense_records(month, exclude_codes={"gasoline", "transport"}) if r.status in OPEN_EXPENSE],
+                            user=request.user)
+    calc.refresh_for_expenses(month, user=request.user)
     members = list(calc.payroll_members(month))  # 退職後に報酬がある人も含む
     acq = set(SalesCount.objects.filter(month=pm, kind="acquired", member__in=members).values_list("member", flat=True))
     conf = set(SalesCount.objects.filter(month=month, kind="confirmed", member__in=members).values_list("member", flat=True))

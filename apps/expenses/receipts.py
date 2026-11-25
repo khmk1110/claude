@@ -49,6 +49,11 @@ def _read(sf_id: int) -> None:
         sf.save(update_fields=["status", "error_message"])
         msg = "レシートから読み取りました。金額を確認してください。" if amount else "金額を読み取れませんでした。金額を入れてください。"
         ExpenseIssue.objects.create(record=rec, source_file=sf, code=ExpenseIssue.Code.LOW_CONFIDENCE, message=msg)
+        if amount:
+            # 人を選んで取り込んだレシートは、そのまま承認して給与に入れる（金額が違えば「名前・金額を直す」で直せる）
+            from .importer import auto_approve_added
+
+            auto_approve_added([ExpenseRecord.objects.get(pk=rec.pk)], user=sf.uploaded_by)
     except Exception as e:  # noqa: BLE001
         sf.status, sf.error_message = SourceFile.Status.PARSED, f"読み取れませんでした（{type(e).__name__}）。金額を入れてください。"
         sf.save(update_fields=["status", "error_message"])

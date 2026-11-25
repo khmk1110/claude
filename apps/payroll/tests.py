@@ -1024,7 +1024,26 @@ class ReceiptAndLayoutTests(TableScreenshotTests):
         self.assertEqual(len(recs), 2)
         self.assertTrue(all(r.effective_member == self.a for r in recs))
         self.assertEqual(recs[1].effective_amount, 2365)
-        self.assertTrue(all(r.status == "pending" for r in recs))  # 承認するまで給与には入らない
+        self.assertTrue(all(r.status == "approved" for r in recs))  # 人を選んで入れたレシートはそのまま給与に入る
+        # 給与の画面を開くと、計算し直して明細に入っている
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        line = st.lines.get(code=cat.payroll_item_code or "other_expense")
+        self.assertEqual(line.amount, sum(r.effective_amount for r in recs))
+
+    def test_other_expense_added_later_is_recalculated(self):
+        from apps.expenses.models import ExpenseCategory
+
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        before = st.net_amount
+        cat = ExpenseCategory.objects.get(code="other_expense")
+        self.client.post("/expenses/line/", {"text": f"{self.a.name} 1,234 駐車場", "category": cat.pk, "target_month": "2026-11"})
+        self.client.get("/payroll/?month=2026-11")
+        st.refresh_from_db()
+        self.assertEqual(st.lines.get(code="other_expense").amount, 1234)
+        self.assertEqual(st.net_amount, before + 1234)
 
     def test_team_bonus_only_for_leaders(self):
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})

@@ -135,7 +135,7 @@
   {# ───────── その他 ───────── #}
   <details class="xpanel" id="other" {% if exp.other.rows or exp.other.processing %}open{% endif %}>
     <summary class="xpanel-head">
-      <div class="xpanel-title"><span class="xicon">🧾</span><div><b>その他の経費</b><div class="small muted">レシートなど</div></div></div>
+      <div class="xpanel-title"><span class="xicon">🧾</span><div><b>その他の経費</b><div class="small muted">入れた分はそのまま給与に入ります</div></div></div>
       {% if exp.other.processing %}<span class="chip chip-open">読み取り中</span>{% elif exp.other.rows %}{% include "payroll/_xstatus.html" with st=exp.other.status open=exp.other.open %}{% else %}<span class="chip">なし</span>{% endif %}
     </summary>
     <form method="post" action="{% url 'payroll:receipts_upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="receipt-form">{% csrf_token %}

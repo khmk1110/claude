@@ -394,6 +394,38 @@ def recompute_totals(st: PayrollStatement) -> None:
     st.earnings_total, st.deductions_total, st.net_amount = earn, ded, earn - ded
 
 
+def refresh_for_expenses(month: date, *, user=None, member_ids=None) -> int:
+    """経費が変わった人の明細を自動で計算し直す（確定前の明細だけ）。
+
+    member_ids を渡すとその人たちを計算し直す（削除など、記録が残らない変更のため）。
+    渡さない時は、前回の計算より後に承認・修正された経費がある人だけを計算し直す。
+    """
+    from apps.expenses.models import ExpenseRecord
+
+    month = month_start(month)
+    if PayrollStatement.objects.filter(month=month).exists():
+        # 計算を始めた月なら、経費だけある人（退職した人など）の明細も作っておく
+        have = set(PayrollStatement.objects.filter(month=month).values_list("member_id", flat=True))
+        for m in payroll_members(month):
+            if m.pk not in have:
+                PayrollStatement.objects.create(member=m, month=month, employment_type=m.employment_type)
+    sts = PayrollStatement.objects.filter(month=month).exclude(status=PayrollStatement.Status.CONFIRMED).select_related("member")
+    if member_ids is not None:
+        sts = sts.filter(member_id__in=set(member_ids))
+    n = 0
+    for st in sts:
+        if member_ids is None:
+            recs = ExpenseRecord.objects.filter(Q(member=st.member) | Q(member__isnull=True, auto_member=st.member)).filter(
+                Q(target_month=month) | Q(target_month__isnull=True, auto_target_month=month))
+            if st.calculated_at:
+                recs = recs.filter(updated_at__gt=st.calculated_at)
+            if not recs.exists():
+                continue
+        calculate(st, user=user, log=False)
+        n += 1
+    return n
+
+
 @transaction.atomic
 def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollStatement:
     _guard(st)

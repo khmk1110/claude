@@ -52,9 +52,9 @@ def _yen(n) -> str:
     return f"-{abs(n):,}" if n < 0 else f"{n:,}"
 
 
-EXPENSE_CODES = {"transport_contractor", "transport_intern", "advance", "gasoline"}
+EXPENSE_CODES = {"transport_contractor", "transport_intern", "advance", "other_expense", "gasoline"}
 # 明細書には内訳を書かない項目（交通費の −35,000円、チーム平均の件数、アプリ手数料の「個人事業主のみ」など）
-NO_DETAIL_ON_SLIP = {"transport_contractor", "transport_intern", "team_bonus", "intern_leader", "app_fee", "advance", "gasoline"}
+NO_DETAIL_ON_SLIP = {"transport_contractor", "transport_intern", "team_bonus", "intern_leader", "app_fee", "advance", "other_expense", "gasoline"}
 
 
 def is_expense_only(lines) -> bool:

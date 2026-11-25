@@ -766,3 +766,22 @@ def save_mapping(sf: SourceFile, *, user=None, name: str, kind: str, column_map:
     audit.log("expenses.profile_save", target=profile, after={"columns": column_map, "kind": kind}, user=user)
     process(sf, user=user)
     return profile
+
+
+AUTO_APPROVE_EXCLUDE = {"gasoline", "transport"}
+
+
+def auto_approve_added(records, *, user=None) -> int:
+    """自分で人を選んで追加した経費（レシート・文で入力・手入力の「その他の経費」）は、そのまま承認して給与に入れる。
+
+    ガソリン代・交通費は資料から自動で読むため、確認してから承認する（ここでは承認しない）。
+    誰の分か・金額が決まっていないものは承認せず「確認待ち」に残す。
+    """
+    targets = [r for r in records if r.status in (R.IMPORTED, R.UNCHECKED, R.PENDING, R.MODIFIED)
+               and r.effective_member and r.effective_amount is not None
+               and not (r.effective_category and r.effective_category.code in AUTO_APPROVE_EXCLUDE)]
+    if not targets:
+        return 0
+    with transaction.atomic():
+        ok, _ = approve(targets, user=user, confirm_soft_issues=True)
+    return ok

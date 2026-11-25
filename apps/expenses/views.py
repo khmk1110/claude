@@ -178,7 +178,12 @@ def line_import(request):
     except ValueError as e:
         messages.error(request, str(e))
         return _next_or(request, redirect(f"{_base(request)}?month={request.POST.get('target_month') or ''}"))
-    messages.success(request, f"{sf.row_count}件を取り込みました。内容を確認して承認してください。")
+    ok = importer.auto_approve_added(list(sf.records.all()), user=request.user)
+    if ok:
+        left = sf.row_count - ok
+        messages.success(request, f"{ok}件を給与に入れました。" + (f"{left}件は誰の分か確かめてください。" if left else ""))
+    else:
+        messages.success(request, f"{sf.row_count}件を取り込みました。内容を確認して承認してください。")
     return _next_or(request, _go(request, "file", pk=sf.pk))
 
 
