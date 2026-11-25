@@ -10,23 +10,30 @@
   <div><div class="small muted">合計（給与＋交通費＋経費）</div><div class="xbig">{{ total|intcomma }}<small>円</small></div></div>
   <div class="tr-progress small muted">明細は作りません<br>支出に自動で入ります</div>
 </div>
-
-{% if unsaved %}<div class="next-card"><b>次にやること</b><span>給与の額を確かめて「保存」（{{ unsaved }}人 未保存）</span></div>{% endif %}
-{% if open %}<div class="notice">⚠️ 確認待ちの経費が {{ open }}件 あります。<a href="{% url 'payroll:index' %}?month={{ month_param }}&step=2#step2">給与の画面で承認</a>すると合計に入ります。</div>{% endif %}
+{% if open %}<div class="notice">⚠️ 確認待ちの経費が {{ open }}件 あります。<a href="{% url 'payroll:index' %}?month={{ month_param }}&step=2">経費で承認</a>すると合計に入ります。</div>{% endif %}
 
 <form method="post">{% csrf_token %}
-<ul class="staff-list">
-  {% for r in rows %}
-  <li class="staff-row {% if not r.saved %}is-unsaved{% endif %}">
-    <div class="staff-name"><b>{{ r.member.name }}</b>{% if not r.saved and r.src %}<span class="chip chip-open">{{ r.src }}</span>{% elif not r.saved %}<span class="chip chip-warn">未入力</span>{% endif %}</div>
-    <label class="staff-salary"><span class="small muted">給与</span>
-      <div class="yen"><input name="salary_{{ r.member.pk }}" value="{{ r.salary|default_if_none:''|intcomma }}" inputmode="numeric" autocomplete="off"><em>円</em></div></label>
-    <div class="staff-add small"><span>交通費 {{ r.transport|intcomma }}</span><span>経費 {{ r.other|intcomma }}</span></div>
-    <div class="staff-total">{{ r.total|intcomma }}<small>円</small></div>
-  </li>
-  {% empty %}<li class="muted">この月の正社員はいません。</li>{% endfor %}
-</ul>
-{% if rows %}<div class="fix-bar"><button class="btn btn-primary" type="submit">保存</button></div>{% endif %}
+{% for r in rows %}
+<section class="card staff-card {% if not r.saved %}is-unsaved{% endif %}">
+  <div class="staff-head"><b>{{ r.member.name }}</b>
+    {% if r.month_no %}<span class="chip">入社{{ r.month_no }}か月目</span>{% endif %}
+    {% if not r.saved %}<span class="chip chip-open">未保存</span>{% endif %}
+    <span class="staff-total">{{ r.total|intcomma }}<small>円</small></span></div>
+  <p class="small muted" style="margin:0 0 6px">確かめたら左の□にチェック</p>
+  <ul class="chk-list">
+    {% for x in r.items %}
+    <li class="{% if x.key == 'base' and r.base_ng %}is-ng{% endif %}">
+      <label class="chk"><input type="checkbox" name="chk_{{ x.key }}_{{ r.member.pk }}" value="1" {% if x.checked %}checked{% endif %}><span>{{ x.label }}</span></label>
+      <div class="yen"><input name="{{ x.key }}_{{ r.member.pk }}" value="{{ x.value|intcomma }}" inputmode="numeric" autocomplete="off"><em>円</em></div>
+      {% if x.key == 'base' and r.expected_base %}<div class="chk-hint {% if r.base_ng %}ng{% endif %}">{% if r.base_ng %}⚠ {{ r.month_no }}か月目は {{ r.expected_base|intcomma }}円 のはずです{% else %}✓ {{ r.month_no }}か月目は {{ r.expected_base|intcomma }}円（1・2か月目 25万／3か月目から 28万）{% endif %}</div>
+      {% elif x.key == 'base' %}<div class="chk-hint">入社日を登録すると、25万／28万を自動で確かめます</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="staff-add small"><span>交通費 {{ r.transport|intcomma }}円</span><span>経費 {{ r.other|intcomma }}円</span><span>確認 {{ r.checked }}/5</span></div>
+</section>
+{% empty %}<p class="muted">この月の正社員はいません。</p>{% endfor %}
+<div class="wiz-bar-space"></div>
+{% if rows %}<div class="wiz-bar"><span class="small muted">合計 {{ total|intcomma }}円</span><button class="btn btn-next is-go" type="submit">保存</button></div>{% endif %}
 </form>
-<p class="small muted" style="margin-top:12px">基本給の改定は <a href="{% url 'payroll:employees' %}?month={{ month_param }}">設定 › 正社員</a></p>
 {% endblock %}

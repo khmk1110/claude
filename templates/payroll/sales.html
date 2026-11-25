@@ -7,17 +7,18 @@
   <a class="btn btn-primary" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">📷 スクショ・文から取り込む</a></div>
 
 <form method="post" onsubmit="if(this.dataset.sent)return false;this.dataset.sent=1;this.querySelectorAll('button[type=submit]').forEach(function(b){b.textContent='保存中…'})">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
-<div class="table-wrap"><table class="table counts-table">
+<div class="table-wrap sticky-table"><table class="table counts-table">
   <thead><tr><th>名前</th><th class="num">{{ prev|date:"n月" }}出勤<div class="small muted">シフトから</div></th><th class="num">{{ prev|date:"n月" }}獲得</th><th class="num">{{ month|date:"n月" }}入金確定</th></tr></thead>
   <tbody>
   {% for r in rows %}
   <tr><td class="strong nowrap">{{ r.member.name }}{% if r.member.status != "active" %} <span class="chip">退職</span>{% endif %}
-      {% if not r.payroll %}<div class="small muted">正社員</div>{% elif r.unit %}<div class="small muted unit-hint">単価 <b>{{ r.unit|intcomma }}円</b>{% if r.unit_manual %}（手入力）{% endif %}{% if r.conf and not r.product_based %} × {{ r.conf }}件 = {{ r.unit|mul:r.conf|intcomma }}円{% endif %}</div>{% else %}<div class="small muted unit-hint">単価 -（出勤・獲得を入れると出ます）</div>{% endif %}</td>
+      {% if not r.payroll %}<div class="small muted">正社員</div>{% elif r.unit %}<div class="small muted unit-hint">単価 <b>{{ r.unit|intcomma }}円</b>{% if r.unit_manual %}（手入力）{% endif %}{% if r.conf and not r.product_based %} × {{ r.conf }}件 = {{ r.unit|mul:r.conf|intcomma }}円{% endif %}</div>{% else %}<div class="small muted unit-hint">単価 -</div>{% endif %}</td>
     <td class="num">{{ r.att|default_if_none:"-" }}</td>
     <td class="num"><input name="acq_{{ r.member.pk }}" value="{{ r.acq }}" inputmode="numeric"></td>
     <td class="num">{% if not r.payroll %}<span class="muted">-</span>{% elif r.product_based %}<span class="small muted">下の商品別へ</span>{% else %}<input name="conf_{{ r.member.pk }}" value="{{ r.conf }}" inputmode="numeric">{% endif %}</td>
   </tr>
   {% if r.product_based or r.common_with_count %}<tr class="sub"><td colspan="4">
+    <div class="sub-name">{{ r.member.name }}の商品別</div>
     <ul class="prod-list" style="margin:2px 0">
       {% for p, v in r.products %}<li><label>{{ p.name }}{% if p.code == "houmon_denki" %}<small>入金確定シートの件数</small>{% endif %}</label><div class="yen"><input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric"><em>件</em></div></li>{% endfor %}
       {% for p, v in r.common_with_count %}<li><label>{{ p.name }}</label><div class="yen"><input name="prod_{{ p.code }}_{{ r.member.pk }}" value="{{ v }}" inputmode="numeric"><em>件</em></div></li>{% endfor %}

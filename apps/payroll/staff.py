@@ -1,4 +1,4 @@
-"""正社員の給与の合計（明細は作らない）。給与＋交通費＋その他の経費を1人ずつ出し、支出の合計にも使う。"""
+"""正社員の給与の合計（明細は作らない）。給与の内訳（基本給・手当）＋交通費＋その他の経費を1人ずつ出し、支出の合計にも使う。"""
 
 from __future__ import annotations
 
@@ -10,17 +10,38 @@ from apps.shifts.services import members_for_month
 from .models import BaseSalary, EmployeePay
 
 OPEN = ("imported", "unchecked", "pending", "modified")
+PARTS = EmployeePay.PARTS
+
+# 基本給の決まり：入社1・2か月目は25万円、3か月目からは28万円
+BASE_FIRST, BASE_FROM_THIRD = 250_000, 280_000
 
 
-def default_salary(member, month):
-    """まだ入れていない月の給与：前に入れた額 → 基本給 の順に使う。"""
+def month_no(member, month):
+    """入社して何か月目か（入社した月＝1か月目）。入社日がなければ None。"""
+    j = member.joined_on
+    if not j:
+        return None
+    return (month.year - j.year) * 12 + (month.month - j.month) + 1
+
+
+def expected_base(member, month):
+    n = month_no(member, month)
+    if n is None or n < 1:
+        return None
+    return BASE_FIRST if n < 3 else BASE_FROM_THIRD
+
+
+def default_parts(member, month):
+    """まだ保存していない月の内訳：前の月の内訳を引き継ぎ、基本給は決まり（25万→28万）を優先する。"""
     last = EmployeePay.objects.filter(member=member, month__lt=month).order_by("-month").first()
-    if last:
-        return last.salary, "前回と同じ"
-    bs = BaseSalary.for_month(member, month)
-    if bs:
-        return bs.amount, "基本給"
-    return None, ""
+    parts = {k: (getattr(last, k) if last else 0) for k, _ in PARTS}
+    exp = expected_base(member, month)
+    if exp is not None:
+        parts["base"] = exp
+    elif not last:
+        bs = BaseSalary.for_month(member, month)
+        parts["base"] = bs.amount if bs else 0
+    return parts, ("前回と同じ" if last else "基本給")
 
 
 def staff_rows(month):
@@ -44,12 +65,18 @@ def staff_rows(month):
     rows = []
     for m in Member.objects.filter(pk__in=ids).order_by("display_order", "id"):
         e = exp.get(m.pk, {"transport": 0, "other": 0, "open": 0})
-        if m.pk in saved:
-            salary, src = saved[m.pk].salary, ""
+        sp = saved.get(m.pk)
+        if sp:
+            parts, src, checks = {k: getattr(sp, k) for k, _ in PARTS}, "", sp.checks or {}
         else:
-            salary, src = default_salary(m, month)
-        total = (salary or 0) + e["transport"] + e["other"]
-        rows.append({"member": m, "salary": salary, "src": src, "saved": m.pk in saved, **e, "total": total})
+            parts, src = default_parts(m, month)
+            checks = {}
+        salary = sum(parts.values())
+        n, exp_base = month_no(m, month), expected_base(m, month)
+        items = [{"key": k, "label": label, "value": parts[k], "checked": bool(checks.get(k))} for k, label in PARTS]
+        rows.append({"member": m, "parts": parts, "items": items, "salary": salary, "src": src, "saved": bool(sp),
+                     "month_no": n, "expected_base": exp_base, "base_ng": exp_base is not None and parts["base"] != exp_base,
+                     "checked": sum(1 for x in items if x["checked"]), **e, "total": salary + e["transport"] + e["other"]})
     return rows
 
 

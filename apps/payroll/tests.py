@@ -1112,20 +1112,27 @@ class StaffPayTests(TableScreenshotTests):
         from apps.payroll.models import BaseSalary
 
         e = Member.objects.create(name="架空 社員", employment_type="employee", joined_on=date(2025, 1, 1))
-        BaseSalary.objects.create(member=e, effective_from=date(2025, 1, 1), amount=250000)
+        new = Member.objects.create(name="架空 新人", employment_type="employee", joined_on=date(2026, 10, 1))
+        from apps.payroll.staff import staff_rows
+        rows = {r["member"]: r for r in staff_rows(NOV)}
+        self.assertEqual(rows[e]["parts"]["base"], 280000)   # 3か月目から28万円
+        self.assertEqual(rows[new]["parts"]["base"], 250000)  # 入社2か月目は25万円
         page = self.client.get("/payroll/staff/?month=2026-11")
-        self.assertContains(page, "架空 社員")
-        self.assertContains(page, "基本給")  # まだ保存していない時は基本給を使う
+        self.assertContains(page, "車手当")
         before = month_totals(NOV)["payments"]
-        self.client.post("/payroll/staff/?month=2026-11", {f"salary_{e.pk}": "260,000"})
+        self.client.post("/payroll/staff/?month=2026-11", {f"base_{e.pk}": "250,000", f"car_{e.pk}": "20,000",
+                                                           f"rent_{e.pk}": "10000", f"chk_car_{e.pk}": "1",
+                                                           f"base_{new.pk}": "250000"})
+        rows = {r["member"]: r for r in staff_rows(NOV)}
+        self.assertTrue(rows[e]["base_ng"])  # 3か月目なのに25万円 → 注意を出す
+        self.assertEqual(rows[e]["checked"], 1)
         cat = ExpenseCategory.objects.get(code="transport")
         importer.import_line_text("架空社員 12,345", category=cat, target_month=NOV)
         from apps.expenses.models import ExpenseRecord
         importer.approve(list(ExpenseRecord.objects.filter(auto_member=e)), confirm_soft_issues=True)
-        self.assertEqual(month_totals(NOV)["payments"] - before, 260000 + 12345 - 250000)  # 基本給→保存した額＋交通費
-        from apps.payroll.staff import staff_rows
+        self.assertEqual(month_totals(NOV)["payments"] - before, (250000 + 20000 + 10000 - 280000) + 12345)
         row = next(r for r in staff_rows(NOV) if r["member"] == e)
-        self.assertEqual((row["salary"], row["transport"], row["total"]), (260000, 12345, 272345))
+        self.assertEqual((row["salary"], row["transport"], row["total"]), (280000, 12345, 292345))
         self.assertFalse(PayrollStatement.objects.filter(member=e).exists())  # 明細は作らない
         self.assertContains(self.client.get("/payments/?month=2026-11"), "正社員給与")
 
@@ -1270,3 +1277,20 @@ class WizardFlowTests(TableScreenshotTests):
         self.assertIsNotNone(PayrollMonth.objects.get(month=NOV).review_sent_at)
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "mark_slips_sent"})
         self.assertIsNotNone(PayrollMonth.objects.get(month=NOV).slips_sent_at)
+
+
+
+class StatementChecklistTests(TableScreenshotTests):
+    def test_confirm_needs_all_checks(self):
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "リーダー手当が入っているか")
+        self.assertContains(page, "ほかに引くもの")
+        from .views import confirm_checks
+        self.assertTrue(any("確認チェック" in b for b in confirm_checks(st)[0]))
+        r = self.client.post(f"/payroll/review/{st.pk}/", {"action": "checks", "chk_leader": "1", "chk_gas": "1", "chk_deduct": "1"},
+                             HTTP_X_REQUESTED_WITH="fetch")
+        self.assertEqual(r.json()["done"], 3)
+        st.refresh_from_db()
+        self.assertFalse(any("確認チェック" in b for b in confirm_checks(st)[0]))

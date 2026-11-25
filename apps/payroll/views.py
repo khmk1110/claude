@@ -426,6 +426,29 @@ def _member_products(st):
 
 
 
+STATEMENT_CHECKS = (
+    ("leader", "リーダー手当が入っているか"),
+    ("gas", "プロパン・都市ガスなどが入っているか"),
+    ("deduct", "ほかに引くもの（控除）はないか"),
+)
+
+
+def statement_check_items(st):
+    """1人ずつ確認の「確認チェック」。今の明細の中身をヒントとして出す。"""
+    lines = list(st.lines.all())
+    yen = lambda v: f"{v:,}円"
+    leader = [l for l in lines if l.code in ("team_bonus", "intern_leader")]
+    gas = [l for l in lines if (l.code or "").startswith("product_")]
+    ded = [l for l in lines if l.kind == "deduction" and l.amount]
+    hints = {
+        "leader": "・".join(f"{l.name} {yen(l.amount or 0)}" for l in leader) or "この月は入っていません",
+        "gas": "・".join(f"{l.name} {l.detail or ''} {yen(l.amount or 0)}".replace("  ", " ") for l in gas) or "件数は入っていません",
+        "deduct": "・".join(f"{l.name} {yen(l.amount or 0)}" for l in ded) or "引くものはありません",
+    }
+    checks = st.checks or {}
+    return [{"key": k, "label": label, "hint": hints[k], "checked": bool(checks.get(k))} for k, label in STATEMENT_CHECKS]
+
+
 def confirm_checks(st):
     """確定する前のチェック。(止める理由, 確認が必要な注意) を返す。"""
     from django.db.models import Q
@@ -438,6 +461,9 @@ def confirm_checks(st):
                  .filter(Q(member=st.member) | Q(member__isnull=True, auto_member=st.member)).count())
     if open_recs:
         blocks.append(f"承認していない経費が {open_recs}件 あります（給与の画面の「経費」で承認か対象外に）。")
+    left = [label for k, label in STATEMENT_CHECKS if not (st.checks or {}).get(k)]
+    if left:
+        blocks.append(f"確認チェックが終わっていません（{len(STATEMENT_CHECKS) - len(left)}/{len(STATEMENT_CHECKS)}）。")
     prev = (PayrollStatement.objects.filter(member=st.member, month=prev_month(st.month), status=S.CONFIRMED)
             .values_list("net_amount", flat=True).first())
     if prev and st.net_amount is not None and abs(st.net_amount - prev) > max(abs(prev) * 0.3, 30000):
@@ -494,6 +520,7 @@ def review(request):
         "share_files": [(reverse("payroll:statement_pdf", args=[cur.pk]) + "?download=1",
                          slip_filename(cur) if cur.is_confirmed else slip_filename(cur).replace(".pdf", "_確認用.pdf"))],
         "monthly_items": _monthly_items(cur.member, month),
+        "check_items": statement_check_items(cur),
         "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
         "unit_auto": unit_inp.auto_value if unit_inp else None,
         "unit_override": unit_inp.override_value if unit_inp else None,
@@ -520,7 +547,7 @@ def review_action(request, pk):
     go = f"/payroll/review/?month={st.month:%Y-%m}&st={st.pk}"
     try:
         with transaction.atomic():
-            if st.is_confirmed and action not in ("reopen",):
+            if st.is_confirmed and action not in ("reopen", "checks"):
                 raise ImmutableAfterConfirmError("確定済みです。直す時は「確定を取り消す」を押してください。")
             if action == "products":
                 changed = []
@@ -605,6 +632,14 @@ def review_action(request, pk):
                 calc.set_line_override(line, amount if amount != line.auto_amount else None,
                                        reason=p.get("reason", "").strip() or "1人ずつ確認で修正", user=user)
                 messages.success(request, f"{line.name}を{amount:,}円にしました。")
+            elif action == "checks":
+                checks = {k: True for k, _ in STATEMENT_CHECKS if p.get(f"chk_{k}")}
+                PayrollStatement.objects.filter(pk=st.pk).update(checks=checks)  # 確定後でも記録できるよう直接保存
+                if request.headers.get("x-requested-with") == "fetch":
+                    from django.http import JsonResponse
+
+                    return JsonResponse({"ok": True, "done": len(checks), "total": len(STATEMENT_CHECKS)})
+                messages.success(request, "確認チェックを保存しました。")
             elif action == "adhoc_add" and p.get("monthly"):
                 # 毎月入れる項目（例：コンサル代）：この人専用の固定額の項目にして、この月から毎月自動で入れる
                 amount = _int_or_none(p.get("amount", "").replace(",", ""))
@@ -845,7 +880,8 @@ def month_home(request):
         slip.sort(key=lambda x: x["deduction"])
         rows.append({"st": st, "slip": slip, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
-                     "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns})
+                     "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns,
+                     "chk_done": len([k for k, _ in STATEMENT_CHECKS if (st.checks or {}).get(k)]), "chk_total": len(STATEMENT_CHECKS)})
     # 経費は給与の画面から扱う（給与のパスワードで守られている）
     exp = _expense_panels(month, members)
     open_recs = exp["open_total"]
@@ -1777,19 +1813,23 @@ def staff(request):
         with transaction.atomic():
             for r in staff_svc.staff_rows(month):
                 m = r["member"]
-                raw = (request.POST.get(f"salary_{m.pk}") or "").replace(",", "").replace("円", "").strip()
-                if raw == "":
+                if f"base_{m.pk}" not in request.POST:
                     continue
-                v = _int_or_none(raw)
-                if v is None or v < 0:
-                    bad.append(m.name)
-                    continue
+                parts = {}
+                for k, label in staff_svc.PARTS:
+                    raw = (request.POST.get(f"{k}_{m.pk}") or "").replace(",", "").replace("円", "").strip()
+                    v = _int_or_none(raw) if raw else 0
+                    if v is None or v < 0:
+                        bad.append(f"{m.name}の{label}")
+                        v = r["parts"][k]
+                    parts[k] = v
+                checks = {k: True for k, _ in staff_svc.PARTS if request.POST.get(f"chk_{k}_{m.pk}")}
                 old = EmployeePay.objects.filter(member=m, month=month).first()
-                if old and old.salary == v:
-                    continue
-                EmployeePay.objects.update_or_create(member=m, month=month, defaults={"salary": v})
-                audit.log("payroll.employee_pay", target=m, before={"salary": old.salary if old else None},
-                          after={"month": month, "salary": v}, user=request.user)
+                before = {k: getattr(old, k) for k, _ in staff_svc.PARTS} if old else None
+                EmployeePay.objects.update_or_create(member=m, month=month,
+                                                     defaults={**parts, "salary": sum(parts.values()), "checks": checks})
+                if before != parts:
+                    audit.log("payroll.employee_pay", target=m, before=before, after={"month": month, **parts}, user=request.user)
                 n += 1
         for name in bad:
             messages.error(request, f"{name}：金額を数字で入れてください。")

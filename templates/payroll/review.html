@@ -1,7 +1,31 @@
 {% extends "base.html" %}
 {% load humanize %}
-{% block title %}1人ずつ確認｜{{ month|date:"n月" }}分{% endblock %}
-{% block topbar %}給与・報酬{% endblock %}
+{% block title %}1人ずつ確認｜{{ month|date:"n月" }}分<script>
+(function(){
+  var f = document.querySelector('[data-checks]'); if (!f) return;
+  var all = function(){ return [].every.call(f.querySelectorAll('input[type=checkbox]'), function(c){ return c.checked; }); };
+  var was = all();
+  f.addEventListener('change', function(){
+    fetch(f.action, {method: 'POST', body: new FormData(f), headers: {'x-requested-with': 'fetch'}, credentials: 'same-origin'})
+      .then(function(r){ return r.json(); }).then(function(d){ if ((d.done === d.total) !== was) location.reload(); })
+      .catch(function(){ f.submit(); });
+  });
+})();
+</script>
+{% endblock %}
+{% block topbar %}給与・報酬<script>
+(function(){
+  var f = document.querySelector('[data-checks]'); if (!f) return;
+  var all = function(){ return [].every.call(f.querySelectorAll('input[type=checkbox]'), function(c){ return c.checked; }); };
+  var was = all();
+  f.addEventListener('change', function(){
+    fetch(f.action, {method: 'POST', body: new FormData(f), headers: {'x-requested-with': 'fetch'}, credentials: 'same-origin'})
+      .then(function(r){ return r.json(); }).then(function(d){ if ((d.done === d.total) !== was) location.reload(); })
+      .catch(function(){ f.submit(); });
+  });
+})();
+</script>
+{% endblock %}
 {% block content %}
 <div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:index' %}?month={{ month_param }}">← {{ month|date:"n月" }}分の給与</a></p><h1>1人ずつ確認</h1></div>
   <span class="chip {% if confirmed_count == sts|length %}chip-ok{% endif %}">確定 {{ confirmed_count }} / {{ sts|length }}人</span></div>
@@ -55,6 +79,17 @@
 
   {# ── この人の入力 ── #}
   <div class="review-side">
+    <section class="card check-card" id="checks">
+      <div class="card-title">確認チェック <span class="chk-count" data-chk-count>{{ check_items|length }}項目</span></div>
+      <form method="post" action="{% url 'payroll:review_action' st.pk %}" data-checks>{% csrf_token %}<input type="hidden" name="action" value="checks">
+        <ul class="chk-list chk-only">
+          {% for c in check_items %}<li><label class="chk"><input type="checkbox" name="chk_{{ c.key }}" value="1" {% if c.checked %}checked{% endif %}><span>{{ c.label }}</span></label>
+            <div class="chk-hint">{{ c.hint }}</div></li>{% endfor %}
+        </ul>
+        <noscript><button class="btn" type="submit">保存</button></noscript>
+      </form>
+      <p class="small muted" style="margin:6px 0 0">全部チェックすると確定できます。</p>
+    </section>
     {% if not st.is_confirmed %}
     <details class="card fold" {% if open_base %}open{% endif %}>
       <summary class="card-title">計算のもとの数字・単価{% if unit_price is not None %}（単価 {{ unit_price|floatformat:0|intcomma }}円）{% endif %}</summary>
@@ -131,7 +166,7 @@
     <form method="post" action="{% url 'payroll:review_action' st.pk %}" onsubmit="const r=prompt('取り消す理由');if(!r)return false;this.reason.value=r;">{% csrf_token %}
       <input type="hidden" name="action" value="reopen"><input type="hidden" name="reason"><button class="btn" type="submit">確定を取り消す</button></form>
   {% elif errors or blocks %}
-    <button class="btn" disabled>直すところがあります</button>
+    <a class="btn" href="#checks">チェック・入力が終わると確定できます</a>
   {% else %}
     <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="confirm-form">{% csrf_token %}<input type="hidden" name="action" value="confirm">
       {% if cautions %}<label class="check small ack"><input type="checkbox" name="ack" value="1" required> 確認した</label>{% endif %}
@@ -139,4 +174,16 @@
   {% endif %}
   {% if next %}<a class="btn" href="?month={{ month_param }}&st={{ next.pk }}">次 ▶</a>{% else %}<span></span>{% endif %}
 </div>
+<script>
+(function(){
+  var f = document.querySelector('[data-checks]'); if (!f) return;
+  var all = function(){ return [].every.call(f.querySelectorAll('input[type=checkbox]'), function(c){ return c.checked; }); };
+  var was = all();
+  f.addEventListener('change', function(){
+    fetch(f.action, {method: 'POST', body: new FormData(f), headers: {'x-requested-with': 'fetch'}, credentials: 'same-origin'})
+      .then(function(r){ return r.json(); }).then(function(d){ if ((d.done === d.total) !== was) location.reload(); })
+      .catch(function(){ f.submit(); });
+  });
+})();
+</script>
 {% endblock %}

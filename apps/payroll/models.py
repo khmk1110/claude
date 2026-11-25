@@ -391,6 +391,7 @@ class PayrollStatement(models.Model):
     deductions_total = models.IntegerField("控除合計", null=True, blank=True)
     net_amount = models.IntegerField("差引支給額", null=True, blank=True)
     calculated_at = models.DateTimeField("計算日時", null=True, blank=True)
+    checks = models.JSONField("確認チェック", default=dict, blank=True)  # 明細の確認項目（リーダー手当・ガス・控除など）
     stale = models.BooleanField("計算し直しが必要", default=True)  # 件数・経費・勤怠などが変わったら立つ（画面を開くと自動で計算）
     confirmed_at = models.DateTimeField("確定日時", null=True, blank=True)
     confirmed_by = models.ForeignKey(
@@ -567,8 +568,16 @@ class EmployeePay(models.Model):
 
     member = models.ForeignKey(Member, on_delete=models.PROTECT, related_name="employee_pays")
     month = models.DateField("月", validators=[validate_month_start])
-    salary = models.PositiveIntegerField("給与（振込額）")
+    salary = models.PositiveIntegerField("給与（内訳の合計）")
+    base = models.PositiveIntegerField("基本給", default=0)
+    car = models.PositiveIntegerField("車手当", default=0)
+    position = models.PositiveIntegerField("役職手当", default=0)
+    incentive = models.PositiveIntegerField("インセンティブ", default=0)
+    rent = models.PositiveIntegerField("家賃補助", default=0)
+    checks = models.JSONField("確認チェック", default=dict, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    PARTS = (("base", "基本給"), ("car", "車手当"), ("position", "役職手当"), ("incentive", "インセンティブ"), ("rent", "家賃補助"))
 
     class Meta:
         verbose_name = "正社員の給与"

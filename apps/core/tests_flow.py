@@ -107,7 +107,12 @@ class MonthlyFlowTests(TestCase):
         unit_b = 1000 * 3 + 10 * 2  # 8〜10日・30〜39件
         self.assertEqual(lb["sales_commission"], 25 * unit_b)
 
-        # 12〜13. 確認・確定
+        # 12〜13. 確認・確定（確認チェックをしないと確定できない）
+        self.client.post(f"/payroll/{a.pk}/action/", {"action": "confirm"})
+        a.refresh_from_db()
+        self.assertFalse(a.is_confirmed)
+        for st in (a, b):
+            self.client.post(f"/payroll/review/{st.pk}/", {"action": "checks", "chk_leader": "1", "chk_gas": "1", "chk_deduct": "1"})
         for st in (a, b):
             self.client.post(f"/payroll/{st.pk}/action/", {"action": "confirm"})
         a.refresh_from_db()
