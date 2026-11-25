@@ -281,3 +281,19 @@ class TextImportAndStatementTests(TestCase):
         self.assertContains(page, "個人事業主・インターン給与")
         self.assertContains(page, "330,000円")   # 支出 = 30,000 + 100,000 + 給与 200,000
         self.assertContains(page, "170,000円")   # 差引 = 500,000 − 330,000
+
+
+class PayrollTotalTests(TestCase):
+    def test_calculated_but_unconfirmed_is_included(self):
+        from apps.members.models import Member
+        from apps.payments.views import month_totals
+        from apps.payroll.models import PayrollStatement
+
+        a = Member.objects.create(name="架空 一", employment_type="contractor")
+        b = Member.objects.create(name="架空 二", employment_type="contractor")
+        c = Member.objects.create(name="架空 三", employment_type="intern")
+        for m, net, status in ((a, 150000, "confirmed"), (b, 80000, "calculated"), (c, -5000, "calculated")):
+            st = PayrollStatement.objects.create(member=m, month=NOV, employment_type=m.employment_type)
+            PayrollStatement.objects.filter(pk=st.pk).update(status=status, net_amount=net)
+        t = month_totals(NOV)
+        self.assertEqual(t["payments"], 230000)  # 未確定も見込みで入れる・マイナスの人は0

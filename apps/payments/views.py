@@ -119,17 +119,21 @@ def _start_read(pk: int) -> None:
 
 
 def payroll_row(month):
-    """給与（個人事業主・インターン）の確定額。確定した明細から自動で出す（手で入れない）。"""
+    """給与（個人事業主・インターン）の合計。給与の画面で計算した額から自動で出す（手で入れない）。
+
+    確定前でも計算済みなら含める（支出の見込みが分かるように）。支給なし（0円以下）の人は数えない。
+    """
     from apps.payroll.models import PayrollStatement, StatementDelivery
 
-    sts = list(PayrollStatement.objects.filter(month=month, status="confirmed"))
+    sts = [st for st in PayrollStatement.objects.filter(month=month, net_amount__isnull=False) if (st.net_amount or 0) > 0]
     if not sts:
         return None
-    if Payment.objects.filter(month=month, payee_name__regex=r"(個人事業主|インターン).*給与").exclude(status=P.DRAFT).exists():
+    if Payment.objects.filter(month=month, payee_name__regex=r"(個人事業主|インターン).*給与", amount__gt=0).exclude(status=P.DRAFT).exists():
         return None  # シートから取り込んだ・手で入れた給与の行がある月は、二重に数えない
+    confirmed = [st for st in sts if st.status == "confirmed"]
     paid = StatementDelivery.objects.filter(statement__in=sts, paid_at__isnull=False).count()
-    return {"amount": sum(st.net_amount or 0 for st in sts), "count": len(sts), "paid_count": paid,
-            "paid": paid == len(sts), "unconfirmed": PayrollStatement.objects.filter(month=month).exclude(status="confirmed").count()}
+    return {"amount": sum(st.net_amount for st in sts), "count": len(sts), "paid_count": paid,
+            "paid": paid == len(sts), "confirmed": len(confirmed), "unconfirmed": len(sts) - len(confirmed)}
 
 
 def month_totals(month):
