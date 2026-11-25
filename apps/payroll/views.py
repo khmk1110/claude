@@ -911,6 +911,10 @@ def month_home(request):
         "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
         # 代表に送って確認してもらう用：全員分のPDF（確定前は「確認用」）。支給なしの人は除く
         "zip_all_url": reverse("payroll:month_pdf") + f"?month={month:%Y-%m}&all=1",
+        "zip_confirmed_url": reverse("payroll:month_pdf") + f"?month={month:%Y-%m}",
+        # 確定した明細だけ（1人1つのPDF）。LINEなどでまとめて送る用
+        "share_confirmed": [(reverse("payroll:statement_pdf", args=[st.pk]) + "?download=1", slip_filename(st))
+                            for st in sts if st.is_confirmed and (st.net_amount or 0) > 0],
         "share_files": [(reverse("payroll:statement_pdf", args=[st.pk]) + "?download=1",
                          slip_filename(st) if st.is_confirmed else slip_filename(st).replace(".pdf", "_確認用.pdf"))
                         for st in sts if (st.net_amount or 0) > 0],

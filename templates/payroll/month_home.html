@@ -89,6 +89,7 @@
   <div class="form-row">
     {% if confirmed %}<a class="btn btn-primary" href="{% url 'payroll:transfers' %}?month={{ month_param }}">振込の画面（{{ n_paid }}/{{ pay_count }}人）</a>
     <a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分のPDF（{{ confirmed }}人）</a>{% endif %}
+    {% if share_confirmed %}{% include "payroll/_share_pdfs.html" with files=share_confirmed label="確定した明細をLINEで送る" btn_class="btn-primary" zip_url=zip_confirmed_url %}{% endif %}
     <a class="btn" href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員の給与{% if staff_unsaved %}（未保存 {{ staff_unsaved }}人）{% endif %}</a>
   </div>
 </details>
