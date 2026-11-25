@@ -22,7 +22,9 @@
 
 {% if drafts %}
 <h2>確認待ち <span class="chip chip-warn">{{ drafts|length }}</span></h2>
-{% if processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b></div></div>
+{% if retry_count %}<form method="post" action="{% url 'payments:reread_all' %}?month={{ month_param }}" style="margin-bottom:8px">{% csrf_token %}
+  <button class="btn" type="submit">読み取れなかった {{ retry_count }}件 をもう一度読み取る</button></form>{% endif %}
+{% if processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b><div class="small muted">1枚ずつ順番に読んでいます（{{ processing_count }}枚）</div></div></div>
 <script>setTimeout(function(){location.reload()},6000)</script>{% endif %}
 <ul class="mlist" style="margin-bottom:16px">
   {% for p in drafts %}

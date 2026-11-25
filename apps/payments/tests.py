@@ -65,15 +65,16 @@ class PaymentFlowTests(TestCase):
 
     def test_upload_confirm_pay_and_remember_payee(self):
         self.unlock()
-        png = invoice_png(["株式会社サンプル物流", "ご請求金額 108,251円", "お支払期限 2026年11月30日", "お振込先 みずほ銀行 渋谷支店 普通 1234567"])
+        # 画像のテスト用の字体は 0 に点があり 9 と読まれやすいので、0 のない金額にする
+        png = invoice_png(["株式会社サンプル物流", "ご請求金額 125,451円", "お支払期限 2026年11月30日", "お振込先 みずほ銀行 渋谷支店 普通 1234567"])
         self.client.post("/payments/upload/?month=2026-11", {"files": [SimpleUploadedFile("inv.png", png, content_type="image/png")]})
         p = Payment.objects.get()
         self.assertEqual(p.status, "draft")
-        self.assertEqual(p.amount, 108251)
+        self.assertEqual(p.amount, 125451)
         self.assertIn("サンプル物流", p.payee_name)
         self.assertContains(self.client.get("/payments/?month=2026-11"), "確認待ち")
         # 確認して保存（分類を付ける・毎月払う）
-        self.client.post(f"/payments/{p.pk}/", {"payee_name": "サンプル物流", "amount": "108,251", "category": "外注・業務委託",
+        self.client.post(f"/payments/{p.pk}/", {"payee_name": "サンプル物流", "amount": "125,451", "category": "外注・業務委託",
                                                 "bank": p.bank, "due_date": "2026-11-30", "month": "2026-11", "monthly": "1", "monthly_shown": "1"})
         p.refresh_from_db()
         self.assertEqual(p.status, "unpaid")
@@ -88,7 +89,7 @@ class PaymentFlowTests(TestCase):
         # 来月：毎月の支払いを入れる
         self.client.post("/payments/monthly/?month=2026-12")
         dec = Payment.objects.get(month=date(2026, 12, 1))
-        self.assertEqual((dec.payee_name, dec.amount, dec.category), ("サンプル物流", 108251, "外注・業務委託"))
+        self.assertEqual((dec.payee_name, dec.amount, dec.category), ("サンプル物流", 125451, "外注・業務委託"))
         csv_text = self.client.get("/payments/?month=2026-11&format=csv").content.decode("utf-8-sig")
         self.assertIn("支払い済み", csv_text)
 
@@ -175,7 +176,7 @@ class SaleDocumentTests(TestCase):
     def test_upload_confirm_and_totals(self):
         stepup.set_password("payroll", "pay-pass")
         self.client.post("/stepup/payroll/", {"password": "pay-pass", "next": "/payments/"})
-        png = invoice_png(["請求書", "株式会社サンプル電力 御中", "ご請求金額 668,736円"])
+        png = invoice_png(["請求書", "株式会社サンプル電力 御中", "ご請求金額 668,736円"])  # 0 のない金額
         self.client.post("/payments/sales/upload/?month=2026-11", {"files": [SimpleUploadedFile("s.png", png, content_type="image/png")]})
         x = Sale.objects.get()
         self.assertEqual(x.state, "draft")
@@ -187,3 +188,40 @@ class SaleDocumentTests(TestCase):
         x.refresh_from_db()
         self.assertEqual(x.state, "ok")
         self.assertContains(self.client.get("/payments/year/?month=2026-11"), "668,736")
+
+
+class InvoiceVariantsTests(TestCase):
+    """よくある請求書の書き方（架空の会社）。"""
+
+    def test_column_header_amount_and_phone_not_amount(self):
+        text = ("請求書\n架空商事株式会社 御中\nサンプル会計事務所\n350-0046\n架空県架空市1-2-3\n電話:080 5426 8557\n"
+                "小計 消費税 源泉所得税 請求金額\n20000 円 2000.000 円 -2042.042 円 19,958 円\n入金期日 2026-11-25")
+        g = invoice.guess(text, own_company="架空商事株式会社")
+        self.assertEqual(g.amount, 19958)
+        self.assertEqual(g.due_date, date(2026, 11, 25))
+        self.assertEqual(g.payee, "サンプル会計事務所")
+
+    def test_year_and_dates_not_amount_and_due_after_label(self):
+        text = "株式会社DREAM&EFFECT 様\n株式会社サンプル不動産\nご請求金額 (税込) 120.000 円\n締日:2026年10月31日 お支払期限:2026年11月30日"
+        g = invoice.guess(text, own_company="株式会社DREAM&EFFECT")
+        self.assertEqual((g.amount, g.due_date, g.payee), (120000, date(2026, 11, 30), "株式会社サンプル不動産"))
+
+    def test_known_payee_with_misread_char(self):
+        g = invoice.guess("林岩運送株式会社\n合計金額 ¥38742", known_payees=["水岩運送株式会社"])
+        self.assertEqual(g.payee, "水岩運送株式会社")
+
+
+@override_settings(OCR_IN_BACKGROUND=False)
+class RereadTests(TestCase):
+    def test_reread_all_stuck(self):
+        stepup.set_password("payroll", "pay-pass")
+        self.client.post("/stepup/payroll/", {"password": "pay-pass", "next": "/payments/"})
+        png = invoice_png(["株式会社サンプル物流", "ご請求金額 125,451円"])
+        p = Payment.objects.create(month=NOV, status="draft", file=SimpleUploadedFile("a.png", png), original_name="a.png",
+                                   error_message="読み取りが終わりませんでした。手で入力してください。")
+        page = self.client.get("/payments/?month=2026-11")
+        self.assertContains(page, "読み取れなかった 1件")
+        self.client.post("/payments/reread-all/?month=2026-11")
+        p.refresh_from_db()
+        self.assertEqual(p.amount, 125451)
+        self.assertEqual(p.error_message, "")

@@ -3,7 +3,8 @@
 {% block topbar %}会社の支払い{% endblock %}
 {% block content %}
 <div class="page-head"><div><p class="eyebrow"><a href="{% url 'payments:index' %}?month={{ month_param }}">← {{ month|date:"n月" }}の支払い</a></p><h1>{% if p.pk %}{{ p.payee_name|default:"支払い" }}{% else %}支払いを追加{% endif %}</h1></div></div>
-{% if p.error_message %}<div class="notice">⚠️ {{ p.error_message }}</div>{% endif %}
+{% if p.error_message %}<div class="notice notice-block">⚠️ {{ p.error_message }}
+  {% if p.file and p.status == "draft" %}<form method="post" action="{% url 'payments:reread' p.pk %}" class="notice-actions">{% csrf_token %}<button class="btn" type="submit">もう一度読み取る</button></form>{% endif %}</div>{% endif %}
 <div class="pay-edit">
   <form method="post" class="card">{% csrf_token %}
     <div class="fix-fields" style="grid-template-columns:1fr">

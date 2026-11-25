@@ -84,15 +84,38 @@ def _read_invoice(pk: int) -> None:
     p.save()
 
 
-def _start_read(pk: int) -> None:
-    def run():
+# 読み取りは1件ずつ順番に行う（何枚も同時に読むと、無料サーバーの小さいCPU・メモリでは全部止まってしまうため）
+import queue as _queue
+
+_jobs: "_queue.Queue" = _queue.Queue()
+_worker_lock = threading.Lock()
+_worker = None
+
+
+def _worker_loop():
+    while True:
+        kind, pk = _jobs.get()
         close_old_connections()
         try:
-            _read_invoice(pk)
+            (_read_invoice if kind == "payment" else _read_sale)(pk)
+        except Exception:  # noqa: BLE001 — 1件失敗しても次へ
+            pass
         finally:
             close_old_connections()
+            _jobs.task_done()
 
-    threading.Thread(target=run, daemon=True).start()
+
+def _enqueue(kind: str, pk: int) -> None:
+    global _worker
+    with _worker_lock:
+        if _worker is None or not _worker.is_alive():
+            _worker = threading.Thread(target=_worker_loop, daemon=True, name="invoice-reader")
+            _worker.start()
+    _jobs.put((kind, pk))
+
+
+def _start_read(pk: int) -> None:
+    _enqueue("payment", pk)
 
 
 def payroll_row(month):
@@ -125,7 +148,7 @@ def month_totals(month):
 def index(request):
     month = month_from_request(request)
     # 止まったままの読み取り（サーバーの再起動など）は、確認待ちにして手で入力できるようにする
-    stale = timezone.now() - timedelta(minutes=5)
+    stale = timezone.now() - timedelta(minutes=20)  # 順番に読むので、枚数が多い時は時間がかかる
     Payment.objects.filter(status=P.PROCESSING, created_at__lt=stale).update(
         status=P.DRAFT, error_message="読み取りが終わりませんでした。手で入力してください。")
     items = list(Payment.objects.filter(month=month).select_related("payee"))
@@ -157,6 +180,8 @@ def index(request):
         **month_context(month), "drafts": drafts, "unpaid": unpaid, "paid": paid, "total": total, "pr": pr, "totals": totals,
         "tab": "pay", "unpaid_total": totals["unpaid"], "by_cat": sorted(by_cat.items(), key=lambda x: -x[1]),
         "monthly_missing": list(monthly), "processing": any(p.status == P.PROCESSING for p in drafts),
+        "processing_count": sum(1 for p in drafts if p.status == P.PROCESSING),
+        "retry_count": sum(1 for p in drafts if p.status == P.DRAFT and p.file and p.error_message),
         "categories": CATEGORY_CHOICES, "payees": Payee.objects.all(),
     })
 
@@ -343,14 +368,7 @@ def _read_sale(pk: int) -> None:
 
 
 def _start_sale_read(pk: int) -> None:
-    def run():
-        close_old_connections()
-        try:
-            _read_sale(pk)
-        finally:
-            close_old_connections()
-
-    threading.Thread(target=run, daemon=True).start()
+    _enqueue("sale", pk)
 
 
 @payments_view
@@ -385,7 +403,7 @@ def sale_file(request, pk):
 @payments_view
 def sales(request):
     month = month_from_request(request)
-    stale = timezone.now() - timedelta(minutes=5)
+    stale = timezone.now() - timedelta(minutes=20)
     Sale.objects.filter(state=Sale.State.PROCESSING, created_at__lt=stale).update(
         state=Sale.State.DRAFT, error_message="読み取りが終わりませんでした。手で入力してください。")
     items = list(Sale.objects.filter(month=month))
@@ -464,3 +482,37 @@ def yearly(request):
         **month_context(month), "tab": "year", "rows": rows,
         "sum": {k: sum(r[k] for r in rows) for k in ("sales", "payments", "diff")},
     })
+
+
+
+@payments_view
+@require_POST
+def reread(request, pk):
+    """読み取りが止まった・うまく読めなかった請求書を、もう一度読み取る。"""
+    p = get_object_or_404(Payment, pk=pk, status__in=[P.DRAFT, P.PROCESSING])
+    if not p.file:
+        messages.error(request, "請求書のファイルがありません。")
+        return _back(p.month)
+    Payment.objects.filter(pk=p.pk).update(status=P.PROCESSING, error_message="", created_at=timezone.now())
+    if getattr(settings, "OCR_IN_BACKGROUND", True):
+        _start_read(p.pk)
+    else:
+        _read_invoice(p.pk)
+    messages.success(request, "もう一度読み取っています。")
+    return _back(p.month)
+
+
+@payments_view
+@require_POST
+def reread_all(request):
+    """この月の、読み取れなかった請求書をまとめて読み直す。"""
+    month = month_from_request(request)
+    targets = list(Payment.objects.filter(month=month, status=P.DRAFT).exclude(file="").exclude(error_message=""))
+    for p in targets:
+        Payment.objects.filter(pk=p.pk).update(status=P.PROCESSING, error_message="", created_at=timezone.now())
+        if getattr(settings, "OCR_IN_BACKGROUND", True):
+            _start_read(p.pk)
+        else:
+            _read_invoice(p.pk)
+    messages.success(request, f"{len(targets)}件を順番に読み直しています。")
+    return _back(month)
