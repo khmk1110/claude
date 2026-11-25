@@ -1244,3 +1244,12 @@ class MonthlyItemAndShareTests(TableScreenshotTests):
         self.client.post(f"/payroll/review/{st.pk}/", {"action": "monthly_stop", "item_id": item.pk})
         item.refresh_from_db()
         self.assertFalse(item.applies_to(self.a, NOV))
+
+
+class ConsultOrderTests(TableScreenshotTests):
+    def test_consult_comes_after_commission_lines(self):
+        from .models import PayrollItemDefinition
+
+        houmon = PayrollItemDefinition.objects.get(code="product_houmon_denki").display_order
+        for it in PayrollItemDefinition.objects.filter(scope="member", method="fixed", kind="earning"):
+            self.assertGreater(it.display_order, houmon)

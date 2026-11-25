@@ -617,7 +617,7 @@ def review_action(request, pk):
                 item = PayrollItemDefinition.objects.create(
                     code=f"monthly_{st.member_id}_{secrets.token_hex(3)}", name=name[:100], kind=kind,
                     method=PayrollItemDefinition.Method.FIXED, default_amount=amount, scope=PayrollItemDefinition.Scope.MEMBER,
-                    effective_from=st.month, display_order=40 if kind == "earning" else 70, params={"monthly_for_member": True})
+                    effective_from=st.month, display_order=25 if kind == "earning" else 70, params={"monthly_for_member": True})
                 item.members.set([st.member])
                 audit.log("payroll.monthly_item_add", target=st.member, after={"項目": name, "金額": amount, "開始": st.month}, user=user)
                 calc.calculate(st, user=user, log=False)
