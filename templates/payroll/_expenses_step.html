@@ -133,11 +133,21 @@
   </div>
 
   {# ───────── その他 ───────── #}
-  <details class="xpanel" id="other" {% if exp.other.rows %}open{% endif %}>
+  <details class="xpanel" id="other" {% if exp.other.rows or exp.other.processing %}open{% endif %}>
     <summary class="xpanel-head">
-      <div class="xpanel-title"><span class="xicon">🧾</span><div><b>その他の経費</b></div></div>
-      {% if exp.other.rows %}{% include "payroll/_xstatus.html" with st=exp.other.status open=exp.other.open %}{% else %}<span class="chip">なし</span>{% endif %}
+      <div class="xpanel-title"><span class="xicon">🧾</span><div><b>その他の経費</b><div class="small muted">レシートなど</div></div></div>
+      {% if exp.other.processing %}<span class="chip chip-open">読み取り中</span>{% elif exp.other.rows %}{% include "payroll/_xstatus.html" with st=exp.other.status open=exp.other.open %}{% else %}<span class="chip">なし</span>{% endif %}
     </summary>
+    <form method="post" action="{% url 'payroll:receipts_upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="receipt-form">{% csrf_token %}
+      <div class="receipt-row">
+        <label class="fix-field"><span>① 誰の経費</span><select name="member" required><option value="">選んでください</option>{% for m in receipt_members %}<option value="{{ m.pk }}">{{ m.name }}</option>{% endfor %}</select></label>
+        <label class="fix-field"><span>② 項目</span><select name="category" required>{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></label>
+      </div>
+      <label class="drop"><input type="file" name="files" multiple accept="image/*,.pdf" onchange="if(!this.form.member.value){alert('先に「誰の経費」を選んでください');this.value='';return;}this.form.querySelector('.drop-text').textContent='取り込み中…';this.form.submit()">
+        <span class="drop-icon">🧾</span><span class="drop-text">③ レシートの写真を選ぶ（何枚でも）</span></label>
+    </form>
+    {% if exp.other.processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b><div class="small muted">1枚ずつ順番に読んでいます（{{ exp.other.processing|length }}枚）</div></div></div>
+    <script>window.__kanriReload=window.__kanriReload||setTimeout(function(){location.reload()},8000)</script>{% endif %}
     {% if exp.other.rows %}
     <ul class="plist">
       {% for r in exp.other.rows %}
@@ -150,12 +160,14 @@
       <button class="btn btn-primary" type="submit">まとめて承認（{{ exp.other.open }}件）</button></form></div>{% endif %}
     <div class="xactions"><a class="btn" href="{% url 'payroll:expenses_fix' %}?month={{ month_param }}&group=other">名前・金額を直す</a></div>
     {% endif %}
-    <form method="post" action="{% url 'payroll_expenses:line_import' %}">{% csrf_token %}
+    <details class="more" style="margin-top:10px"><summary>文で入れる（名前 金額）</summary>
+    <form method="post" action="{% url 'payroll_expenses:line_import' %}" style="margin-top:8px">{% csrf_token %}
       <input type="hidden" name="next" value="{{ request.path }}?month={{ month_param }}#other"><input type="hidden" name="target_month" value="{{ month_param }}">
       <div class="form-row"><select name="category">{% for c in categories %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></div>
       <textarea name="text" rows="3" style="width:100%" placeholder="名前 金額（内容）&#10;関 600 駐車場"></textarea>
       <div class="form-row"><button class="btn" type="submit">経費を取り込む</button></div>
     </form>
+    </details>
   </details>
 
   

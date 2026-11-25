@@ -208,9 +208,32 @@ def _expense_panels(month, members):
           "errors": [f for f in errors if f.document_kind == "transport"]}
     tr_rows = [r["row"] for r in contractors + interns if r["row"]] + tr_unknown
     tr["status"] = "processing" if tr["processing"] else status(tr_rows, bool(tr_rows))
-    other = {"rows": other_rows, "total": sum(r["amount"] for r in other_rows), "open": sum(r["open"] for r in other_rows)}
+    other = {"rows": other_rows, "total": sum(r["amount"] for r in other_rows), "open": sum(r["open"] for r in other_rows),
+             "processing": [f for f in processing if f.document_kind == "other_expense"]}
     other["status"] = status(other_rows, bool(other_rows))
     return {"gas": gas, "tr": tr, "other": other, "open_total": gas["open"] + tr["open"] + other["open"]}
+
+
+@payroll_view
+@require_POST
+def receipts_upload(request):
+    """その他の経費：人と項目を選んでから、レシートの写真を何枚でも取り込む。"""
+    from apps.expenses import receipts
+    from apps.expenses.models import ExpenseCategory
+
+    month = month_from_request(request)
+    member = Member.objects.filter(pk=request.POST.get("member") or 0).first()
+    category = ExpenseCategory.objects.filter(pk=request.POST.get("category") or 0).first()
+    files = request.FILES.getlist("files")
+    if not member or not category or not files:
+        messages.error(request, "人・項目・レシートの写真を選んでください。")
+    else:
+        added, skipped = receipts.add_receipts(files, member=member, category=category, month=month, user=request.user)
+        if added:
+            messages.success(request, f"{member.name}さんのレシートを {added}枚 読み取っています（1枚ずつ順番に）。")
+        for x in skipped[:5]:
+            messages.warning(request, f"取り込みませんでした：{x}")
+    return redirect(f"/payroll/?month={month:%Y-%m}#other")
 
 
 @payroll_view
@@ -706,9 +729,12 @@ def month_home(request):
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
         "exp": exp, "open_recs": open_recs, "errors": errors,
         "last_calc": max((st.calculated_at for st in sts if st.calculated_at), default=None),
+        # 今月は支給なし（0円・マイナス）の人は、まとめて閉じておく
+        "none_rows": [r for r in rows if r["st"].net_amount is not None and r["st"].net_amount <= 0],
         "confirmable": len(confirmable), "confirmed": sum(1 for st in sts if st.is_confirmed), "sts": sts,
         "checklist": checklist, "step1_done": members and len(acq) >= len(members) and len(conf) >= len(members),
         "categories": ExpenseCategory.objects.filter(is_active=True).exclude(code__in=["gasoline", "transport"]),
+        "receipt_members": Member.objects.filter(status=Member.Status.ACTIVE).order_by("display_order", "id"),
         "transport_category": ExpenseCategory.objects.filter(code="transport").first(),
     })
 

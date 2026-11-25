@@ -284,9 +284,7 @@ def h_team_bonus(ctx: Ctx, item) -> list[LineSpec]:
         detail = (f"{basis} 平均{avg_txt}件 → {yen(per)} × {len(members)}名" if per
                   else f"{basis} 平均{avg_txt}件（70件未満）")
         out.append(LineSpec(item, item.name, item.kind, per * len(members), Decimal(len(members)), per, detail, sub))
-    if not out and item.params.get("always_show"):
-        out.append(LineSpec(item, item.name, item.kind, 0))  # リーダーでない人も明細には0円で表示する
-    return out
+    return out  # リーダーでない人には項目を出さない（リーダーは0円でも行が出る）
 
 
 def h_intern_leader(ctx: Ctx, item) -> list[LineSpec]:

@@ -568,3 +568,11 @@ details.card.fold .list { width: 100%; }
 .ledger-diff b { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
 .ledger-diff.neg b { color: #fca5a5; }
 @media (max-width: 800px) { .ledger { grid-template-columns: 1fr; } }
+.none-group { margin-top: 10px; }
+.none-group > summary { cursor: pointer; padding: 10px 12px; border-radius: 12px; background: #f1f5f9; color: #475569; font-weight: 700; list-style: none; }
+.none-group > summary::before { content: "▸ "; }
+.none-group[open] > summary::before { content: "▾ "; }
+.none-group[open] > summary { margin-bottom: 8px; }
+.receipt-form { margin: 12px 0; }
+.receipt-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.receipt-row select { font-size: 1rem; min-height: 44px; border-radius: 10px; width: 100%; }

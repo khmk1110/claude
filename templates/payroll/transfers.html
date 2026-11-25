@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load humanize %}
-{% block title %}振込・送付{% endblock %}
+{% block title %}振込{% endblock %}
 {% block topbar %}給与・経費{% endblock %}
 {% block content %}
 <div class="page-head"><div><h1>{{ month|date:"n月" }}分の振込</h1></div>{% include "includes/monthnav.html" %}</div>
@@ -10,16 +10,15 @@
 {% if rows %}
 <div class="tr-sum">
   <div><div class="small muted">残りの振込</div><div class="xbig" id="remain">{{ remaining|intcomma }}<small>円</small></div></div>
-  <div class="tr-progress"><span id="paid-n">{{ paid_count }}</span>/{{ rows|length }}人 振込済み<br><span id="sent-n">{{ sent_count }}</span>/{{ rows|length }}人 送付済み</div>
+  <div class="tr-progress"><span id="paid-n">{{ paid_count }}</span>/{{ rows|length }}人 振込済み</div>
 </div>
 <ul class="tr-list" id="tr-list">
   {% for r in rows %}
   <li class="tr-row {% if r.d.paid_at %}is-paid{% endif %}" data-st="{{ r.st.pk }}" data-amount="{{ r.st.net_amount|default:0 }}">
     <div class="tr-name"><b>{{ r.st.member.name }}</b><a class="small" href="{% url 'payroll:statement_pdf' r.st.pk %}?download=1">明細</a></div>
     <button type="button" class="tr-amt" data-copy="{{ r.st.net_amount|default:0 }}" title="タップで金額をコピー">{{ r.st.net_amount|default:0|intcomma }}<small>円</small></button>
-    <div class="tr-checks">
+    <div class="tr-checks" style="grid-template-columns:1fr">
       <button type="button" class="tr-chk {% if r.d.paid_at %}on{% endif %}" data-field="paid">{% if r.d.paid_at %}✓ 振込済{% else %}振込{% endif %}</button>
-      <button type="button" class="tr-chk {% if r.d.sent_at %}on{% endif %}" data-field="sent">{% if r.d.sent_at %}✓ 送付済{% else %}送付{% endif %}</button>
     </div>
   </li>
   {% endfor %}
@@ -39,10 +38,9 @@
     list.querySelectorAll(".tr-row").forEach(li => {
       const p = li.querySelector('[data-field="paid"]').classList.contains("on");
       if (p) paid++; else remain += +li.dataset.amount;
-      if (li.querySelector('[data-field="sent"]').classList.contains("on")) sent++;
     });
     document.getElementById("remain").firstChild.textContent = yen(remain);
-    document.getElementById("paid-n").textContent = paid; document.getElementById("sent-n").textContent = sent;
+    document.getElementById("paid-n").textContent = paid;
   }
   list.addEventListener("click", async e => {
     const copy = e.target.closest(".tr-amt");
@@ -58,7 +56,7 @@
     b.disabled = false;
     if (!res.ok) { alert("保存できませんでした。もう一度押してください。"); return; }
     b.classList.toggle("on", on);
-    const label = b.dataset.field === "paid" ? "振込" : "送付";
+    const label = "振込";
     b.textContent = on ? `✓ ${label}済` : label;
     if (b.dataset.field === "paid") li.classList.toggle("is-paid", on);
     recount();

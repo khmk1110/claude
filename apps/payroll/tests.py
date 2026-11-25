@@ -139,13 +139,13 @@ class CalcTests(TestCase):
         count(self.i, NOV, CONF, 23)
         st = calc.calculate(self.statement(self.i))
         self.assertEqual(self.line(st, "sales_commission").auto_amount, 23 * (3000 + 0))  # 8〜10日・〜23件
-        allowance = self.line(st, "team_bonus")  # 手当＝チームリーダーボーナス（リーダーでなくても0円で表示）
+        allowance = self.line(st, "special_allowance")  # 特別手当（手で金額を入れる項目）
         with self.assertRaises(ValueError):
             calc.set_line_override(allowance, 30000, reason="")
         calc.set_line_override(allowance, 30000, reason="特別対応", user=self.user)
         calc.add_adhoc_line(st, name="プロパンガス", kind="earning", amount=12000, detail="当月のみ", user=self.user)
         st = calc.calculate(st)
-        self.assertEqual(self.line(st, "team_bonus").amount, 30000)
+        self.assertEqual(self.line(st, "special_allowance").amount, 30000)
         self.assertTrue(st.lines.filter(is_adhoc=True, name="プロパンガス").exists())
         self.assertEqual(st.net_amount, 23 * 3000 + 30000 + 12000)
         self.assertFalse(st.lines.filter(code="app_fee").exists())  # アプリ手数料は個人事業主のみ
@@ -806,7 +806,7 @@ class IssuerAndSlipOrderTests(TableScreenshotTests):
         self.assertContains(page, "山田 太郎")
         html = page.content.decode()
         html = html[html.index('class="slip-table"'):]
-        order = [html.index(x) for x in ("営業報酬", "交通費精算", "チームリーダーボーナス", "ガソリン代", "アプリ手数料")]
+        order = [html.index(x) for x in ("営業報酬", "交通費精算", "ガソリン代", "アプリ手数料")]  # チームリーダーボーナスはリーダーだけ
         self.assertEqual(order, sorted(order))
         self.assertNotIn("<b>手当</b>", html)
         pdf = self.client.get(f"/payroll/{st.pk}/pdf/")
@@ -988,3 +988,45 @@ class ProductMemberConfirmedImportTests(TableScreenshotTests):
         self.assertEqual(SalesCount.objects.get(member=self.a, month=NOV, kind="confirmed", product=houmon).count, 119)
         self.assertFalse(SalesCount.objects.filter(member=self.a, month=NOV, kind="confirmed", product__isnull=True).exists())
         self.assertEqual(SalesCount.objects.get(member=self.b, month=NOV, kind="confirmed", product__isnull=True).count, 30)
+
+
+def _receipt_png(lines):
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    f = ImageFont.truetype("/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", 34)
+    img = Image.new("RGB", (900, 80 + 60 * len(lines)), "white")
+    d = ImageDraw.Draw(img)
+    for i, ln in enumerate(lines):
+        d.text((60, 40 + 60 * i), ln, font=f, fill="black")
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+class ReceiptAndLayoutTests(TableScreenshotTests):
+    def test_receipts_for_chosen_member(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.test import override_settings
+
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord
+
+        cat = ExpenseCategory.objects.exclude(code__in=["gasoline", "transport"]).first()
+        png1 = _receipt_png(["サンプル商店", "2026年11月3日", "小計 1,364", "合計 ¥1,500"])  # 0 のない金額にはしないが、合計の行を読む
+        png2 = _receipt_png(["架空ストア", "2026年11月5日", "合計 ¥2,365"])
+        with override_settings(OCR_IN_BACKGROUND=False):
+            self.client.post("/payroll/expenses/receipts/?month=2026-11", {
+                "member": self.a.pk, "category": cat.pk,
+                "files": [SimpleUploadedFile("r1.png", png1, content_type="image/png"),
+                          SimpleUploadedFile("r2.png", png2, content_type="image/png")]})
+        recs = list(ExpenseRecord.objects.filter(source_file__document_kind="other_expense").order_by("pk"))
+        self.assertEqual(len(recs), 2)
+        self.assertTrue(all(r.effective_member == self.a for r in recs))
+        self.assertEqual(recs[1].effective_amount, 2365)
+        self.assertTrue(all(r.status == "pending" for r in recs))  # 承認するまで給与には入らない
+
+    def test_team_bonus_only_for_leaders(self):
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.assertFalse(st.lines.filter(code="team_bonus").exists())  # リーダーでない人には項目を出さない

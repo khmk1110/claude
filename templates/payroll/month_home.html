@@ -27,7 +27,7 @@
   {% if rows %}
   <button type="button" class="linkbtn small" style="color:#2563eb" onclick="var c=document.querySelectorAll('.pay-card'),o=this.dataset.o!=='1';c.forEach(function(d){d.open=o});this.dataset.o=o?'1':'0';this.textContent=o?'全部閉じる':'全員の内訳を開く'">全員の内訳を開く</button>
   <div class="pay-cards">
-    {% for r in rows %}
+    {% for r in rows %}{% if r.st.net_amount is None or r.st.net_amount > 0 %}
     <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
       <summary>
         <span class="pay-name">{{ r.st.member.name }}</span>
@@ -42,8 +42,31 @@
       </table>
       <a class="btn" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{% if r.st.is_confirmed %}明細を見る{% else %}入力・修正する{% endif %}</a>
     </details>
-    {% endfor %}
+    {% endif %}{% endfor %}
   </div>
+  {% if none_rows %}
+  <details class="none-group">
+    <summary>今月は支給なし・マイナス（{{ none_rows|length }}人）</summary>
+    <div class="pay-cards">
+    {% for r in none_rows %}
+    <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" >
+      <summary>
+        <span class="pay-name">{{ r.st.member.name }}</span>
+        {% if r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% elif r.errors %}<span class="chip chip-warn">要確認</span>{% endif %}
+        <span class="pay-net">{{ r.st.net_amount|default_if_none:"-"|intcomma }}<small>円</small></span>
+      </summary>
+      {% for e in r.errors %}<div class="pnote">⚠ {{ e }}</div>{% endfor %}
+      <table class="pay-lines">
+        {% for l in r.slip %}<tr><td>{{ l.name }}{% if l.detail %}<div class="small muted">{{ l.detail }}</div>{% endif %}</td>
+          <td class="num {% if l.amount < 0 %}neg{% endif %}">{% if l.missing %}未入力{% else %}{{ l.amount|intcomma }}{% endif %}</td></tr>{% endfor %}
+        <tr class="net"><td>差引支払額</td><td class="num">{{ r.st.net_amount|default_if_none:"-"|intcomma }}</td></tr>
+      </table>
+      <a class="btn" href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">{% if r.st.is_confirmed %}明細を見る{% else %}入力・修正する{% endif %}</a>
+    </details>
+    {% endfor %}
+    </div>
+  </details>
+  {% endif %}
   {% endif %}
 </section>
 
