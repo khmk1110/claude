@@ -516,3 +516,107 @@ def reread_all(request):
             _read_invoice(p.pk)
     messages.success(request, f"{len(targets)}件を順番に読み直しています。")
     return _back(month)
+
+
+def _save_payee(name, category, bank):
+    payee, _ = Payee.objects.get_or_create(name=name)
+    changed = False
+    if category and payee.category != category:
+        payee.category, changed = category, True
+    if bank and not payee.bank:
+        payee.bank, changed = bank, True
+    if changed:
+        payee.save()
+    return payee
+
+
+@payments_view
+def bulk_edit(request):
+    """一覧のまま、支払先・金額・分類・期限をまとめて直す。確認待ちは保存すると確認済み（未払い）になる。"""
+    month = month_from_request(request)
+    items = list(Payment.objects.filter(month=month).exclude(status=P.PROCESSING).order_by("status", "due_date", "id"))
+    if request.method == "POST":
+        saved, errors = 0, []
+        with transaction.atomic():
+            for p in items:
+                key = str(p.pk)
+                if f"name_{key}" not in request.POST:
+                    continue
+                if request.POST.get(f"del_{key}") and p.status != P.PAID:
+                    audit.log("payments.delete", target=p, before={"支払先": p.payee_name, "金額": p.amount}, user=request.user)
+                    p.delete()
+                    saved += 1
+                    continue
+                name = request.POST.get(f"name_{key}", "").strip()
+                amount = _int(request.POST.get(f"amount_{key}"))
+                cat = request.POST.get(f"cat_{key}", "").strip()[:50]
+                due = request.POST.get(f"due_{key}") or None
+                if not name or amount is None:
+                    if p.status == P.DRAFT and not name and amount is None:
+                        continue  # 何も入れていない確認待ちはそのまま
+                    errors.append(f"{p.payee_name or p.original_name}: 支払先と金額を入れてください")
+                    continue
+                new_due = date.fromisoformat(due) if due else None
+                if (name, amount, cat, new_due) == (p.payee_name, p.amount, p.category, p.due_date) and p.status != P.DRAFT:
+                    continue
+                before = {"支払先": p.payee_name, "金額": p.amount, "分類": p.category}
+                p.payee_name, p.amount, p.category, p.due_date = name[:200], amount, cat, new_due
+                p.payee = _save_payee(p.payee_name, p.category, p.bank)
+                p.bank = p.bank or p.payee.bank
+                if p.status == P.DRAFT:
+                    p.status, p.error_message = P.UNPAID, ""
+                p.save()
+                audit.log("payments.save", target=p, before=before, after={"支払先": p.payee_name, "金額": p.amount, "分類": p.category},
+                          user=request.user)
+                saved += 1
+        if saved:
+            messages.success(request, f"{saved}件を保存しました。")
+        for e in errors[:10]:
+            messages.error(request, e)
+        return redirect(f"/payments/bulk/?month={month:%Y-%m}" if errors else f"/payments/?month={month:%Y-%m}")
+    return render(request, "payments/bulk.html", {
+        **month_context(month), "items": items, "categories": CATEGORY_CHOICES, "payees": Payee.objects.all(), "kind": "pay",
+    })
+
+
+@payments_view
+def sales_bulk_edit(request):
+    """売上を一覧のまままとめて直す。"""
+    month = month_from_request(request)
+    items = list(Sale.objects.filter(month=month).exclude(state=Sale.State.PROCESSING).order_by("state", "received", "id"))
+    if request.method == "POST":
+        saved, errors = 0, []
+        with transaction.atomic():
+            for x in items:
+                key = str(x.pk)
+                if f"name_{key}" not in request.POST:
+                    continue
+                if request.POST.get(f"del_{key}"):
+                    audit.log("payments.sale_delete", target=x, before={"取引先": x.client, "金額": x.amount}, user=request.user)
+                    x.delete()
+                    saved += 1
+                    continue
+                name = request.POST.get(f"name_{key}", "").strip()
+                amount = _int(request.POST.get(f"amount_{key}"))
+                due = request.POST.get(f"due_{key}") or None
+                if not name or amount is None:
+                    if x.state == Sale.State.DRAFT and not name and amount is None:
+                        continue
+                    errors.append(f"{x.client or x.original_name}: 取引先と金額を入れてください")
+                    continue
+                new_due = date.fromisoformat(due) if due else None
+                if (name, amount, new_due) == (x.client, x.amount, x.due_date) and x.state == Sale.State.OK:
+                    continue
+                before = {"取引先": x.client, "金額": x.amount}
+                x.client, x.amount, x.due_date = name[:200], amount, new_due
+                x.state, x.error_message = Sale.State.OK, ""
+                x.save()
+                audit.log("payments.sale_save", target=x, before=before, after={"取引先": x.client, "金額": x.amount}, user=request.user)
+                saved += 1
+        if saved:
+            messages.success(request, f"{saved}件を保存しました。")
+        for e in errors[:10]:
+            messages.error(request, e)
+        return redirect(f"/payments/sales/bulk/?month={month:%Y-%m}" if errors else f"/payments/sales/?month={month:%Y-%m}")
+    clients = sorted(set(Sale.objects.exclude(client="").values_list("client", flat=True)))
+    return render(request, "payments/bulk.html", {**month_context(month), "items": items, "clients": clients, "kind": "sale"})

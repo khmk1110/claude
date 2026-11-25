@@ -16,6 +16,7 @@
 </form>
 <div class="form-row" style="margin:8px 0 14px">
   <a class="btn btn-primary" href="{% url 'payments:new' %}?month={{ month_param }}">＋ 支払いを追加（請求書なし）</a>
+  <a class="btn" href="{% url 'payments:bulk' %}?month={{ month_param }}">✎ まとめて直す</a>
   {% if monthly_missing %}<form method="post" action="{% url 'payments:add_monthly' %}?month={{ month_param }}">{% csrf_token %}
     <button class="btn" type="submit">毎月の支払いを入れる（{{ monthly_missing|length }}件）</button></form>{% endif %}
 </div>

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}まとめて直す{% endblock %}
+{% block topbar %}会社の支払い・売上{% endblock %}
+{% block content %}
+{% if kind == "pay" %}{% url 'payments:index' as back %}{% else %}{% url 'payments:sales' as back %}{% endif %}
+<div class="page-head"><div><p class="eyebrow"><a href="{{ back }}?month={{ month_param }}">← {{ month|date:"n月" }}の{% if kind == "pay" %}支払い{% else %}売上{% endif %}</a></p>
+  <h1>{% if kind == "pay" %}支払い{% else %}売上{% endif %}をまとめて直す</h1></div></div>
+<form method="post" class="fix-form">{% csrf_token %}
+  <ul class="fix-list">
+  {% for x in items %}
+    {% if kind == "pay" %}
+    <li class="fix-card {% if x.status == 'draft' %}is-attn{% endif %}">
+      <div class="fix-src">{% if x.status == "draft" %}<span class="chip chip-warn">確認待ち</span>{% elif x.status == "paid" %}<span class="chip chip-ok">支払い済み</span>{% else %}<span class="chip">未払い</span>{% endif %}
+        {% if x.file %}<a class="small" href="{% url 'payments:file' x.pk %}" target="_blank">請求書を見る</a>{% endif %}
+        <a class="small" href="{% url 'payments:edit' x.pk %}">詳しく</a></div>
+      <div class="bulk-fields">
+        <label class="fix-field bf-name"><span>支払先</span><input name="name_{{ x.pk }}" value="{{ x.payee_name }}" list="name-list" autocomplete="off"></label>
+        <label class="fix-field fix-amount"><span>金額</span><div class="yen"><input name="amount_{{ x.pk }}" value="{{ x.amount|default_if_none:'' }}" inputmode="numeric"><em>円</em></div></label>
+        <label class="fix-field"><span>分類</span><input name="cat_{{ x.pk }}" value="{{ x.category }}" list="cat-list" placeholder="未分類"></label>
+        <label class="fix-field"><span>支払期限</span><input type="date" name="due_{{ x.pk }}" value="{{ x.due_date|date:'Y-m-d' }}"></label>
+      </div>
+      {% if x.status != "paid" %}<label class="check small" style="margin-top:6px"><input type="checkbox" name="del_{{ x.pk }}" value="1"> 削除する</label>{% endif %}
+    </li>
+    {% else %}
+    <li class="fix-card {% if x.state == 'draft' %}is-attn{% endif %}">
+      <div class="fix-src">{% if x.state == "draft" %}<span class="chip chip-warn">確認待ち</span>{% elif x.received %}<span class="chip chip-ok">入金済み</span>{% else %}<span class="chip">未入金</span>{% endif %}
+        {% if x.file %}<a class="small" href="{% url 'payments:sale_file' x.pk %}" target="_blank">資料を見る</a>{% endif %}
+        <a class="small" href="{% url 'payments:sale_edit' x.pk %}">詳しく</a></div>
+      <div class="bulk-fields">
+        <label class="fix-field bf-name"><span>取引先</span><input name="name_{{ x.pk }}" value="{{ x.client }}" list="name-list" autocomplete="off"></label>
+        <label class="fix-field fix-amount"><span>金額</span><div class="yen"><input name="amount_{{ x.pk }}" value="{{ x.amount|default_if_none:'' }}" inputmode="numeric"><em>円</em></div></label>
+        <label class="fix-field"><span>入金予定日</span><input type="date" name="due_{{ x.pk }}" value="{{ x.due_date|date:'Y-m-d' }}"></label>
+      </div>
+      <label class="check small" style="margin-top:6px"><input type="checkbox" name="del_{{ x.pk }}" value="1"> 削除する</label>
+    </li>
+    {% endif %}
+  {% empty %}<li class="fix-card muted">この月はまだありません。</li>{% endfor %}
+  </ul>
+  <datalist id="name-list">{% if kind == "pay" %}{% for p in payees %}<option value="{{ p.name }}">{% endfor %}{% else %}{% for c in clients %}<option value="{{ c }}">{% endfor %}{% endif %}</datalist>
+  <datalist id="cat-list">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+  {% if items %}<div class="fix-bar"><button class="btn btn-primary" type="submit">保存する</button><a class="btn btn-light" href="{{ back }}?month={{ month_param }}">やめる</a></div>{% endif %}
+</form>
+{% endblock %}

@@ -9,6 +9,7 @@
     <span class="drop-icon">📄</span><span class="drop-text">請求書・支払通知書（写真・PDF）を読み込む</span></label>
 </form>
 <div class="form-row" style="margin:8px 0 14px"><a class="btn btn-primary" href="{% url 'payments:sale_new' %}?month={{ month_param }}">＋ 売上を追加（資料なし）</a>
+  <a class="btn" href="{% url 'payments:sales_bulk' %}?month={{ month_param }}">✎ まとめて直す</a>
   {% if totals.unreceived %}<span class="chip chip-warn">未入金 {{ totals.unreceived|intcomma }}円</span>{% endif %}</div>
 
 {% if drafts %}

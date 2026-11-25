@@ -225,3 +225,31 @@ class RereadTests(TestCase):
         p.refresh_from_db()
         self.assertEqual(p.amount, 125451)
         self.assertEqual(p.error_message, "")
+
+
+class BulkEditTests(TestCase):
+    def setUp(self):
+        stepup.set_password("payroll", "pay-pass")
+        self.client.post("/stepup/payroll/", {"password": "pay-pass", "next": "/payments/"})
+
+    def test_bulk_edit_payments(self):
+        d = Payment.objects.create(month=NOV, status="draft", payee_name="林岩運送株式会社", amount=38742, original_name="a.png")
+        u = Payment.objects.create(month=NOV, status="unpaid", payee_name="事務所家賃", amount=30000)
+        x = Payment.objects.create(month=NOV, status="unpaid", payee_name="不要", amount=1)
+        self.assertContains(self.client.get("/payments/bulk/?month=2026-11"), "林岩運送株式会社")
+        self.client.post("/payments/bulk/?month=2026-11", {
+            f"name_{d.pk}": "水岩運送株式会社", f"amount_{d.pk}": "38,742", f"cat_{d.pk}": "外注・業務委託", f"due_{d.pk}": "2026-11-30",
+            f"name_{u.pk}": "事務所家賃", f"amount_{u.pk}": "120000", f"cat_{u.pk}": "家賃", f"due_{u.pk}": "",
+            f"name_{x.pk}": "不要", f"amount_{x.pk}": "1", f"del_{x.pk}": "1",
+        })
+        d.refresh_from_db(); u.refresh_from_db()
+        self.assertEqual((d.payee_name, d.status, d.due_date), ("水岩運送株式会社", "unpaid", date(2026, 11, 30)))
+        self.assertEqual((u.amount, u.category), (120000, "家賃"))
+        self.assertFalse(Payment.objects.filter(pk=x.pk).exists())
+        self.assertEqual(Payee.objects.get(name="水岩運送株式会社").category, "外注・業務委託")
+
+    def test_bulk_edit_sales(self):
+        s = Sale.objects.create(month=NOV, state="draft", client="サンプル電カ", amount=668736)
+        self.client.post("/payments/sales/bulk/?month=2026-11", {f"name_{s.pk}": "サンプル電力", f"amount_{s.pk}": "668,736", f"due_{s.pk}": ""})
+        s.refresh_from_db()
+        self.assertEqual((s.client, s.state), ("サンプル電力", "ok"))
