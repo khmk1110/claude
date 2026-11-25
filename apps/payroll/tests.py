@@ -1362,3 +1362,15 @@ class DismissMessageTests(TableScreenshotTests):
         self.client.get("/payroll/?month=2026-11")  # 計算し直しても出ない
         st.refresh_from_db()
         self.assertFalse([m for m in st.calc_messages if m["level"] == "error"])
+
+
+class PersonShareTests(TableScreenshotTests):
+    def test_person_share_buttons(self):
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=30)
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.assertContains(self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}"), "この人の確認用PDFをLINEで送る")
+        PayrollStatement.objects.filter(pk=st.pk).update(net_amount=1000)
+        page = self.client.get("/payroll/?month=2026-11&step=3")
+        self.assertContains(page, "1人ずつ送る")
+        self.assertContains(page, "_確認用.pdf")

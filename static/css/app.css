@@ -695,3 +695,9 @@ details.step.done:not([open]){padding-top:10px;padding-bottom:10px}
 .btn-why{white-space:normal;text-align:left;font-size:13px;color:var(--danger);border-color:#f5c2c2;background:var(--danger-weak);line-height:1.4}
 .notice-fix{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:space-between}
 .notice-fix form{margin:0}
+.slip-send{margin-top:14px}
+.send-list{list-style:none;margin:8px 0 0;padding:0}
+.send-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.send-list li:last-child{border-bottom:0}
+.send-list .share-pdfs{flex-direction:row;flex-wrap:nowrap}
+.share-sm{white-space:nowrap}

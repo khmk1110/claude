@@ -1,6 +1,6 @@
 {# 明細PDFをスマホの共有（LINE・Googleドライブなど）で送る。開いた時にPDFを用意しておき、1回押すだけで送り先を選べる。 #}
 <div class="share-pdfs" data-files='[{% for u, n in files %}{"url":"{{ u }}","name":"{{ n|escapejs }}"}{% if not forloop.last %},{% endif %}{% endfor %}]' data-zip="{{ zip_url|default:'' }}" data-mark="{{ mark|default:'' }}">
-  <button type="button" class="btn btn-primary btn-big" data-share disabled>PDFを用意しています…</button>
+  <button type="button" class="btn {% if compact %}btn-sm share-sm{% else %}btn-primary btn-big{% endif %}" data-share disabled>{% if compact %}用意中…{% else %}PDFを用意しています…{% endif %}</button>
   <div class="small muted" data-share-msg></div>
 </div>
 <script>
@@ -8,8 +8,14 @@
   var box = document.currentScript.previousElementSibling, btn = box.querySelector('[data-share]'), msg = box.querySelector('[data-share-msg]');
   var list = JSON.parse(box.dataset.files || '[]'), files = null, label = '{{ label|escapejs }}';
   function csrf(){ var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; }
-  function ready(){ btn.disabled = false; btn.textContent = label + '（' + list.length + '人分）'; }
-  if (!navigator.canShare) { ready(); }
+  function ready(){ btn.disabled = false; btn.textContent = list.length > 1 ? label + '（' + list.length + '人分）' : label; }
+  var lazy = {{ compact|yesno:"true,false" }};
+  function load(){
+    return Promise.all(list.map(function(x){ return fetch(x.url, {credentials: 'same-origin'}).then(function(r){ if(!r.ok) throw 0; return r.blob(); })
+      .then(function(b){ return new File([b], x.name, {type: 'application/pdf'}); }); }))
+      .then(function(fs){ files = navigator.canShare({files: fs}) ? fs : null; });
+  }
+  if (!navigator.canShare || lazy) { ready(); }
   else {
     Promise.all(list.map(function(x){ return fetch(x.url, {credentials: 'same-origin'}).then(function(r){ if(!r.ok) throw 0; return r.blob(); })
       .then(function(b){ return new File([b], x.name, {type: 'application/pdf'}); }); }))
@@ -17,6 +23,13 @@
       .catch(function(){ files = null; ready(); });
   }
   btn.addEventListener('click', async function(){
+    if (lazy && !files && navigator.canShare) {  // 1人分：押した時に用意して、もう一度押すと送り先を選べる
+      btn.disabled = true; btn.textContent = '用意中…';
+      try { await load(); } catch (e) { files = null; }
+      btn.disabled = false;
+      if (files) { btn.textContent = '送り先を選ぶ'; return; }
+      btn.textContent = label;
+    }
     if (files) {
       try { await navigator.share({files: files, title: '明細書'}); }
       catch (e) { if (e.name === 'AbortError') return; msg.textContent = '送れませんでした。もう一度押してください。'; return; }

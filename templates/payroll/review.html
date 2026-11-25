@@ -77,7 +77,11 @@
       <div><span class="lbl">発行者</span>{{ snap.issuer.company }}</div>{% if snap.issuer.representative %}<div><span class="lbl">代表取締役</span>{{ snap.issuer.representative }}</div>{% endif %}
       {% if snap.issuer.address %}<div><span class="lbl">所在地</span>{{ snap.issuer.address }}</div>{% endif %}{% if snap.issuer.tel %}<div><span class="lbl">TEL</span>{{ snap.issuer.tel }}</div>{% endif %}
     </div>
-    <p style="margin:12px 0 0"><a href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る ›</a></p>
+    <div class="slip-send">
+      {% if st.is_confirmed %}{% include "payroll/_share_pdfs.html" with files=share_files label="この人の明細をLINEで送る" %}
+      {% else %}{% include "payroll/_share_pdfs.html" with files=share_files label="この人の確認用PDFをLINEで送る" %}{% endif %}
+      <p style="margin:8px 0 0"><a href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る ›</a></p>
+    </div>
   </section>
 
   {# ── この人の入力 ── #}
