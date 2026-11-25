@@ -1180,3 +1180,12 @@ class UnitPriceOverrideTests(TableScreenshotTests):
         # 空にすると自動に戻る
         self.client.post(f"/payroll/review/{st.pk}/", {"action": "base", "unit_price": ""})
         self.assertIsNone(PayrollInput.objects.get(statement=st, key="unit_price").override_value)
+
+
+class ProductOrderTests(TableScreenshotTests):
+    def test_propane_denki_comes_right_after_propane_nobath(self):
+        from .models import PayrollItemDefinition
+
+        codes = list(PayrollItemDefinition.objects.filter(code__startswith="product_").order_by("display_order", "id")
+                     .values_list("code", flat=True))
+        self.assertEqual(codes.index("product_propane_denki"), codes.index("product_propane_nobath") + 1)
