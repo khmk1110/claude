@@ -14,6 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from apps.accounts.decorators import stepup_required
@@ -185,6 +186,9 @@ def _expense_panels(month, members):
             item["net"] = amount
             if amount:
                 interns.append(item)
+    # 正社員の交通費は差し引きなしで全額（明細は作らず、正社員の給与の画面の合計に入る）
+    employees = [{"member": row["member"], "amount": row["amount"], "net": row["amount"], "row": row}
+                 for row in tr_by.values() if row["member"].employment_type == EmploymentType.EMPLOYEE]
     tr_unknown = [row for row in _person_rows(tr_recs) if not row["member"]]
 
     other_recs = _month_expense_records(month, exclude_codes={"gasoline", "transport"})
@@ -205,14 +209,14 @@ def _expense_panels(month, members):
            "processing": [f for f in processing if f.document_kind in ("gasoline", "unknown", "")],
            "errors": [f for f in errors if f.document_kind in ("gasoline", "unknown", "")]}
     gas["status"] = "processing" if gas["processing"] else status(gas_rows, bool(gas_rows))
-    tr = {"contractors": contractors, "interns": interns, "unknown": tr_unknown, "files": [f for f in files if f.document_kind == "transport"],
-          "open": sum(r["row"]["open"] for r in contractors + interns if r["row"]) + sum(r["open"] for r in tr_unknown),
+    tr = {"contractors": contractors, "interns": interns, "employees": employees, "unknown": tr_unknown, "files": [f for f in files if f.document_kind == "transport"],
+          "open": sum(r["row"]["open"] for r in contractors + interns + employees if r["row"]) + sum(r["open"] for r in tr_unknown),
           "total": sum(r["amount"] for r in contractors + interns), "net_total": sum(r["net"] for r in contractors + interns),
           "processing": [f for f in processing if f.document_kind == "transport"],
           "needs": [f for f in files if f.status in ("needs_mapping", "needs_kind") and f.document_kind in ("transport", "unknown", "")],
           "empty": [f for f in files if f.document_kind == "transport" and f.status == "parsed" and not f.row_count],
           "errors": [f for f in errors if f.document_kind == "transport"]}
-    tr_rows = [r["row"] for r in contractors + interns if r["row"]] + tr_unknown
+    tr_rows = [r["row"] for r in contractors + interns + employees if r["row"]] + tr_unknown
     tr["status"] = "processing" if tr["processing"] else status(tr_rows, bool(tr_rows))
     other = {"rows": other_rows, "total": sum(r["amount"] for r in other_rows), "open": sum(r["open"] for r in other_rows),
              "processing": [f for f in processing if f.document_kind == "other_expense"]}
@@ -752,6 +756,32 @@ def month_home(request):
     errors = sum(1 for r in rows if r["errors"])
     confirmable = [st for st in sts if st.status in (S.CALCULATED, S.REVIEW) and not st.blocking_errors]
     contractors = [st for st in sts if st.employment_type == "contractor"]
+    # 次にやること（上から順に、まだ終わっていない最初の1つだけを出す）
+    from . import staff as staff_svc
+    from .models import StatementDelivery
+
+    q = f"?month={month:%Y-%m}"
+    step1 = bool(members) and len(acq) >= len(members) and len(conf) >= len(members)
+    n_conf = sum(1 for st in sts if st.is_confirmed)
+    pay_sts = [st for st in sts if st.is_confirmed and (st.net_amount or 0) > 0]
+    n_paid = StatementDelivery.objects.filter(statement__in=pay_sts, paid_at__isnull=False).count()
+    staff_unsaved = sum(1 for r in staff_svc.staff_rows(month) if not r["saved"])
+    if not step1:
+        nxt = ("件数を取り込む", f"{prev_month(month).month}月の獲得件数・{month.month}月の入金確定件数", reverse("payroll:counts_import") + q, "取り込む")
+    elif exp["open_total"] or exp["tr"]["processing"] or exp["gas"]["processing"]:
+        nxt = ("経費を承認する", f"確認待ち {exp['open_total']}件", "#step2", "経費へ")
+    elif not sts:
+        nxt = ("計算する", "件数と経費がそろいました", "#step3", "計算へ")
+    elif errors:
+        nxt = ("要確認の人を直す", f"{errors}人", reverse("payroll:review") + q, "直す")
+    elif n_conf < len(sts):
+        nxt = ("明細を確定する", f"確定 {n_conf}/{len(sts)}人", reverse("payroll:review") + q, "確定へ")
+    elif staff_unsaved:
+        nxt = ("正社員の給与を保存", f"{staff_unsaved}人 未保存", reverse("payroll:staff") + q, "正社員へ")
+    elif n_paid < len(pay_sts):
+        nxt = ("振込する", f"振込済み {n_paid}/{len(pay_sts)}人", reverse("payroll:transfers") + q, "振込へ")
+    else:
+        nxt = None
     checklist = [
         ("全員分の給与データがある", bool(sts) and len(sts) >= len(members)),
         ("全員の計算が終わり、入力不足がない", bool(sts) and errors == 0 and all(st.status != S.NOT_CALCULATED for st in sts)),
@@ -761,7 +791,7 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "exp": exp, "open_recs": open_recs, "errors": errors,
+        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt,
         "last_calc": max((st.calculated_at for st in sts if st.calculated_at), default=None),
         # 今月は支給なし（0円・マイナス）の人は、まとめて閉じておく
         "none_rows": [r for r in rows if r["st"].net_amount is not None and r["st"].net_amount <= 0],
@@ -1601,3 +1631,40 @@ def counts_import(request):
         ctx.update({"plan": plan, "rows": rows, "members": members, "target": target, "missing": missing,
                     "total_sum": total_sum, "kind_label": SalesCount.Kind(plan["kind"]).label})
     return render(request, "payroll/counts_import.html", ctx)
+
+
+@payroll_view
+def staff(request):
+    """正社員の給与（明細は作らない）。給与の額を入れると、交通費・経費と合わせた合計が支出に入る。"""
+    from . import staff as staff_svc
+    from .models import EmployeePay
+
+    month = month_from_request(request)
+    if request.method == "POST":
+        n, bad = 0, []
+        with transaction.atomic():
+            for r in staff_svc.staff_rows(month):
+                m = r["member"]
+                raw = (request.POST.get(f"salary_{m.pk}") or "").replace(",", "").replace("円", "").strip()
+                if raw == "":
+                    continue
+                v = _int_or_none(raw)
+                if v is None or v < 0:
+                    bad.append(m.name)
+                    continue
+                old = EmployeePay.objects.filter(member=m, month=month).first()
+                if old and old.salary == v:
+                    continue
+                EmployeePay.objects.update_or_create(member=m, month=month, defaults={"salary": v})
+                audit.log("payroll.employee_pay", target=m, before={"salary": old.salary if old else None},
+                          after={"month": month, "salary": v}, user=request.user)
+                n += 1
+        for name in bad:
+            messages.error(request, f"{name}：金額を数字で入れてください。")
+        messages.success(request, "保存しました。支出の合計にも入ります。")
+        return redirect(f"/payroll/staff/?month={month:%Y-%m}")
+    rows = staff_svc.staff_rows(month)
+    return render(request, "payroll/staff.html", {
+        **month_context(month), "rows": rows, "total": sum(r["total"] for r in rows),
+        "unsaved": sum(1 for r in rows if not r["saved"]), "open": sum(r["open"] for r in rows),
+    })

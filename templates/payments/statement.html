@@ -19,9 +19,10 @@
     <ul class="ledger-list">
       {% if pr %}<li class="auto"><a href="{% url 'payroll:transfers' %}?month={{ month_param }}">個人事業主・インターン給与 <span class="chip">自動</span></a><span class="amt">{{ pr.amount|intcomma }}</span>
         <span class="st {% if pr.paid %}ok{% endif %}">{% if pr.paid %}支払い済{% else %}振込 {{ pr.paid_count }}/{{ pr.count }}{% endif %}</span></li>{% endif %}
+      {% if sr %}<li class="auto"><a href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員給与（交通費・経費込み） <span class="chip">自動</span></a><span class="amt">{{ sr.amount|intcomma }}</span><span class="st">{{ sr.count }}人</span></li>{% endif %}
       {% for p in pays %}<li><a href="{% url 'payments:edit' p.pk %}">{{ p.payee_name }}{% if p.category %} <small class="muted">{{ p.category }}</small>{% endif %}</a><span class="amt">{{ p.amount|default:0|intcomma }}</span>
         <span class="st {% if p.status == 'paid' %}ok{% endif %}">{% if p.status == 'paid' %}支払い済{% else %}未払い{% endif %}</span></li>
-      {% empty %}{% if not pr %}<li class="muted">まだありません</li>{% endif %}{% endfor %}
+      {% empty %}{% if not pr and not sr %}<li class="muted">まだありません</li>{% endif %}{% endfor %}
     </ul>
     <a class="small" href="{% url 'payments:index' %}?month={{ month_param }}">＋ 支払いを入れる</a>
   </section>

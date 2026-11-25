@@ -4,6 +4,7 @@
 {% block topbar %}ホーム{% endblock %}
 {% block content %}
 <div class="page-head"><div><p class="eyebrow">{{ today|date:"n月j日（D）" }}</p><h1>ホーム</h1></div></div>
+{% for s in flow %}{% if s.state == "doing" %}<a class="next-card" href="{{ s.url }}" style="text-decoration:none;color:inherit"><b>次にやること</b><span><b style="color:inherit">{{ s.title }}</b> <span class="small muted">{{ s.desc }}</span></span><span class="btn btn-primary">{{ s.button }} ›</span></a>{% endif %}{% endfor %}
 
 <a class="today-card" href="{% url 'shifts:grid' %}?view=day">
   <div><div class="small muted">今日の出勤</div><div class="xbig">{{ today_work }}<small>人</small></div></div>
@@ -22,9 +23,9 @@
   {% for s in flow %}
   <li class="{{ s.state }}">
     <span class="no">{% if s.done %}✓{% else %}{{ s.no }}{% endif %}</span>
-    <div><div class="title"><span class="when">{{ s.when }}</span>{{ s.title }}</div><div class="desc">{{ s.desc }}</div>
-      {% if s.extra %}<div class="extra">{% for label, url in s.extra %}<a href="{{ url }}">{{ label }}</a>{% endfor %}</div>{% endif %}</div>
-    <a class="btn {% if s.state == 'doing' %}btn-primary{% endif %} go" href="{{ s.url }}">{{ s.button }}</a>
+    <div><div class="title"><span class="when">{{ s.when }}</span>{{ s.title }}</div>{% if s.state == "doing" %}<div class="desc">{{ s.desc }}</div>{% endif %}
+      {% if s.extra and s.state == "doing" %}<div class="extra">{% for label, url in s.extra %}<a href="{{ url }}">{{ label }}</a>{% endfor %}</div>{% endif %}</div>
+    <a class="btn go" href="{{ s.url }}">{{ s.button }}</a>
   </li>
   {% endfor %}
 </ol>

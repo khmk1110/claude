@@ -2,7 +2,7 @@
 {# 給与の画面の「② 経費」：ガソリン代・交通費・その他を別々の枠にする #}
 <section class="step card {% if exp.gas.status == 'ok' and exp.tr.status != 'attn' and exp.tr.status != 'open' and exp.other.status != 'open' and exp.other.status != 'attn' %}done{% endif %}" id="step2">
   <div class="step-head"><span class="no">{% if exp.gas.status == 'ok' and exp.open_total == 0 %}✓{% else %}2{% endif %}</span>
-    <div><b>経費</b><div class="small muted">承認したものだけ給与に入ります</div></div></div>
+    <div><b>経費</b></div></div>
 
   {# ───────── ガソリン代 ───────── #}
   <div class="xpanel" id="gas">
@@ -103,6 +103,12 @@
         <li class="prow phead"><div class="pmain small muted">インターン（差し引きなし）</div><div class="pcalc"></div><div class="pamt small muted">支給額</div></li>
         {% for c in exp.tr.interns %}
         <li class="prow {% if c.row and c.row.open %}prow-open{% endif %}"><div class="pmain"><b>{{ c.member.name }}</b>{% if c.row and c.row.open %}<span class="chip chip-open">確認待ち</span>{% endif %}</div><div class="pcalc"></div><div class="pamt">{{ c.net|intcomma }}<small>円</small></div></li>
+        {% endfor %}
+      {% endif %}
+      {% if exp.tr.employees %}
+        <li class="prow phead"><div class="pmain small muted">正社員（全額・<a href="{% url 'payroll:staff' %}?month={{ month_param }}">正社員の給与</a>に入る）</div><div class="pcalc"></div><div class="pamt small muted">支給額</div></li>
+        {% for c in exp.tr.employees %}
+        <li class="prow {% if c.row.open %}prow-open{% endif %}"><div class="pmain"><b>{{ c.member.name }}</b>{% if c.row.open %}<span class="chip chip-open">確認待ち</span>{% endif %}</div><div class="pcalc"></div><div class="pamt">{{ c.net|intcomma }}<small>円</small></div></li>
         {% endfor %}
       {% endif %}
       {% for r in exp.tr.unknown %}

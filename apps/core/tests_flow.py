@@ -74,11 +74,11 @@ class MonthlyFlowTests(TestCase):
         self.client.post("/expenses/line/", {"text": "井上 600", "category": ExpenseCategory.objects.get(code="transport").pk,
                                              "target_month": "2026-11", "note": "交通費の追加分"})
         approvable = ExpenseRecord.objects.exclude(status=ExpenseRecord.Status.EXCLUDED)
-        self.assertEqual(approvable.count(), 5)  # 交通費2・ガソリン2・LINE1（正社員と対象外カードは除外）
+        self.assertEqual(approvable.count(), 6)  # 交通費3（正社員を含む）・ガソリン2・LINE1（対象外カードは除外）
         for sf in importer.SourceFile.objects.all():
             ids = list(sf.records.exclude(status="excluded").values_list("pk", flat=True))
             self.client.post(f"/expenses/files/{sf.pk}/action/", {"action": "approve", "records": ids})
-        self.assertEqual(ExpenseRecord.objects.filter(status="approved").count(), 5)
+        self.assertEqual(ExpenseRecord.objects.filter(status="approved").count(), 6)  # 正社員の交通費も承認（明細には入らない）
 
         # 9〜10. 営業件数（10月の獲得 → 11月の単価、11月の入金確定 → 報酬）
         self.client.post("/stepup/payroll/", {"password": "pay-pass"})

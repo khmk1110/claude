@@ -1,0 +1,10 @@
+{% load humanize %}
+<li class="tr-row">
+  <a class="tr-name" href="{% url 'payroll:staff' %}?month={{ month_param }}" style="color:inherit;text-decoration:none;flex-direction:column;align-items:flex-start;gap:2px">
+    <b>正社員給与 <span class="chip">自動</span></b>
+    <span class="small muted">{{ sr.count }}人・交通費と経費を含む{% if sr.unsaved %}・未保存 {{ sr.unsaved }}人{% endif %}</span>
+    {% if sr.skipped %}<span class="small muted">{{ sr.skipped|join:"・" }}は下の支払いに入っているので除外</span>{% endif %}
+  </a>
+  <span class="tr-amt" style="cursor:default">{{ sr.amount|intcomma }}<small>円</small></span>
+  <div class="tr-checks" style="grid-template-columns:1fr"><a class="tr-chk" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="{% url 'payroll:staff' %}?month={{ month_param }}">1人ずつ見る ›</a></div>
+</li>

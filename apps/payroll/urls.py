@@ -18,6 +18,7 @@ urlpatterns = [
     path("review/<int:pk>/", views.review_action, name="review_action"),
     path("evidence/<int:pk>/", views.evidence_file, name="evidence"),
     path("employees/", views.employees, name="employees"),
+    path("staff/", views.staff, name="staff"),
     path("teams/", views.teams, name="teams"),
     path("settings/", views.payroll_settings, name="settings"),
     path("settings/app-fee/", views.app_fee_settings, name="app_fee"),

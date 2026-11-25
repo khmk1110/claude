@@ -76,11 +76,11 @@ class ImporterTests(TestCase):
         recs = {r.name_text: r for r in sf.records.all()}
         self.assertEqual(set(recs), {"青木", "井上", "渡辺", "社員"})  # LPガスなど交通費以外の行は読まない
         self.assertEqual((recs["青木"].auto_member, recs["青木"].auto_amount, recs["青木"].status), (self.c, 98000, R.UNCHECKED))
-        self.assertEqual(recs["社員"].status, R.EXCLUDED)  # 正社員は明細の対象外
+        self.assertEqual(recs["社員"].status, R.UNCHECKED)  # 正社員の交通費は「正社員の給与」の合計に入る（明細は作らない）
         watanabe = recs["渡辺"]  # 「邊」と「辺」は同じ字として照合（承認するまで給与には入らない）
         self.assertEqual((watanabe.auto_member, watanabe.status), (self.n, R.UNCHECKED))
         ok, skipped = importer.approve(list(sf.records.all()), user=self.user)
-        self.assertEqual(ok, 3)
+        self.assertEqual(ok, 4)
         # 同じファイルは二重に取り込まない
         with self.assertRaises(importer.DuplicateFile):
             importer.import_file(pdf, "invoice_copy.pdf", user=self.user)

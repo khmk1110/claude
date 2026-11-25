@@ -3,8 +3,10 @@
 {% block title %}{{ month|date:"n月" }}分の給与{% endblock %}
 {% block topbar %}給与・報酬{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">給与・報酬</p><h1>{{ month|date:"Y年n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
+<div class="page-head"><div><h1>{{ month|date:"n月" }}分の給与</h1></div>{% include "includes/monthnav.html" %}</div>
 {% include "payroll/_nav.html" %}
+{% if nxt %}<a class="next-card" href="{{ nxt.2 }}" style="text-decoration:none;color:inherit"><b>次にやること</b><span><b style="color:inherit">{{ nxt.0 }}</b> <span class="small muted">{{ nxt.1 }}</span></span><span class="btn btn-primary">{{ nxt.3 }} ›</span></a>
+{% else %}<div class="next-card is-done"><b>✓</b><span>{{ month|date:"n月" }}分の給与はすべて終わりました</span></div>{% endif %}
 
 <section class="step card {% if step1_done %}done{% endif %}">
   <div class="step-head"><span class="no">{% if step1_done %}✓{% else %}1{% endif %}</span><div><b>件数</b></div></div>
@@ -25,7 +27,7 @@
     {% else %}<input type="hidden" name="action" value="calculate_all"><button class="btn btn-primary" type="submit" onclick="this.textContent='計算中…'">全員を計算し直す</button>{% endif %}
   </form>
   {% if rows %}
-  <button type="button" class="linkbtn small" style="color:#2563eb" onclick="var c=document.querySelectorAll('.pay-card'),o=this.dataset.o!=='1';c.forEach(function(d){d.open=o});this.dataset.o=o?'1':'0';this.textContent=o?'全部閉じる':'全員の内訳を開く'">全員の内訳を開く</button>
+  <button type="button" class="linkbtn small" style="color:var(--primary)" onclick="var c=document.querySelectorAll('.pay-card'),o=this.dataset.o!=='1';c.forEach(function(d){d.open=o});this.dataset.o=o?'1':'0';this.textContent=o?'全部閉じる':'全員開く'">全員開く</button>
   <div class="pay-cards">
     {% for r in rows %}{% if r.st.net_amount is None or r.st.net_amount > 0 %}
     <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
@@ -74,8 +76,8 @@
   <div class="step-head"><span class="no">{% if sts and confirmed == sts|length %}✓{% else %}4{% endif %}</span><div><b>明細を確認して確定</b><div class="small muted">確定 {{ confirmed }} / {{ sts|length }}人</div></div></div>
   <ul class="checks">{% for label, ok in checklist %}{% if not ok %}<li class="ng">{{ label }}</li>{% endif %}{% endfor %}</ul>
   <div class="form-row">
-    {% if sts %}<a class="btn btn-primary" href="{% url 'payroll:review' %}?month={{ month_param }}">{% if confirmed == sts|length %}明細を見直す{% else %}1人ずつ明細を見て確定する{% endif %}</a>{% endif %}
-    {% if confirmed %}<a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分をダウンロード（1人1つのPDF・{{ confirmed }}人）</a>{% endif %}
+    {% if sts %}<a class="btn btn-primary" href="{% url 'payroll:review' %}?month={{ month_param }}">{% if confirmed == sts|length %}明細を見直す{% else %}1人ずつ確定する{% endif %}</a>{% endif %}
+    {% if confirmed %}<a class="btn" href="{% url 'payroll:month_pdf' %}?month={{ month_param }}">全員分のPDF（{{ confirmed }}人）</a>{% endif %}
   </div>
 </section>
 {% endblock %}

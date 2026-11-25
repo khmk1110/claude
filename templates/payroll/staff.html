@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}正社員の給与｜{{ month|date:"n月" }}{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>{{ month|date:"n月" }} 正社員の給与</h1></div>{% include "includes/monthnav.html" %}</div>
+{% include "payroll/_nav.html" %}
+
+<div class="tr-sum">
+  <div><div class="small muted">合計（給与＋交通費＋経費）</div><div class="xbig">{{ total|intcomma }}<small>円</small></div></div>
+  <div class="tr-progress small muted">明細は作りません<br>支出に自動で入ります</div>
+</div>
+
+{% if unsaved %}<div class="next-card"><b>次にやること</b><span>給与の額を確かめて「保存」（{{ unsaved }}人 未保存）</span></div>{% endif %}
+{% if open %}<div class="notice">⚠️ 確認待ちの経費が {{ open }}件 あります。<a href="{% url 'payroll:index' %}?month={{ month_param }}#step2">給与の画面で承認</a>すると合計に入ります。</div>{% endif %}
+
+<form method="post">{% csrf_token %}
+<ul class="staff-list">
+  {% for r in rows %}
+  <li class="staff-row {% if not r.saved %}is-unsaved{% endif %}">
+    <div class="staff-name"><b>{{ r.member.name }}</b>{% if not r.saved and r.src %}<span class="chip chip-open">{{ r.src }}</span>{% elif not r.saved %}<span class="chip chip-warn">未入力</span>{% endif %}</div>
+    <label class="staff-salary"><span class="small muted">給与</span>
+      <div class="yen"><input name="salary_{{ r.member.pk }}" value="{{ r.salary|default_if_none:''|intcomma }}" inputmode="numeric" autocomplete="off"><em>円</em></div></label>
+    <div class="staff-add small"><span>交通費 {{ r.transport|intcomma }}</span><span>経費 {{ r.other|intcomma }}</span></div>
+    <div class="staff-total">{{ r.total|intcomma }}<small>円</small></div>
+  </li>
+  {% empty %}<li class="muted">この月の正社員はいません。</li>{% endfor %}
+</ul>
+{% if rows %}<div class="fix-bar"><button class="btn btn-primary" type="submit">保存</button></div>{% endif %}
+</form>
+<p class="small muted" style="margin-top:12px">基本給の改定は <a href="{% url 'payroll:employees' %}?month={{ month_param }}">設定 › 正社員</a></p>
+{% endblock %}

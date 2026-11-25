@@ -1097,3 +1097,32 @@ class ExpenseDeleteTests(TableScreenshotTests):
         self.assertFalse(ExpenseRecord.objects.filter(pk=a.pk).exists())
         self.assertTrue(ExpenseRecord.objects.filter(pk=b.pk).exists())
         self.assertTrue(SourceFile.objects.filter(pk=sf.pk).exists())  # まだ行が残っているので資料は残す
+
+
+class StaffPayTests(TableScreenshotTests):
+    """正社員：明細は作らず、給与＋交通費＋経費の合計を出して支出に入れる。"""
+
+    def test_staff_total_goes_into_payments(self):
+        from apps.expenses import importer
+        from apps.expenses.models import ExpenseCategory
+        from apps.members.models import Member
+        from apps.payments.views import month_totals
+        from apps.payroll.models import BaseSalary
+
+        e = Member.objects.create(name="架空 社員", employment_type="employee", joined_on=date(2025, 1, 1))
+        BaseSalary.objects.create(member=e, effective_from=date(2025, 1, 1), amount=250000)
+        page = self.client.get("/payroll/staff/?month=2026-11")
+        self.assertContains(page, "架空 社員")
+        self.assertContains(page, "基本給")  # まだ保存していない時は基本給を使う
+        before = month_totals(NOV)["payments"]
+        self.client.post("/payroll/staff/?month=2026-11", {f"salary_{e.pk}": "260,000"})
+        cat = ExpenseCategory.objects.get(code="transport")
+        importer.import_line_text("架空社員 12,345", category=cat, target_month=NOV)
+        from apps.expenses.models import ExpenseRecord
+        importer.approve(list(ExpenseRecord.objects.filter(auto_member=e)), confirm_soft_issues=True)
+        self.assertEqual(month_totals(NOV)["payments"] - before, 260000 + 12345 - 250000)  # 基本給→保存した額＋交通費
+        from apps.payroll.staff import staff_rows
+        row = next(r for r in staff_rows(NOV) if r["member"] == e)
+        self.assertEqual((row["salary"], row["transport"], row["total"]), (260000, 12345, 272345))
+        self.assertFalse(PayrollStatement.objects.filter(member=e).exists())  # 明細は作らない
+        self.assertContains(self.client.get("/payments/?month=2026-11"), "正社員給与")

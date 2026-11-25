@@ -5,39 +5,30 @@
 {% block content %}
 {% include "payments/_head.html" %}
 
-<div class="tr-sum">
-  <div><div class="small muted">まだ払っていない</div><div class="xbig">{{ unpaid_total|intcomma }}<small>円</small></div></div>
-  <div class="tr-progress">支払い合計<br><b style="font-size:1.1rem">{{ total|intcomma }}円</b></div>
-</div>
+{% if drafts %}<div class="next-card"><b>次にやること</b><span>読み込んだ請求書 {{ drafts|length }}件の金額を確かめる</span><a class="btn btn-primary" href="#drafts">確かめる</a></div>
+{% elif unpaid %}<div class="next-card"><b>次にやること</b><span>払ったら「支払った」を押す（未払い {{ unpaid|length }}件・{{ unpaid_total|intcomma }}円）</span></div>
+{% else %}<div class="next-card is-done"><b>✓</b><span>この月の支払いはすべて済んでいます</span></div>{% endif %}
 
 <form method="post" action="{% url 'payments:upload' %}?month={{ month_param }}" enctype="multipart/form-data" class="xupload">{% csrf_token %}
   <label class="drop"><input type="file" name="files" multiple accept="image/*,.pdf" onchange="this.form.querySelector('.drop-text').textContent='読み取り中…';this.form.submit()">
-    <span class="drop-icon">📄</span><span class="drop-text">請求書（写真・PDF）を読み込む</span></label>
+    <span class="drop-icon">📄</span><span class="drop-text">請求書を読み込む（写真・PDF）</span></label>
 </form>
 <div class="form-row" style="margin:8px 0 14px">
-  <a class="btn btn-primary" href="{% url 'payments:new' %}?month={{ month_param }}">＋ 支払いを追加（請求書なし）</a>
-  <a class="btn" href="{% url 'payments:bulk' %}?month={{ month_param }}">✎ まとめて直す</a>
+  <a class="btn" href="{% url 'payments:new' %}?month={{ month_param }}">＋ 手で追加</a>
   {% if monthly_missing %}<form method="post" action="{% url 'payments:add_monthly' %}?month={{ month_param }}">{% csrf_token %}
     <button class="btn" type="submit">毎月の支払いを入れる（{{ monthly_missing|length }}件）</button></form>{% endif %}
 </div>
 
-<details class="more" style="margin:0 0 14px"><summary>📝 文で入れる（口頭・LINEで言われた支払い）</summary>
-  <form method="post" action="{% url 'payments:text_import' %}?month={{ month_param }}" style="margin-top:8px">{% csrf_token %}
-    <textarea name="text" rows="6" style="width:100%" placeholder="1行に1件。「支払い済」と書くと支払い済みで入ります&#10;家賃 30,000円 支払い済&#10;熊沢給与 70000&#10;返済 30万"></textarea>
-    <div class="form-row"><button class="btn btn-primary" type="submit">取り込む</button></div>
-  </form>
-</details>
 {% if drafts %}
-<h2>確認待ち <span class="chip chip-warn">{{ drafts|length }}</span></h2>
+<h2 id="drafts">確認待ち <span class="chip chip-warn">{{ drafts|length }}</span></h2>
 {% if retry_count %}<form method="post" action="{% url 'payments:reread_all' %}?month={{ month_param }}" style="margin-bottom:8px">{% csrf_token %}
   <button class="btn" type="submit">読み取れなかった {{ retry_count }}件 をもう一度読み取る</button></form>{% endif %}
-{% if processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b><div class="small muted">1枚ずつ順番に読んでいます（{{ processing_count }}枚）</div></div></div>
+{% if processing %}<div class="xprocessing"><div class="spinner sm"></div><div><b>読み取り中…</b><div class="small muted">{{ processing_count }}枚</div></div></div>
 <script>setTimeout(function(){location.reload()},6000)</script>{% endif %}
 <ul class="mlist" style="margin-bottom:16px">
   {% for p in drafts %}
   <li><a class="mrow" href="{% if p.status != 'processing' %}{% url 'payments:edit' p.pk %}{% else %}#{% endif %}">
     <span class="mmain"><b>{{ p.payee_name|default:"（請求元を確認）" }}</b>
-      <span class="small muted">{{ p.original_name }}</span>
       {% if p.error_message %}<span class="small text-warn">⚠ {{ p.error_message }}</span>{% endif %}</span>
     <span class="mbig" style="font-size:1.2rem">{% if p.amount %}{{ p.amount|intcomma }}<small>円</small>{% else %}-{% endif %}</span>
     <span class="chev">›</span></a></li>
@@ -45,15 +36,20 @@
 </ul>
 {% endif %}
 
+{% if pr or sr %}
+<h2>給与 <span class="small muted" style="font-weight:normal">自動で入ります</span></h2>
+<ul class="tr-list pay-list">{% if pr %}{% include "payments/_payroll_row.html" %}{% endif %}{% if sr %}{% include "payments/_staff_row.html" %}{% endif %}</ul>
+{% endif %}
+
 <h2>未払い</h2>
 <ul class="tr-list pay-list">
-  {% if pr and not pr.paid %}{% include "payments/_payroll_row.html" %}{% endif %}
-  {% for p in unpaid %}{% include "payments/_row.html" %}{% empty %}{% if not pr or pr.paid %}<li class="muted" style="padding:6px 2px">ありません</li>{% endif %}{% endfor %}
+  {% for p in unpaid %}{% include "payments/_row.html" %}{% empty %}<li class="muted" style="padding:6px 2px">ありません</li>{% endfor %}
 </ul>
 
-{% if paid or pr.paid %}
-<h2 style="margin-top:18px">支払い済み</h2>
-<ul class="tr-list pay-list">{% if pr and pr.paid %}{% include "payments/_payroll_row.html" %}{% endif %}{% for p in paid %}{% include "payments/_row.html" %}{% endfor %}</ul>
+{% if paid %}
+<details class="more" style="margin-top:18px"><summary>支払い済み（{{ paid|length }}件）</summary>
+<ul class="tr-list pay-list" style="margin-top:8px">{% for p in paid %}{% include "payments/_row.html" %}{% endfor %}</ul>
+</details>
 {% endif %}
 
 {% if by_cat %}
@@ -61,8 +57,12 @@
   <ul class="plist">{% for c, v in by_cat %}<li class="prow"><div class="pmain">{{ c }}</div><div class="pamt">{{ v|intcomma }}<small>円</small></div></li>{% endfor %}</ul>
 </details>
 {% endif %}
-<details class="more" style="margin-top:10px"><summary>保存・取り込み</summary>
-  <div class="form-row" style="margin-top:10px"><a class="btn" href="?month={{ month_param }}&format=csv">この月をCSVで保存</a></div>
+<details class="more" style="margin-top:10px"><summary>ほかの入れ方・保存</summary>
+  <form method="post" action="{% url 'payments:text_import' %}?month={{ month_param }}" style="margin-top:10px">{% csrf_token %}
+    <textarea name="text" rows="4" style="width:100%" placeholder="文で入れる（1行に1件）&#10;家賃 30,000円 支払い済&#10;返済 30万"></textarea>
+    <div class="form-row"><button class="btn" type="submit">文で取り込む</button></div>
+  </form>
+  <div class="form-row" style="margin-top:10px"><a class="btn" href="{% url 'payments:bulk' %}?month={{ month_param }}">✎ まとめて直す</a><a class="btn" href="?month={{ month_param }}&format=csv">CSVで保存</a></div>
   <form method="post" action="{% url 'payments:import_sheet' %}?month={{ month_param }}" enctype="multipart/form-data" class="form-row">{% csrf_token %}
     <input type="file" name="file" accept=".xlsx" required> <button class="btn" type="submit">今までの収支表（Excel）を取り込む</button></form>
 </details>

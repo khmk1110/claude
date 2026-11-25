@@ -578,3 +578,20 @@ details.card.fold .list { width: 100%; }
 .receipt-row select { font-size: 1rem; min-height: 44px; border-radius: 10px; width: 100%; }
 .fix-del { color: #b91c1c; }
 .fix-card.is-deleted { opacity: 0.45; background: #fef2f2; border-color: #fecaca; }
+
+/* 正社員の給与 */
+.staff-list{list-style:none;margin:12px 0;padding:0;display:grid;gap:8px}
+.staff-row{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.staff-row.is-unsaved{border-color:#fcd34d;background:var(--warn-weak)}
+.staff-name{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.staff-salary{grid-column:1;display:flex;flex-direction:column;gap:2px}
+.staff-salary .yen{max-width:180px}
+.staff-add{grid-column:1;display:flex;gap:12px;color:var(--muted)}
+.staff-total{grid-column:2;grid-row:1/4;font-size:1.25rem;font-weight:700;text-align:right}
+/* 次にやること（各画面の一番上に1つだけ） */
+.next-card{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--primary-weak);border:1px solid #bfdbfe;border-radius:12px;padding:12px 14px;margin:10px 0 14px}
+.next-card b{color:var(--primary-dark);white-space:nowrap}
+.next-card span{flex:1;min-width:10em}
+.next-card .btn{margin-left:auto}
+.next-card.is-done{background:var(--ok-weak);border-color:#a7f3d0}
+.next-card.is-done b{color:var(--ok)}

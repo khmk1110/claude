@@ -136,11 +136,28 @@ def payroll_row(month):
             "paid": paid == len(sts), "confirmed": len(confirmed), "unconfirmed": len(sts) - len(confirmed)}
 
 
+def staff_row(month):
+    """正社員の給与（給与＋交通費＋経費）の合計。支払いに「〇〇給与」と手で入れた人は二重に数えない。"""
+    from apps.payroll.staff import staff_rows
+
+    rows = staff_rows(month)
+    if not rows:
+        return None
+    manual = [p.payee_name for p in Payment.objects.filter(month=month, payee_name__contains="給与").exclude(status=P.DRAFT)]
+    counted, skipped = [], []
+    for r in rows:
+        family = r["member"].name.replace("\u3000", " ").split(" ")[0]
+        (skipped if family and any(family in n for n in manual) else counted).append(r)
+    return {"amount": sum(r["total"] for r in counted), "count": len(counted), "skipped": [r["member"].name for r in skipped],
+            "unsaved": sum(1 for r in counted if not r["saved"])}
+
+
 def month_totals(month):
     """その月の売上・支払い・差引（支払いには給与の確定額を含む）。"""
     pays = Payment.objects.filter(month=month, status__in=[P.UNPAID, P.PAID])
     pr = payroll_row(month)
-    pay_total = sum(p.amount or 0 for p in pays) + (pr["amount"] if pr else 0)
+    sr = staff_row(month)
+    pay_total = sum(p.amount or 0 for p in pays) + (pr["amount"] if pr else 0) + (sr["amount"] if sr else 0)
     sales = Sale.objects.filter(month=month, state=Sale.State.OK)
     sale_total = sum(x.amount or 0 for x in sales)
     return {"sales": sale_total, "payments": pay_total, "diff": sale_total - pay_total,
@@ -178,10 +195,13 @@ def index(request):
     for p in unpaid + paid:
         by_cat[p.category or "未分類"] = by_cat.get(p.category or "未分類", 0) + (p.amount or 0)
     monthly = Payee.objects.filter(monthly=True).exclude(payments__month=month)
+    sr = staff_row(month)
     if pr:
         by_cat["給与"] = by_cat.get("給与", 0) + pr["amount"]
+    if sr:
+        by_cat["給与"] = by_cat.get("給与", 0) + sr["amount"]
     return render(request, "payments/index.html", {
-        **month_context(month), "drafts": drafts, "unpaid": unpaid, "paid": paid, "total": total, "pr": pr, "totals": totals,
+        **month_context(month), "drafts": drafts, "unpaid": unpaid, "paid": paid, "total": total, "pr": pr, "sr": sr, "totals": totals,
         "tab": "pay", "unpaid_total": totals["unpaid"], "by_cat": sorted(by_cat.items(), key=lambda x: -x[1]),
         "monthly_missing": list(monthly), "processing": any(p.status == P.PROCESSING for p in drafts),
         "processing_count": sum(1 for p in drafts if p.status == P.PROCESSING),
@@ -675,4 +695,5 @@ def statement(request):
     pr = payroll_row(month)
     return render(request, "payments/statement.html", {
         **month_context(month), "tab": "list", "totals": month_totals(month), "sales": sales, "pays": pays, "pr": pr,
+        "sr": staff_row(month),
     })

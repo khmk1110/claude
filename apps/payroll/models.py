@@ -557,3 +557,18 @@ class StatementDelivery(models.Model):
     class Meta:
         verbose_name = "振込・送付の記録"
         verbose_name_plural = "振込・送付の記録"
+
+
+class EmployeePay(models.Model):
+    """正社員のその月の給与額（明細は作らない。支出の合計に入れるための金額だけ）。"""
+
+    member = models.ForeignKey(Member, on_delete=models.PROTECT, related_name="employee_pays")
+    month = models.DateField("月", validators=[validate_month_start])
+    salary = models.PositiveIntegerField("給与（振込額）")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "正社員の給与"
+        verbose_name_plural = "正社員の給与"
+        ordering = ["month", "member"]
+        constraints = [models.UniqueConstraint(fields=["member", "month"], name="uniq_employee_pay_month")]

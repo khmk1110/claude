@@ -502,9 +502,11 @@ def evaluate(rec: ExpenseRecord, *, initial: bool = False) -> ExpenseRecord:
         if by_card and by_name and by_card.pk != by_name.pk:
             _issue(rec, Code.NAME_CARD_MISMATCH, f"氏名（{by_name}）とカードの担当者（{by_card}）が一致しません。")
         rec.auto_member = by_card or by_name
-        if rec.auto_member and rec.auto_member.employment_type == EmploymentType.EMPLOYEE:
+        cat = rec.effective_category
+        if rec.auto_member and rec.auto_member.employment_type == EmploymentType.EMPLOYEE and cat and cat.code == "gasoline":
+            # 正社員のガソリン代は会社のカードの支払いなので差し引かない（交通費・経費は「正社員の給与」の合計に入る）
             rec.status = R.EXCLUDED
-            rec.note = "正社員のため給与計算（明細）の対象外です。"
+            rec.note = "正社員のガソリン代は差し引きの対象外です。"
             rec.save()
             return rec
         if rec.confidence is not None and float(rec.confidence) < LOW_CONFIDENCE:
