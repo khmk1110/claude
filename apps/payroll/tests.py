@@ -1374,3 +1374,47 @@ class PersonShareTests(TableScreenshotTests):
         page = self.client.get("/payroll/?month=2026-11&step=3")
         self.assertContains(page, "1人ずつ送る")
         self.assertContains(page, "_確認用.pdf")
+
+
+class SheetImportTests(TableScreenshotTests):
+    """入金確定シート（Googleスプレッドシート）から読み込む。リンクは保存して次回はボタンだけ。"""
+
+    def test_reads_sheet_and_remembers_url(self):
+        import io
+        from unittest import mock
+
+        csv_bytes = "営業,9月,合計\n大石一郎,1,40\n吉野健太,0,30\n月合計,1,70\n".encode()
+
+        class Res(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        url = "https://docs.google.com/spreadsheets/d/AbC123_x/edit#gid=42"
+        with mock.patch("urllib.request.urlopen", return_value=Res(csv_bytes)) as op:
+            self.client.post("/payroll/counts/?month=2026-11", {"step": "sheet", "kind": "confirmed", "url": url, "month": "2026-11"})
+        self.assertIn("export?format=csv&gid=42", op.call_args[0][0])
+        plan = self.client.session["counts_import"]
+        self.assertEqual({r["name"]: r["count"] for r in plan["rows"]}, {"大石一郎": 40, "吉野健太": 30})
+        self.assertContains(self.client.get("/payroll/?month=2026-11&step=1"), "入金確定シートから読み込む")
+        with mock.patch("urllib.request.urlopen", return_value=Res(csv_bytes)):  # 2回目はリンクなしでボタンだけ
+            self.client.post("/payroll/counts/?month=2026-11", {"step": "sheet", "kind": "confirmed", "month": "2026-11"})
+        self.assertTrue(self.client.session.get("counts_import"))
+
+    def test_private_sheet_message(self):
+        import io
+        from unittest import mock
+
+        class Res(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch("urllib.request.urlopen", return_value=Res(b"<!DOCTYPE html><html>login")):
+            r = self.client.post("/payroll/counts/?month=2026-11", {"step": "sheet", "kind": "confirmed", "month": "2026-11",
+                                                                    "url": "https://docs.google.com/spreadsheets/d/X/edit"}, follow=True)
+        self.assertContains(r, "リンクを知っている全員")

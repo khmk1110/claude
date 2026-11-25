@@ -22,7 +22,14 @@
     <li class="{% if conf and not need_acq %}ok{% endif %}"><span>{{ prev|date:"n月" }}の獲得件数</span><b>{% if need_acq %}未入力 {{ need_acq|length }}人{% elif conf %}入力済み{% else %}-{% endif %}</b></li>
   </ul>
   {% if need_acq %}<div class="notice">⚠️ 獲得件数が入っていない人：{% for m in need_acq %}{{ m.name }}{% if not forloop.last %}、{% endif %}{% endfor %}</div>{% endif %}
-  <a class="btn btn-primary btn-big" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">件数を取り込む（スクショ・文）</a>
+  {% if sheet_confirmed %}
+  <form method="post" action="{% url 'payroll:counts_import' %}?month={{ month_param }}">{% csrf_token %}
+    <input type="hidden" name="step" value="sheet"><input type="hidden" name="kind" value="confirmed"><input type="hidden" name="month" value="{{ month_param }}">
+    <button class="btn btn-primary btn-big" type="submit" onclick="this.textContent='読み込み中…'">📊 入金確定シートから読み込む</button></form>
+  <p class="wiz-sub"><a href="{% url 'payroll:counts_import' %}?month={{ month_param }}">獲得件数・スクショ・文から取り込む ›</a></p>
+  {% else %}
+  <a class="btn btn-primary btn-big" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">件数を取り込む</a>
+  {% endif %}
   <p class="wiz-sub"><a href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で直す ›</a></p>
   {% if no_pay %}<details class="more" style="margin-top:12px"><summary>今月は給与なし（{{ no_pay|length }}人）</summary>
     <p class="small muted" style="margin:6px 0 0">{% for m in no_pay %}{{ m.name }}{% if not forloop.last %}、{% endif %}{% endfor %}<br>入金確定の件数・経費がない人です。この先の画面には出ません。</p></details>{% endif %}

@@ -701,3 +701,7 @@ details.step.done:not([open]){padding-top:10px;padding-bottom:10px}
 .send-list li:last-child{border-bottom:0}
 .send-list .share-pdfs{flex-direction:row;flex-wrap:nowrap}
 .share-sm{white-space:nowrap}
+.sheet-card{border-color:#bfdbfe}
+.sheet-row{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.sheet-row input[type=url]{grid-column:1/-1;width:100%}
+.sheet-row .btn{grid-column:1/-1;justify-self:start}

@@ -851,6 +851,7 @@ def transfer_toggle(request):
 @payroll_view
 def month_home(request):
     """今月の給与（4ステップ）: ①件数 ②経費 ③計算結果の確認 ④確定・明細。"""
+    from apps.core.models import SiteSetting
     from apps.expenses.models import ExpenseCategory, ExpenseRecord, SourceFile
 
     month = month_from_request(request)
@@ -944,7 +945,8 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "step": step, "need_acq": need_acq, "no_pay": no_pay, "cur_step": steps[step - 1], "next_step": steps[step] if step < 5 else None,
+        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "step": step, "need_acq": need_acq, "no_pay": no_pay,
+        "sheet_confirmed": SiteSetting.get("counts_sheet_confirmed"), "cur_step": steps[step - 1], "next_step": steps[step] if step < 5 else None,
         "bulk": bulk, "rest": len(sts) - n_conf - len(bulk), "n_conf": n_conf, "pmonth": pmonth, "all_conf": all_conf,
         "pay_total": sum(st.net_amount or 0 for st in sts if (st.net_amount or 0) > 0),
         "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
@@ -1683,6 +1685,31 @@ def _counts_ocr(pk: int, payroll_month: date) -> None:
         SalesEvidence.objects.filter(pk=pk).update(status="error", error_message=f"読み取れませんでした: {e}")
 
 
+
+
+def sheet_text(url: str) -> str:
+    """リンク共有されたGoogleスプレッドシート（そのタブ）を、貼り付けた時と同じタブ区切りの文にする。"""
+    import csv
+    import urllib.parse
+    import urllib.request
+
+    m = re.search(r"/spreadsheets/d/([A-Za-z0-9_\-]+)", url or "")
+    if not m:
+        raise ValueError("GoogleスプレッドシートのURLを入れてください。")
+    q = urllib.parse.urlparse(url)
+    gid = (urllib.parse.parse_qs(q.fragment).get("gid") or urllib.parse.parse_qs(q.query).get("gid") or ["0"])[0]
+    export = f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv&gid={gid}"
+    try:
+        with urllib.request.urlopen(export, timeout=20) as res:
+            data = res.read(5_000_000)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError("スプレッドシートを読み込めませんでした。共有を「リンクを知っている全員（閲覧者）」にしてください。") from e
+    if data[:200].lstrip().lower().startswith(b"<!doctype html") or b"<html" in data[:200].lower():
+        raise ValueError("スプレッドシートを読み込めませんでした（ログインが必要な設定です）。共有を「リンクを知っている全員（閲覧者）」にしてください。")
+    rows = csv.reader(io.StringIO(data.decode("utf-8-sig", errors="replace")))
+    return "\n".join("\t".join(c.strip() for c in r) for r in rows if any(c.strip() for c in r))
+
+
 @payroll_view
 def counts_import(request):
     from django.utils import timezone
@@ -1751,6 +1778,24 @@ def counts_import(request):
         SalesEvidence.objects.create(month=date.fromisoformat(new_plan["month"]), kind=kind, text=text[:5000], uploaded_by=request.user)
         request.session["counts_import"] = new_plan
         return redirect(back)
+    if request.method == "POST" and request.POST.get("step") == "sheet":
+        # 登録したGoogleスプレッドシートから読み込む（スクショの読み取りより正確）。リンクは次回のために保存
+        from apps.core.models import SiteSetting
+
+        kind = "confirmed" if request.POST.get("kind") == "confirmed" else "acquired"
+        key = f"counts_sheet_{kind}"
+        url = (request.POST.get("url") or "").strip() or SiteSetting.get(key)
+        try:
+            text = sheet_text(url)
+            new_plan = build_counts_plan(kind, text, payroll_month)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(back)
+        if request.POST.get("url"):
+            SiteSetting.objects.update_or_create(key=key, defaults={"value": url})
+        SalesEvidence.objects.create(month=date.fromisoformat(new_plan["month"]), kind=kind, text=text[:5000], uploaded_by=request.user)
+        request.session["counts_import"] = new_plan
+        return redirect(back)
     if request.method == "POST" and request.POST.get("step") == "cancel":
         request.session.pop("counts_import", None)
         return redirect(f"/payroll/counts/?month={payroll_month:%Y-%m}")
@@ -1816,6 +1861,9 @@ def counts_import(request):
         total_sum = sum(r["count"] for r in plan["rows"])
         ctx.update({"plan": plan, "rows": rows, "members": members, "target": target, "missing": missing,
                     "total_sum": total_sum, "kind_label": SalesCount.Kind(plan["kind"]).label})
+    from apps.core.models import SiteSetting
+
+    ctx["sheet_urls"] = {"acquired": SiteSetting.get("counts_sheet_acquired"), "confirmed": SiteSetting.get("counts_sheet_confirmed")}
     return render(request, "payroll/counts_import.html", ctx)
 
 

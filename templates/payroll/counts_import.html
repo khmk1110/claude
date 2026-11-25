@@ -5,7 +5,22 @@
 <div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:index' %}?month={{ month_param }}">{{ month|date:"n月" }}分の給与</a></p><h1>営業件数の取り込み</h1></div></div>
 
 {% if not plan %}
-<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">
+<section class="card sheet-card">
+  <p class="card-title">📊 Googleスプレッドシートから読み込む（おすすめ）</p>
+  <p class="small muted" style="margin-top:-4px">一度リンクを入れると、次からはボタンを押すだけです。シートの共有は「リンクを知っている全員（閲覧者）」にしてください。</p>
+    <form method="post" class="sheet-row">{% csrf_token %}<input type="hidden" name="step" value="sheet"><input type="hidden" name="kind" value="confirmed"><input type="hidden" name="month" value="{{ month_param }}">
+    <b>入金確定シート</b><span class="small muted">{{ month|date:"n月" }}の入金確定件数</span>
+    <input type="url" name="url" value="{{ sheet_urls.confirmed }}" placeholder="https://docs.google.com/spreadsheets/d/…（入金確定のタブを開いた時のURL）">
+    <button class="btn btn-primary" type="submit" onclick="this.textContent='読み込み中…'">シートから読み込む</button>
+  </form>
+  <form method="post" class="sheet-row">{% csrf_token %}<input type="hidden" name="step" value="sheet"><input type="hidden" name="kind" value="acquired"><input type="hidden" name="month" value="{{ month_param }}">
+    <b>獲得件数のシート</b><span class="small muted">{{ prev|date:"n月" }}の獲得件数（あれば）</span>
+    <input type="url" name="url" value="{{ sheet_urls.acquired }}" placeholder="https://docs.google.com/spreadsheets/d/…">
+    <button class="btn" type="submit" onclick="this.textContent='読み込み中…'">シートから読み込む</button>
+  </form>
+</section>
+<details class="more" style="margin:12px 0"><summary>文・スクショから読み込む</summary>
+<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr));margin-top:10px">
   <form method="post" enctype="multipart/form-data" class="card">{% csrf_token %}
     <input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="acquired"><input type="hidden" name="month" value="{{ month_param }}">
     <p class="card-title">① 獲得件数（営業ダッシュボード）</p>
@@ -21,6 +36,7 @@
     <div class="form-row"><input type="file" name="file" multiple accept="image/*,.xlsx,.xls,.csv,.pdf"><button class="btn btn-primary" type="submit">読み取る</button></div>
   </form>
 </div>
+</details>
 <p class="small muted">読み取った内容は、次の画面で確認してから保存します（まだ保存されません）。名前は登録メンバーと自動で照合します。</p>
 <script>
 document.querySelectorAll('form.card').forEach(function(f){f.addEventListener('submit',function(){
