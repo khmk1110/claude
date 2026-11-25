@@ -54,6 +54,7 @@
       <a class="btn" href="{% url 'payroll:statement_pdf' st.pk %}" target="_blank">PDFで見る</a>
       <a class="btn" href="{% url 'payroll:statement_pdf' st.pk %}?download=1">ダウンロード</a>
     </div>
+    <div class="share-row">{% include "payroll/_share_pdfs.html" with files=share_files label="LINE・Googleドライブで送る" btn_class="" %}</div>
   </section>
 
   {# ── この人の入力 ── #}
@@ -95,14 +96,31 @@
     {% endif %}
 
     {% if not st.is_confirmed %}
+    <details class="card fold" {% if monthly_items %}open{% endif %}>
+      <summary class="card-title">毎月の項目{% if monthly_items %}（{{ monthly_items|length }}）{% endif %}</summary>
+      {% for it in monthly_items %}
+      <div class="monthly-row">
+        <b>{{ it.name }}</b>{% if it.kind == "deduction" %}<span class="chip">控除</span>{% endif %}
+        <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="form-row">{% csrf_token %}
+          <input type="hidden" name="action" value="monthly_update"><input type="hidden" name="item_id" value="{{ it.pk }}">
+          <div class="yen" style="width:130px"><input name="amount" value="{{ it.default_amount|default_if_none:0 }}" inputmode="numeric"><em>円</em></div>
+          <button class="btn" type="submit">保存</button>
+        </form>
+        <form method="post" action="{% url 'payroll:review_action' st.pk %}" onsubmit="return confirm('「{{ it.name }}」を{{ month|date:"n月" }}から入れないようにしますか？')">{% csrf_token %}
+          <input type="hidden" name="action" value="monthly_stop"><input type="hidden" name="item_id" value="{{ it.pk }}">
+          <button class="linkbtn small" type="submit">{{ month|date:"n月" }}からやめる</button></form>
+      </div>
+      {% empty %}<p class="small muted">ありません。下の「項目を追加」で「毎月入れる」にチェックすると、ここに入ります。</p>{% endfor %}
+    </details>
     <details class="card fold">
-      <summary class="card-title">この月だけの項目を追加</summary>
+      <summary class="card-title">項目を追加（この月だけ・毎月）</summary>
       <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="adhoc-form">{% csrf_token %}<input type="hidden" name="action" value="adhoc_add">
-        <input name="name" placeholder="項目名（例：サウナコンサル）" required>
+        <input name="name" placeholder="項目名（例：コンサル代）" required>
         <div class="form-row">
           <select name="kind">{% for v, l in kind_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
           <div class="yen" style="flex:1"><input name="amount" placeholder="金額" inputmode="numeric" required><em>円</em></div>
         </div>
+        <label class="check small"><input type="checkbox" name="monthly" value="1"> 毎月入れる（来月以降も自動で入ります）</label>
         <button class="btn" type="submit">追加</button>
       </form>
     </details>

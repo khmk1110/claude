@@ -1223,3 +1223,24 @@ class AutoCalcAndBulkConfirmTests(TableScreenshotTests):
             st.refresh_from_db()
             if st.blocking_errors:
                 self.assertNotEqual(st.status, "confirmed")  # 入力不足の人は確定しない
+
+
+class MonthlyItemAndShareTests(TableScreenshotTests):
+    def test_monthly_item_added_continues_next_month_and_can_stop(self):
+        from .models import PayrollItemDefinition
+
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "adhoc_add", "name": "コンサル代", "kind": "earning",
+                                                       "amount": "30,000", "monthly": "1"})
+        self.assertEqual(st.lines.get(name="コンサル代").amount, 30000)
+        item = PayrollItemDefinition.objects.get(name="コンサル代")
+        dec = date(2026, 12, 1)
+        self.assertTrue(item.applies_to(self.a, dec))  # 来月も自動
+        self.assertFalse(item.applies_to(self.b, dec))  # ほかの人には入らない
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "毎月の項目")
+        self.assertContains(page, "LINE・Googleドライブで送る")
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "monthly_stop", "item_id": item.pk})
+        item.refresh_from_db()
+        self.assertFalse(item.applies_to(self.a, NOV))

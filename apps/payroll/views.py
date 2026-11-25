@@ -406,6 +406,16 @@ def expenses_fix(request):
 
 
 
+def _monthly_items(member, month):
+    """この人に毎月入る固定額の項目（コンサル代など）。"""
+    out = []
+    for item in PayrollItemDefinition.objects.filter(is_active=True, scope=PayrollItemDefinition.Scope.MEMBER,
+                                                     method=PayrollItemDefinition.Method.FIXED, members=member):
+        if item.applies_to(member, month):
+            out.append(item)
+    return out
+
+
 def _member_products(st):
     """この人の明細に関係する商材（個人専用＋全員共通）と、今入っている件数。"""
     personal, common = _product_members(st.month)
@@ -481,6 +491,9 @@ def review(request):
         # 商品別の人は全部の商品、それ以外の人は件数が入っている商品（都市ガスなど）だけ出す。ほかは「追加」から
         "shown_products": [x for x in products if x["personal"] or calc.is_product_member(cur.member) or x["count"] is not None],
         "addable_products": [x for x in products if not (x["personal"] or calc.is_product_member(cur.member) or x["count"] is not None)],
+        "share_files": [(reverse("payroll:statement_pdf", args=[cur.pk]) + "?download=1",
+                         slip_filename(cur) if cur.is_confirmed else slip_filename(cur).replace(".pdf", "_確認用.pdf"))],
+        "monthly_items": _monthly_items(cur.member, month),
         "base_inputs": base_inputs, "unit_price": unit_inp.value if unit_inp else None,
         "unit_auto": unit_inp.auto_value if unit_inp else None,
         "unit_override": unit_inp.override_value if unit_inp else None,
@@ -592,6 +605,42 @@ def review_action(request, pk):
                 calc.set_line_override(line, amount if amount != line.auto_amount else None,
                                        reason=p.get("reason", "").strip() or "1人ずつ確認で修正", user=user)
                 messages.success(request, f"{line.name}を{amount:,}円にしました。")
+            elif action == "adhoc_add" and p.get("monthly"):
+                # 毎月入れる項目（例：コンサル代）：この人専用の固定額の項目にして、この月から毎月自動で入れる
+                amount = _int_or_none(p.get("amount", "").replace(",", ""))
+                name = p.get("name", "").strip()
+                if amount is None or amount < 0 or not name:
+                    raise ValueError("項目名と金額を入れてください。")
+                kind = p.get("kind") if p.get("kind") in ("earning", "deduction") else "earning"
+                import secrets
+
+                item = PayrollItemDefinition.objects.create(
+                    code=f"monthly_{st.member_id}_{secrets.token_hex(3)}", name=name[:100], kind=kind,
+                    method=PayrollItemDefinition.Method.FIXED, default_amount=amount, scope=PayrollItemDefinition.Scope.MEMBER,
+                    effective_from=st.month, display_order=40 if kind == "earning" else 70, params={"monthly_for_member": True})
+                item.members.set([st.member])
+                audit.log("payroll.monthly_item_add", target=st.member, after={"項目": name, "金額": amount, "開始": st.month}, user=user)
+                calc.calculate(st, user=user, log=False)
+                messages.success(request, f"「{name}」を{st.month.month}月から毎月入れるようにしました。")
+            elif action in ("monthly_update", "monthly_stop"):
+                item = get_object_or_404(PayrollItemDefinition, pk=p.get("item_id"), members=st.member, scope=PayrollItemDefinition.Scope.MEMBER)
+                if action == "monthly_update":
+                    amount = _int_or_none(p.get("amount", "").replace(",", ""))
+                    if amount is None or amount < 0:
+                        raise ValueError("金額を数字で入れてください。")
+                    before = item.default_amount
+                    item.default_amount = amount
+                    item.save(update_fields=["default_amount"])
+                    audit.log("payroll.monthly_item_update", target=st.member, before={"項目": item.name, "金額": before},
+                              after={"金額": amount}, user=user)
+                    messages.success(request, f"「{item.name}」を毎月 {amount:,}円にしました（確定前の月に反映）。")
+                else:
+                    item.effective_to = prev_month(st.month)  # この月から入れない（前の月までの記録は残す）
+                    item.save(update_fields=["effective_to"])
+                    audit.log("payroll.monthly_item_stop", target=st.member, after={"項目": item.name, "最後の月": item.effective_to},
+                              user=user)
+                    messages.success(request, f"「{item.name}」は{st.month.month}月から入れません。")
+                calc.refresh_month(st.month, user=user)
             elif action == "adhoc_add":
                 amount = _int_or_none(p.get("amount", "").replace(",", ""))
                 if amount is None or not p.get("name", "").strip():
@@ -860,6 +909,11 @@ def month_home(request):
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
         "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "bulk": bulk, "s1": step_by[1], "s2": step_by[2], "s3": step_by[3], "s4": step_by[4],
         "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
+        # 代表に送って確認してもらう用：全員分のPDF（確定前は「確認用」）。支給なしの人は除く
+        "zip_all_url": reverse("payroll:month_pdf") + f"?month={month:%Y-%m}&all=1",
+        "share_files": [(reverse("payroll:statement_pdf", args=[st.pk]) + "?download=1",
+                         slip_filename(st) if st.is_confirmed else slip_filename(st).replace(".pdf", "_確認用.pdf"))
+                        for st in sts if (st.net_amount or 0) > 0],
         "last_calc": max((st.calculated_at for st in sts if st.calculated_at), default=None),
         # 今月は支給なし（0円・マイナス）の人は、まとめて閉じておく
         "none_rows": [r for r in rows if r["st"].net_amount is not None and r["st"].net_amount <= 0],

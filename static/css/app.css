@@ -610,3 +610,8 @@ details.step[open]>summary.step-head{margin-bottom:10px}
 details.step>summary.step-head::after{content:"›";margin-left:auto;color:var(--muted);font-size:20px;transition:transform .15s}
 details.step[open]>summary.step-head::after{transform:rotate(90deg)}
 details.step.done:not([open]){padding-top:10px;padding-bottom:10px}
+.share-row{margin-top:10px}
+.share-pdfs{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.monthly-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.monthly-row:last-of-type{border-bottom:0}
+.monthly-row>b{min-width:7em}

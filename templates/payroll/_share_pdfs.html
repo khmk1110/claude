@@ -1,0 +1,32 @@
+{# 明細PDFをスマホの共有（LINE・Googleドライブなど）で送る。files: [(url, ファイル名)] #}
+<div class="share-pdfs" data-files='[{% for u, n in files %}{"url":"{{ u }}","name":"{{ n|escapejs }}"}{% if not forloop.last %},{% endif %}{% endfor %}]' data-zip="{{ zip_url|default:'' }}">
+  <button type="button" class="btn {{ btn_class|default:'btn-primary' }}" data-share>📤 {{ label|default:"LINE・Googleドライブで送る" }}</button>
+  <span class="small muted" data-share-msg></span>
+</div>
+<script>
+(function(){
+  var box = document.currentScript.previousElementSibling, btn = box.querySelector('[data-share]'), msg = box.querySelector('[data-share-msg]');
+  var files = null, label = btn.textContent;
+  btn.addEventListener('click', async function(){
+    if (files) {  // 2回目：用意したPDFをそのまま共有（iPhoneは押した直後でないと共有できないため2段階）
+      try { await navigator.share({files: files, title: '明細書'}); msg.textContent = ''; }
+      catch (e) { if (e.name !== 'AbortError') msg.textContent = '共有できませんでした'; }
+      return;
+    }
+    var list = JSON.parse(box.dataset.files || '[]');
+    if (!navigator.canShare) { if (box.dataset.zip) location.href = box.dataset.zip; else if (list[0]) location.href = list[0].url; return; }
+    btn.disabled = true; btn.textContent = '用意しています…';
+    try {
+      files = [];
+      for (var i = 0; i < list.length; i++) {
+        var r = await fetch(list[i].url, {credentials: 'same-origin'});
+        if (!r.ok) throw new Error('pdf');
+        files.push(new File([await r.blob()], list[i].name, {type: 'application/pdf'}));
+      }
+      if (!navigator.canShare({files: files})) { files = null; if (box.dataset.zip) location.href = box.dataset.zip; return; }
+      btn.textContent = '📤 送り先を選ぶ（' + files.length + '件）'; msg.textContent = 'もう一度押すとLINE・ドライブなどを選べます';
+    } catch (e) { files = null; btn.textContent = label; msg.textContent = 'PDFを用意できませんでした'; }
+    btn.disabled = false;
+  });
+})();
+</script>

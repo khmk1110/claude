@@ -35,6 +35,7 @@
       <button class="btn btn-ok" type="submit">問題のない{{ bulk|length }}人をまとめて確定</button></form>{% endif %}
     {% if not s3.done %}<a class="btn {% if not bulk %}btn-primary{% endif %}" href="{% url 'payroll:review' %}?month={{ month_param }}">1人ずつ確認</a>{% endif %}
   </div>
+  {% if share_files %}<div class="share-row">{% include "payroll/_share_pdfs.html" with files=share_files label="代表に送る（全員分のPDF）" btn_class="" zip_url=zip_all_url %}</div>{% endif %}
   <div class="pay-cards">
     {% for r in rows %}{% if r.st.net_amount is None or r.st.net_amount > 0 %}
     <details class="pay-card {% if r.errors %}is-attn{% endif %} {% if r.st.is_confirmed %}is-ok{% endif %}" {% if r.errors %}open{% endif %}>
