@@ -692,3 +692,4 @@ details.step.done:not([open]){padding-top:10px;padding-bottom:10px}
 .sticky-table tr.sub td{position:static;box-shadow:none}
 .sub-name{font-size:12px;font-weight:700;color:var(--muted);margin:2px 0 4px}
 @media (max-width: 960px){ .sticky-table{max-height:calc(100vh - 250px)} }
+.btn-why{white-space:normal;text-align:left;font-size:13px;color:var(--danger);border-color:#f5c2c2;background:var(--danger-weak);line-height:1.4}

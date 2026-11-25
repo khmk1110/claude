@@ -166,7 +166,7 @@
     <form method="post" action="{% url 'payroll:review_action' st.pk %}" onsubmit="const r=prompt('取り消す理由');if(!r)return false;this.reason.value=r;">{% csrf_token %}
       <input type="hidden" name="action" value="reopen"><input type="hidden" name="reason"><button class="btn" type="submit">確定を取り消す</button></form>
   {% elif errors or blocks %}
-    <a class="btn" href="#checks">チェック・入力が終わると確定できます</a>
+    <a class="btn btn-why" href="{% if blocks and not errors %}#checks{% else %}#{% endif %}">確定できない理由：{% if errors %}{{ errors.0|truncatechars:40 }}{% else %}{{ blocks.0|truncatechars:40 }}{% endif %}</a>
   {% else %}
     <form method="post" action="{% url 'payroll:review_action' st.pk %}" class="confirm-form">{% csrf_token %}<input type="hidden" name="action" value="confirm">
       {% if cautions %}<label class="check small ack"><input type="checkbox" name="ack" value="1" required> 確認した</label>{% endif %}

@@ -505,8 +505,11 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
         # 商材別に報酬を計算する人は、商材別の件数がないと営業報酬が0円になってしまう
         ctx.error("商品別の件数（プロパン・都市ガス・訪問電気など）が入っていません。「1人ずつ確認」で入れてください。", "product")
 
-    adhoc_names = list(st.lines.filter(is_adhoc=True).values_list("name", flat=True))
-    if any("チーム" in n for n in adhoc_names):
+    # 手で追加した項目・この人専用の毎月の項目に「チーム」の名前があれば、手入力のチームボーナスとみなす
+    own_names = list(st.lines.filter(is_adhoc=True).values_list("name", flat=True))
+    own_names += [x.name for x in specs if x.item and x.item.scope == PayrollItemDefinition.Scope.MEMBER
+                  and x.item.method == PayrollItemDefinition.Method.FIXED]
+    if any("チーム" in n for n in own_names):
         # 「チームボーナス手当」などを手で追加している時は、自動のチームリーダーボーナスは出さない（二重・要入力の表示を消す）
         specs = [x for x in specs if not (x.item and x.item.code == "team_bonus")]
         ctx.messages = [m for m in ctx.messages if m.get("item") != "team_bonus"]

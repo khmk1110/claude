@@ -1327,3 +1327,21 @@ class NoPayMembersTests(TableScreenshotTests):
         st.refresh_from_db()
         self.assertFalse(st.lines.filter(code="team_bonus").exists())
         self.assertFalse([m for m in st.calc_messages if m.get("item") == "team_bonus"])
+
+
+class TeamBonusAsMonthlyItemTests(TableScreenshotTests):
+    def test_monthly_team_bonus_item_replaces_auto_and_reason_shown(self):
+        from .models import Team, TeamMembership
+
+        team = Team.objects.create(name="A", kind=Team.Kind.SALES, leader=self.a)
+        TeamMembership.objects.create(team=team, member=self.b, start_month=date(2026, 1, 1))
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=30)
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "adhoc_add", "name": "チームボーナス手当", "kind": "earning",
+                                                       "amount": "50000", "monthly": "1"})
+        st.refresh_from_db()
+        self.assertFalse(st.lines.filter(code="team_bonus").exists())
+        self.assertFalse([m for m in st.calc_messages if m.get("item") == "team_bonus"])
+        page = self.client.get(f"/payroll/review/?month=2026-11&st={st.pk}")
+        self.assertContains(page, "確定できない理由")  # 確定できない時は理由をボタンの場所に出す
