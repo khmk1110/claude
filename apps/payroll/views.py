@@ -850,9 +850,13 @@ def month_home(request):
     _imp.auto_approve_added([r for r in _month_expense_records(month, exclude_codes={"gasoline", "transport"}) if r.status in OPEN_EXPENSE],
                             user=request.user)
     calc.refresh_month(month, user=request.user)  # 件数・経費・勤怠が変わった人は自動で計算し直す
-    members = list(calc.payroll_members(month))  # 退職後に報酬がある人も含む
+    members = list(calc.paid_members(month))  # その月に給与が出る人だけ（入りたてなど何もない人は出さない）
     acq = set(SalesCount.objects.filter(month=pm, kind="acquired", member__in=members).values_list("member", flat=True))
-    conf = set(SalesCount.objects.filter(month=month, kind="confirmed", member__in=members).values_list("member", flat=True))
+    conf = set(SalesCount.objects.filter(month=month, kind="confirmed", count__gt=0, member__in=members).values_list("member", flat=True))
+    unit_manual = set(PayrollInput.objects.filter(statement__month=month, key=PayrollInput.Key.UNIT_PRICE, override_value__isnull=False)
+                      .values_list("statement__member_id", flat=True))
+    need_acq = [m for m in members if m.pk in conf and m.pk not in acq and m.pk not in unit_manual]  # 単価を出すのに獲得件数が必要
+    no_pay = [m for m in calc.payroll_members(month) if m.pk not in {x.pk for x in members}]  # メンバーだが今月は給与なし
     sts = list(PayrollStatement.objects.filter(month=month).select_related("member").prefetch_related("lines", "inputs")
                .order_by("member__display_order", "member_id"))
     prev_net = dict(PayrollStatement.objects.filter(month=pm, status=S.CONFIRMED).values_list("member_id", "net_amount"))
@@ -893,7 +897,7 @@ def month_home(request):
     from .models import StatementDelivery
 
     q = f"?month={month:%Y-%m}"
-    step1 = bool(members) and len(acq) >= len(members) and len(conf) >= len(members)
+    step1 = bool(conf) and not need_acq  # 人数がそろわなくてよい。件数がある人の獲得件数が入っていれば次へ
     n_conf = sum(1 for st in sts if st.is_confirmed)
     pay_sts = [st for st in sts if st.is_confirmed and (st.net_amount or 0) > 0]
     n_paid = StatementDelivery.objects.filter(statement__in=pay_sts, paid_at__isnull=False).count()
@@ -929,7 +933,7 @@ def month_home(request):
     ]
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
-        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "step": step, "cur_step": steps[step - 1], "next_step": steps[step] if step < 5 else None,
+        "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "step": step, "need_acq": need_acq, "no_pay": no_pay, "cur_step": steps[step - 1], "next_step": steps[step] if step < 5 else None,
         "bulk": bulk, "rest": len(sts) - n_conf - len(bulk), "n_conf": n_conf, "pmonth": pmonth, "all_conf": all_conf,
         "pay_total": sum(st.net_amount or 0 for st in sts if (st.net_amount or 0) > 0),
         "n_paid": n_paid, "pay_count": len(pay_sts), "staff_unsaved": staff_unsaved,
@@ -959,10 +963,10 @@ def month_action(request):
     month = month_from_request(request)
     action = request.POST.get("action")
     if action == "prepare":
-        n = calc.prepare_month(month, user=request.user)
+        n = calc.prepare_month(month, user=request.user, everyone=True)
         messages.success(request, f"{n}人分の給与データを作成しました。")
     elif action == "calculate_all":
-        calc.prepare_month(month, user=request.user)  # 後から加わった人の分も作る
+        calc.prepare_month(month, user=request.user, everyone=True)  # 後から加わった人の分も作る
         n = errors = 0
         for st in PayrollStatement.objects.filter(month=month).exclude(status=S.CONFIRMED):
             st = calc.calculate(st, user=request.user)

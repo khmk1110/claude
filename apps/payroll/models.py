@@ -391,6 +391,7 @@ class PayrollStatement(models.Model):
     deductions_total = models.IntegerField("控除合計", null=True, blank=True)
     net_amount = models.IntegerField("差引支給額", null=True, blank=True)
     calculated_at = models.DateTimeField("計算日時", null=True, blank=True)
+    auto_created = models.BooleanField("自動で作成", default=False)  # 件数などから自動で作った明細（給与がなくなれば自動で消す）
     checks = models.JSONField("確認チェック", default=dict, blank=True)  # 明細の確認項目（リーダー手当・ガス・控除など）
     stale = models.BooleanField("計算し直しが必要", default=True)  # 件数・経費・勤怠などが変わったら立つ（画面を開くと自動で計算）
     confirmed_at = models.DateTimeField("確定日時", null=True, blank=True)

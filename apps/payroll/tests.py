@@ -89,14 +89,17 @@ class CalcTests(TestCase):
         self.e = Member.objects.create(member_no="E1", name="社員 一郎", employment_type=EmploymentType.EMPLOYEE)
 
     def statement(self, member, month=NOV):
-        calc.prepare_month(month)
+        calc.prepare_month(month, everyone=True)
         return PayrollStatement.objects.get(member=member, month=month)
 
     def line(self, st, code):
         return st.lines.get(code=code)
 
     def test_prepare_month_excludes_employees(self):
-        self.assertEqual(calc.prepare_month(NOV), 2)
+        self.assertEqual(calc.prepare_month(NOV), 0)  # 件数などがない月は明細を作らない（入りたての人など）
+        count(self.c, NOV, CONF, 3)
+        self.assertEqual(calc.prepare_month(NOV), 1)  # 入金確定がある人だけ
+        self.assertEqual(calc.prepare_month(NOV, everyone=True), 1)
         self.assertFalse(PayrollStatement.objects.filter(member=self.e).exists())
         self.assertEqual(calc.ensure_month(NOV).payment_date, date(2026, 11, 30))  # 支払日は月末
 
@@ -313,7 +316,7 @@ class PayrollViewTests(TestCase):
         self.client.post("/stepup/payroll/", {"password": "dream-test"})
 
     def test_all_pages_require_stepup(self):
-        calc.prepare_month(NOV)
+        calc.prepare_month(NOV, everyone=True)
         st = PayrollStatement.objects.get()
         for url in ["/payroll/", "/payroll/sales/", "/payroll/employees/", f"/payroll/{st.pk}/", f"/payroll/{st.pk}/pdf/",
                     "/payroll/pdf/?month=2026-11", "/payroll/export.csv?month=2026-11"]:
@@ -349,7 +352,7 @@ class PayrollViewTests(TestCase):
 
     def test_changing_counts_after_confirm_flags_review(self):
         self.unlock()
-        calc.prepare_month(NOV)
+        calc.prepare_month(NOV, everyone=True)
         st = PayrollStatement.objects.get()
         count(self.m, NOV, CONF, 5)
         calc.set_input_override(st, "prev_attendance_days", 20, reason="r")
@@ -1294,3 +1297,33 @@ class StatementChecklistTests(TableScreenshotTests):
         self.assertEqual(r.json()["done"], 3)
         st.refresh_from_db()
         self.assertFalse(any("確認チェック" in b for b in confirm_checks(st)[0]))
+
+
+
+class NoPayMembersTests(TableScreenshotTests):
+    """メンバーにいても今月は給与がない人（入りたてなど）は明細を作らず、人数がそろわなくても進める。"""
+
+    def test_only_people_with_counts_get_statements(self):
+        SalesCount.objects.create(member=self.a, month=date(2026, 10, 1), kind="acquired", count=40)
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=30)
+        page = self.client.get("/payroll/?month=2026-11&step=1")
+        self.assertEqual(list(PayrollStatement.objects.filter(month=NOV).values_list("member__name", flat=True)), ["大石 一郎"])
+        self.assertContains(page, "今月は給与なし（2人）")
+        self.assertContains(page, "入力済み")  # 件数がある人の獲得件数がそろえば次へ進める
+        # 件数を消すと、自動で作った明細も消える
+        SalesCount.objects.filter(member=self.a, month=NOV).delete()
+        self.client.get("/payroll/?month=2026-11")
+        self.assertFalse(PayrollStatement.objects.filter(month=NOV).exists())
+
+    def test_manual_team_bonus_hides_auto_team_bonus_message(self):
+        from .models import Team, TeamMembership
+
+        team = Team.objects.create(name="A", kind=Team.Kind.SALES, leader=self.a)
+        TeamMembership.objects.create(team=team, member=self.b, start_month=date(2026, 1, 1))
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=30)
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.client.post(f"/payroll/review/{st.pk}/", {"action": "adhoc_add", "name": "チームボーナス手当", "kind": "earning", "amount": "50000"})
+        st.refresh_from_db()
+        self.assertFalse(st.lines.filter(code="team_bonus").exists())
+        self.assertFalse([m for m in st.calc_messages if m.get("item") == "team_bonus"])

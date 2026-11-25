@@ -241,8 +241,6 @@ def h_expense_sum(ctx: Ctx, item) -> list[LineSpec]:
         amount = max(total - subtract, 0)
         if total and total < subtract:
             ctx.warn(f"{item.name}: 合計 {yen(total)} が差し引く額 {yen(subtract)} より少ないため 0円にしました。", item.code)
-        if not refs:
-            ctx.warn(f"{item.name}: 承認済みのデータがありません（資料の取り込み・承認、または手入力が必要です）。", item.code)
         detail = f"{yen(total)} − {yen(subtract)}" if refs else ""
     else:
         amount, detail = total, ""  # 立替金・ガソリン代などは件数を表示しない
@@ -372,14 +370,47 @@ def payroll_members(month: date):
     return Member.objects.filter(pk__in=ids, employment_type__in=PAYROLL_TYPES).order_by("display_order", "id")
 
 
-def prepare_month(month: date, *, user=None) -> int:
-    """その月の計算対象（個人事業主・インターン。退職後に報酬がある人も）の給与データを作成する。"""
+def paid_members(month: date):
+    """その月に給与が出る人だけ（明細を作る人）。
+
+    メンバーに入っていても、入りたてなどでその月に何もない人は明細を作らない（人数がそろわなくても進められる）。
+    給与が出る＝入金確定の件数が1件以上・経費がある・この人専用の毎月の項目がある・チームのリーダー。
+    """
+    from apps.expenses.models import ExpenseRecord
+
+    month = month_start(month)
+    ids = set(SalesCount.objects.filter(month=month, kind=SalesCount.Kind.CONFIRMED, count__gt=0).values_list("member_id", flat=True))
+    recs = ExpenseRecord.objects.filter(Q(target_month=month) | Q(target_month__isnull=True, auto_target_month=month)).exclude(status="excluded")
+    ids |= {mid for pair in recs.values_list("member_id", "auto_member_id") for mid in pair if mid}
+    for item in PayrollItemDefinition.objects.filter(is_active=True, scope=PayrollItemDefinition.Scope.MEMBER,
+                                                     method=PayrollItemDefinition.Method.FIXED).prefetch_related("members"):
+        ids |= {m.pk for m in item.members.all() if item.applies_to(m, month)}
+    for team in Team.objects.filter(is_active=True).select_related("leader"):
+        if team.leader_id and team.members_for(month).exclude(pk=team.leader_id).exists():
+            ids.add(team.leader_id)
+    return Member.objects.filter(pk__in=ids, employment_type__in=PAYROLL_TYPES).order_by("display_order", "id")
+
+
+def prepare_month(month: date, *, user=None, everyone: bool = False) -> int:
+    """その月の給与データを作成する。
+
+    ふだんは「その月に給与が出る人」だけ（paid_members）。everyone=True は在籍中の個人事業主・インターン全員分を作る。
+    """
     month = month_start(month)
     ensure_month(month)
     n = 0
-    for m in payroll_members(month):
-        _, created = PayrollStatement.objects.get_or_create(member=m, month=month, defaults={"employment_type": m.employment_type})
+    keep = set()
+    for m in (payroll_members(month) if everyone else paid_members(month)):
+        keep.add(m.pk)
+        _, created = PayrollStatement.objects.get_or_create(
+            member=m, month=month, defaults={"employment_type": m.employment_type, "auto_created": not everyone})
         n += created
+    if not everyone:
+        # 自動で作った明細のうち、給与が出なくなった人（件数を消したなど）の分は消す。確定済み・手で直した明細は残す
+        for st in (PayrollStatement.objects.filter(month=month, auto_created=True).exclude(member_id__in=keep)
+                   .exclude(status=PayrollStatement.Status.CONFIRMED)):
+            if not st.lines.filter(Q(is_adhoc=True) | Q(override_amount__isnull=False)).exists():
+                st.delete()
     if n:
         audit.log("payroll.prepare_month", target_type="payroll_month", target_id=month.isoformat(),
                   target_repr=f"{month:%Y年%m月}", after={"created": n}, user=user)
@@ -428,7 +459,7 @@ def refresh_for_expenses(month: date, *, user=None, member_ids=None) -> int:
     if PayrollStatement.objects.filter(month=month).exists():
         # 計算を始めた月なら、経費だけある人（退職した人など）の明細も作っておく
         have = set(PayrollStatement.objects.filter(month=month).values_list("member_id", flat=True))
-        for m in payroll_members(month):
+        for m in paid_members(month):
             if m.pk not in have:
                 PayrollStatement.objects.create(member=m, month=month, employment_type=m.employment_type)
     sts = PayrollStatement.objects.filter(month=month).exclude(status=PayrollStatement.Status.CONFIRMED).select_related("member")
@@ -474,6 +505,11 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
         # 商材別に報酬を計算する人は、商材別の件数がないと営業報酬が0円になってしまう
         ctx.error("商品別の件数（プロパン・都市ガス・訪問電気など）が入っていません。「1人ずつ確認」で入れてください。", "product")
 
+    adhoc_names = list(st.lines.filter(is_adhoc=True).values_list("name", flat=True))
+    if any("チーム" in n for n in adhoc_names):
+        # 「チームボーナス手当」などを手で追加している時は、自動のチームリーダーボーナスは出さない（二重・要入力の表示を消す）
+        specs = [x for x in specs if not (x.item and x.item.code == "team_bonus")]
+        ctx.messages = [m for m in ctx.messages if m.get("item") != "team_bonus"]
     existing = {(l.item_id, l.sub_key): l for l in st.lines.filter(is_adhoc=False)}
     keep_ids = set()
     for spec in specs:
@@ -486,9 +522,9 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
         line.always_show, line.show_on_slip, line.display_order = spec.always_show, spec.show_on_slip, spec.display_order
         line.save()  # 手動修正値（override_amount）はそのまま残す
         keep_ids.add(line.pk)
-        if line.auto_amount is None and line.override_amount is not None:
-            # 自動計算できない行でも手入力されていればエラーを解除
-            ctx.messages = [m for m in ctx.messages if not (m["level"] == "error" and m.get("item") == line.code)]
+        if line.override_amount is not None:
+            # 金額を手で直した行は、その行のエラー・注意を出さない（直したのに黄色い表示が残らないように）
+            ctx.messages = [m for m in ctx.messages if m.get("item") != line.code]
     for line in existing.values():
         if line.pk not in keep_ids:
             line.delete()
@@ -545,8 +581,7 @@ def add_adhoc_line(st: PayrollStatement, *, name: str, kind: str, amount: int, d
     line = PayrollLine.objects.create(statement=st, name=name, kind=kind, auto_amount=None, override_amount=int(amount),
                                       override_reason=reason, detail=detail, is_adhoc=True, display_order=90, updated_by=user)
     audit.log("payroll.adhoc_add", target=st, after={"name": name, "kind": kind, "amount": int(amount)}, reason=reason, user=user)
-    recompute_totals(st)
-    st.save()
+    calculate(st, user=user, log=False)  # 手で足した項目に合わせて自動の項目・注意も見直す
     return line
 
 
@@ -558,8 +593,7 @@ def remove_adhoc_line(line: PayrollLine, *, user=None, reason: str = ""):
         raise ValueError("当月のみの項目だけ削除できます。")
     audit.log("payroll.adhoc_remove", target=st, before={"name": line.name, "amount": line.amount}, reason=reason, user=user)
     line.delete()
-    recompute_totals(st)
-    st.save()
+    calculate(st, user=user, log=False)
 
 
 def issuer_info() -> dict:

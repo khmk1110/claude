@@ -18,11 +18,14 @@
 {% if step == 1 %}
   <h2 class="wiz-title">件数を入れる</h2>
   <ul class="wiz-checks">
-    <li class="{% if acq >= members|length and members %}ok{% endif %}"><span>{{ prev|date:"n月" }}の獲得件数</span><b>{{ acq }} / {{ members|length }}人</b></li>
-    <li class="{% if conf >= members|length and members %}ok{% endif %}"><span>{{ month|date:"n月" }}の入金確定件数</span><b>{{ conf }} / {{ members|length }}人</b></li>
+    <li class="{% if conf %}ok{% endif %}"><span>{{ month|date:"n月" }}の入金確定がある人</span><b>{{ conf }}人</b></li>
+    <li class="{% if conf and not need_acq %}ok{% endif %}"><span>{{ prev|date:"n月" }}の獲得件数</span><b>{% if need_acq %}未入力 {{ need_acq|length }}人{% elif conf %}入力済み{% else %}-{% endif %}</b></li>
   </ul>
+  {% if need_acq %}<div class="notice">⚠️ 獲得件数が入っていない人：{% for m in need_acq %}{{ m.name }}{% if not forloop.last %}、{% endif %}{% endfor %}</div>{% endif %}
   <a class="btn btn-primary btn-big" href="{% url 'payroll:counts_import' %}?month={{ month_param }}">件数を取り込む（スクショ・文）</a>
   <p class="wiz-sub"><a href="{% url 'payroll:sales' %}?month={{ month_param }}">一覧で直す ›</a></p>
+  {% if no_pay %}<details class="more" style="margin-top:12px"><summary>今月は給与なし（{{ no_pay|length }}人）</summary>
+    <p class="small muted" style="margin:6px 0 0">{% for m in no_pay %}{{ m.name }}{% if not forloop.last %}、{% endif %}{% endfor %}<br>入金確定の件数・経費がない人です。この先の画面には出ません。</p></details>{% endif %}
 
 {% elif step == 2 %}
   <h2 class="wiz-title">経費を確かめる</h2>
