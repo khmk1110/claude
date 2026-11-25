@@ -172,15 +172,18 @@ def _expense_panels(month, members):
 
     tr_recs = _month_expense_records(month, codes={"transport"})
     tr_by = {row["member"].pk: row for row in _person_rows(tr_recs) if row["member"]}
+    tr_item = PayrollItemDefinition.objects.filter(code="transport_contractor").first()
+    no_deduct = set((tr_item.params or {}).get("no_subtract_members") or []) if tr_item else set()
     contractors, interns = [], []
     for m in members:
         row = tr_by.pop(m.pk, None)
         amount = row["amount"] if row else 0
         item = {"member": m, "amount": amount, "row": row}
         if m.employment_type == EmploymentType.CONTRACTOR:
-            item["deduct"] = TRANSPORT_DEDUCTION
-            item["net"] = max(amount - TRANSPORT_DEDUCTION, 0)
-            item["short"] = 0 < amount < TRANSPORT_DEDUCTION
+            deduct = 0 if m.pk in no_deduct else TRANSPORT_DEDUCTION
+            item["deduct"] = deduct
+            item["net"] = max(amount - deduct, 0)
+            item["short"] = 0 < amount < deduct
             contractors.append(item)
         else:
             item["net"] = amount
@@ -621,6 +624,34 @@ def payroll_settings(request):
     return render(request, "payroll/settings.html", {
         "fee": fee, "fee_until": (fee.params or {}).get("only_members_until") if fee else None,
     })
+
+
+@payroll_view
+def transport_settings(request):
+    """交通費から35,000円を引かない人（個人事業主）を選ぶ。"""
+    item = get_object_or_404(PayrollItemDefinition, code="transport_contractor")
+    contractors = list(Member.objects.filter(status=Member.Status.ACTIVE, employment_type=EmploymentType.CONTRACTOR)
+                       .order_by("display_order", "id"))
+    current = set((item.params or {}).get("no_subtract_members") or [])
+    if request.method == "POST":
+        chosen = [m for m in contractors if request.POST.get(f"m_{m.pk}")]
+        keep = [pk for pk in current if pk not in {m.pk for m in contractors}]  # 退職した人の設定は残す
+        params = dict(item.params or {})
+        params["no_subtract_members"] = sorted(keep + [m.pk for m in chosen])
+        with transaction.atomic():
+            before = "・".join(m.name for m in contractors if m.pk in current)
+            item.params = params
+            item.save(update_fields=["params"])
+            audit.log("payroll.transport_no_subtract", target_type="payroll.PayrollItemDefinition", target_id=str(item.pk),
+                      target_repr=item.name, before={"引かない人": before}, after={"引かない人": "・".join(m.name for m in chosen)},
+                      user=request.user)
+            n = 0
+            for st in PayrollStatement.objects.filter(employment_type=EmploymentType.CONTRACTOR).exclude(status=S.CONFIRMED):
+                calc.calculate(st, user=request.user, log=False)
+                n += 1
+        messages.success(request, f"保存しました（未確定の給与 {n}人分を計算し直しました）。")
+        return redirect("payroll:settings")
+    return render(request, "payroll/transport_settings.html", {"contractors": contractors, "chosen": current})
 
 
 @payroll_view

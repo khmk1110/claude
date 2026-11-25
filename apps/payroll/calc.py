@@ -235,6 +235,8 @@ def h_expense_sum(ctx: Ctx, item) -> list[LineSpec]:
             refs.append(r.pk)
             total += r.effective_amount or 0
     subtract = int(item.params.get("subtract") or 0)
+    if ctx.member.pk in (item.params.get("no_subtract_members") or []):
+        subtract = 0  # 設定で「交通費から引かない」にした人
     if subtract:
         amount = max(total - subtract, 0)
         if total and total < subtract:

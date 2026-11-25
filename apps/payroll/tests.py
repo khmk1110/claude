@@ -1126,3 +1126,18 @@ class StaffPayTests(TableScreenshotTests):
         self.assertEqual((row["salary"], row["transport"], row["total"]), (260000, 12345, 272345))
         self.assertFalse(PayrollStatement.objects.filter(member=e).exists())  # 明細は作らない
         self.assertContains(self.client.get("/payments/?month=2026-11"), "正社員給与")
+
+
+class TransportNoSubtractTests(TableScreenshotTests):
+    def test_member_without_deduction_gets_full_transport(self):
+        from apps.expenses import importer
+        from apps.expenses.models import ExpenseCategory, ExpenseRecord
+
+        cat = ExpenseCategory.objects.get(code="transport")
+        importer.import_line_text(f"{self.a.name.replace(' ', '')} 50,000", category=cat, target_month=NOV)
+        importer.approve(list(ExpenseRecord.objects.filter(auto_member=self.a)), confirm_soft_issues=True)
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
+        st = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.assertEqual(st.lines.get(code="transport_contractor").amount, 15000)
+        self.client.post("/payroll/settings/transport/", {f"m_{self.a.pk}": "1"})
+        self.assertEqual(st.lines.get(code="transport_contractor").amount, 50000)  # 引かない設定で全額

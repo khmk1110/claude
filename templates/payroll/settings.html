@@ -10,6 +10,7 @@
   <a class="set-card" href="{% url 'payroll:employees' %}"><span class="xicon">🏢</span><div><b>正社員の基本給</b><div class="small muted">基本給・前月の出勤日数と獲得件数</div></div></a>
   <a class="set-card" href="/admin/payroll/ratetable/"><span class="xicon">📈</span><div><b>単価表</b><div class="small muted">前月の出勤日数・獲得件数ごとの単価</div></div></a>
   <a class="set-card" href="/admin/payroll/payrollitemdefinition/"><span class="xicon">🧾</span><div><b>給与項目</b><div class="small muted">明細に出る項目（固定額・個人別の商品など）</div></div></a>
+  <a class="set-card" href="{% url 'payroll:transport_settings' %}"><span class="xicon">🚃</span><div><b>交通費の差し引き</b><div class="small muted">35,000円を引かない人</div></div></a>
   {% if fee_until %}<a class="set-card" href="{% url 'payroll:app_fee' %}"><span class="xicon">📱</span><div><b>アプリ手数料の対象</b><div class="small muted">{{ fee_until|slice:":4" }}年{{ fee_until|slice:"5:"|add:0 }}月分までは選んだ人だけ（以降は個人事業主全員）</div></div></a>{% endif %}
   <a class="set-card" href="{% url 'setup' %}"><span class="xicon">🏷️</span><div><b>明細書の発行者</b><div class="small muted">会社名・代表取締役・所在地・TEL</div></div></a>
 </div>

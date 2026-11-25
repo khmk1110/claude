@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}交通費の差し引き{% endblock %}
+{% block topbar %}給与・報酬{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow"><a href="{% url 'payroll:settings' %}">← 給与の設定</a></p><h1>交通費から35,000円を引かない人</h1></div></div>
+<p>チェックした人は、交通費を全額支給します。</p>
+<form method="post" class="card">{% csrf_token %}
+  <div class="check-list">
+    {% for m in contractors %}<label class="check"><input type="checkbox" name="m_{{ m.pk }}" value="1" {% if m.pk in chosen %}checked{% endif %}> {{ m.name }}</label>{% endfor %}
+  </div>
+  <button class="btn btn-primary" type="submit">保存して計算し直す</button>
+</form>
+{% endblock %}

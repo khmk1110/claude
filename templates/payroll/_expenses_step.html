@@ -92,7 +92,7 @@
       {% for c in exp.tr.contractors %}
       <li class="prow {% if c.row and c.row.open %}prow-open{% elif c.row and c.row.state == 'attn' %}prow-attn{% endif %}">
         <div class="pmain"><b>{{ c.member.name }}</b>{% if c.row and c.row.open %}<span class="chip chip-open">確認待ち</span>{% endif %}</div>
-        <div class="pcalc">{{ c.amount|intcomma }} − 35,000</div>
+        <div class="pcalc">{% if c.deduct %}{{ c.amount|intcomma }} − 35,000{% else %}{{ c.amount|intcomma }}（引かない）{% endif %}</div>
         <div class="pamt">{{ c.net|intcomma }}<small>円</small></div>
         {% if c.short %}<div class="pnote">交通費が35,000円より少ないので0円です</div>{% endif %}
         {% if c.row and c.row.issues %}<div class="pnote">⚠ {{ c.row.issues|join:" / " }}</div>{% endif %}
