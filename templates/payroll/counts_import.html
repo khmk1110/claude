@@ -48,6 +48,7 @@ document.querySelectorAll('form.card').forEach(function(f){f.addEventListener('s
 <div class="card">
   <p><b>{{ target|date:"Y年n月" }}の{{ kind_label }}</b>を読み取りました。対象者と件数を確認して「保存する」を押してください。</p>
   {% for w in plan.warnings %}<div class="notice">⚠️ {{ w }}</div>{% endfor %}
+  {% if plan.has_products %}<div class="notice info">ℹ️ LP・LP電気・奪回ガス・奪回電気のタブも読みました。「うち〜」の件数はそれぞれの商品として給与に入り、残りの件数がいつもの入金確定件数（堀田さんは訪問電気）になります。LPは給湯器 有＝風呂あり／無＝風呂なし。</div>{% endif %}
   {% if plan.text %}
   <details class="more" {% if not rows %}open{% endif %} style="margin-bottom:12px"><summary>読み取った文字を見る・直して読み直す</summary>
     <form method="post">{% csrf_token %}<input type="hidden" name="step" value="parse"><input type="hidden" name="kind" value="{{ plan.kind }}"><input type="hidden" name="month" value="{{ month_param }}">
@@ -74,7 +75,8 @@ document.querySelectorAll('form.card').forEach(function(f){f.addEventListener('s
           </select>
           {% if not r.member_id %}<label class="check small"><input type="checkbox" name="ignore_{{ r.i }}" value="1" {% if r.ignored %}checked{% endif %}> 次回も取り込まない</label>{% endif %}
           {% if r.method == "guess" and r.member_id %}<div><span class="badge-guess">推定</span> <span class="small muted">似た名前から選びました。違えば選び直してください</span></div>{% elif r.method == "ambiguous" %}<div class="small text-warn">同じ名前の人が複数います。選んでください</div>{% elif not r.member_id and not r.ignored %}<div class="small text-warn">誰か選んでください（選ぶと次回から自動）</div>{% endif %}</td>
-        <td class="num"><input name="count_{{ r.i }}" value="{{ r.count }}" inputmode="numeric" style="width:80px;text-align:right"></td>
+        <td class="num"><input name="count_{{ r.i }}" value="{{ r.count }}" inputmode="numeric" style="width:80px;text-align:right">
+          {% if r.products_text %}<div class="small prod-break">うち {{ r.products_text }}</div>{% endif %}</td>
         {% if plan.kind == "acquired" %}<td class="num {% if r.att_mismatch %}text-warn{% endif %}">{{ r.att|default_if_none:"-" }} ／ {{ r.sys_att|default_if_none:"-" }}</td>{% endif %}
         <td class="num">{{ r.existing|default_if_none:"-" }}</td>
         <td class="small muted">{{ r.note }}</td>

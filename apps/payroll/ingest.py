@@ -174,10 +174,16 @@ def parse_count_table(text: str) -> Parsed:
     「月合計」の行は全体の合計として、取り込んだ合計と一致するかの確認に使う。
     """
     p = Parsed()
-    for raw in (text or "").splitlines():
+    lines = (text or "").splitlines()
+    # 上に「シート別件数」などの別の表がある時は、「営業」の見出しの行から下だけを読む
+    head = next((i for i, raw in enumerate(lines) if re.match(r"^\s*営業[\t ,]", nfkc(raw))), None)
+    if head is not None:
+        lines = lines[head:]
+    for raw in lines:
         ln = nfkc(raw).strip()
         if not ln:
             continue
+        ln = re.sub(r"(?<![\d.])(\d+)\.0(?![\d])", r"\1", ln)  # Excelの「9.0」→「9」
         tokens = [t for t in re.split(r"[\t ,|｜]+", ln) if t]
         # 行末から続く数字の列（件数）と、その前の部分（名前）に分ける
         k = len(tokens)
@@ -519,3 +525,60 @@ def text_from_upload(f, kind: str = "confirmed", known: list[str] | None = None)
 
         return "\n".join(ocr.pdf_text_pages(data))
     return data.decode("utf-8-sig", "replace")
+
+
+# 入金確定シートの商品別のタブ → 給与の商品
+PRODUCT_SHEETS = (("LP電気", "propane_denki"), ("LP", "propane"), ("奪回ガス", "toshigas"), ("奪回電気", "toshigas_denki"))
+PRODUCT_LABELS = {"propane_bath": "LP（風呂あり）", "propane_nobath": "LP（風呂なし）", "propane_denki": "LP電気",
+                  "toshigas": "奪回ガス", "toshigas_denki": "奪回電気"}
+
+
+def parse_product_sheets(data: bytes):
+    """入金確定シート（Excel）の LP・LP電気・奪回ガス・奪回電気 のタブから、獲得者ごとの件数を数える。
+
+    LP は「給湯器」の列が 有＝風呂あり、無＝風呂なし。戻り値: ({獲得者名: {商品コード: 件数}}, 注意のリスト)
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    out: dict[str, dict[str, int]] = {}
+    warnings: list[str] = []
+    for ws in wb.worksheets:
+        title = (ws.title or "").strip()
+        code = next((c for prefix, c in PRODUCT_SHEETS if title.startswith(prefix)), None)
+        if not code:
+            continue
+        header, cols, n = None, {}, 0
+        for row in ws.iter_rows(values_only=True):
+            cells = ["" if v is None else str(v).strip() for v in row]
+            if header is None:
+                if "獲得者" in cells:
+                    header = cells
+                    cols = {"who": cells.index("獲得者"), "count": cells.index("件数") if "件数" in cells else None,
+                            "heater": cells.index("給湯器") if "給湯器" in cells else None}
+                continue
+            who = cells[cols["who"]] if cols["who"] < len(cells) else ""
+            if not who:
+                continue
+            k = 1
+            if cols["count"] is not None and cols["count"] < len(cells):
+                try:
+                    k = int(float(cells[cols["count"]] or 1))
+                except ValueError:
+                    k = 1
+            c = code
+            if code == "propane":
+                heater = cells[cols["heater"]] if cols["heater"] is not None and cols["heater"] < len(cells) else ""
+                if heater.startswith("有"):
+                    c = "propane_bath"
+                elif heater.startswith("無"):
+                    c = "propane_nobath"
+                else:
+                    c = "propane_nobath"
+                    warnings.append(f"「{title}」{who}さんの給湯器が「{heater or '空欄'}」なので風呂なしにしました。確認してください。")
+            out.setdefault(who, {})
+            out[who][c] = out[who].get(c, 0) + k
+            n += k
+        if header is None:
+            warnings.append(f"「{title}」のタブで「獲得者」の列が見つかりませんでした。")
+    return out, warnings

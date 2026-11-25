@@ -1589,7 +1589,8 @@ def _known_names():
     return active, aliases, known
 
 
-def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
+def build_counts_plan(kind: str, text: str, payroll_month: date, products: dict | None = None,
+                      product_warnings: list | None = None) -> dict:
     """読み取った文から、確認画面の内容（誰に何件か）を作る。名前は自動で照合し、OCRの1〜2文字違いも推定する。"""
     from apps.core.text import normalize_name
     from apps.members.models import MemberAlias
@@ -1641,8 +1642,32 @@ def build_counts_plan(kind: str, text: str, payroll_month: date) -> dict:
             taken.add(member_id)
         rows.append({"i": i, "name": e.name, "count": e.count, "att": e.attendance, "line": e.line, "note": note,
                      "member_id": member_id, "method": method, "ignored": is_ignored})
+    warnings = list(parsed.warnings) + list(product_warnings or [])
+    if products:
+        # 商品別のタブ（LP・LP電気・奪回ガス・奪回電気）の件数を、上の表の同じ人に付ける（名前の表記ゆれも推定）
+        cands = [(r["i"], r["name"]) for r in rows]
+        by_norm = {normalize_name(r["name"]): r for r in rows}
+        for who, counts in products.items():
+            r = by_norm.get(normalize_name(who))
+            if r is None:
+                idx = ingest.guess_member(who, cands, None)
+                r = next((x for x in rows if x["i"] == idx), None)
+            if r is None:
+                warnings.append(f"商品別のタブの「{who}」が上の表に見つかりません（{_product_text(counts)}）。")
+                continue
+            merged = dict(r.get("products") or {})
+            for c, n in counts.items():
+                merged[c] = merged.get(c, 0) + n
+            r["products"] = merged
+            r["products_text"] = _product_text(merged)
     return {"kind": kind, "month": target.isoformat(), "payroll_month": payroll_month.isoformat(),
-            "rows": rows, "total": parsed.total, "warnings": parsed.warnings, "text": text[:8000]}
+            "rows": rows, "total": parsed.total, "warnings": warnings, "text": text[:8000], "has_products": bool(products)}
+
+
+def _product_text(counts: dict) -> str:
+    from .ingest import PRODUCT_LABELS
+
+    return "・".join(f"{PRODUCT_LABELS.get(c, c)} {n}件" for c, n in counts.items() if n)
 
 
 def _start_counts_ocr(pk: int, payroll_month: date) -> None:
@@ -1687,25 +1712,49 @@ def _counts_ocr(pk: int, payroll_month: date) -> None:
 
 
 
-def sheet_text(url: str) -> str:
-    """リンク共有されたGoogleスプレッドシート（そのタブ）を、貼り付けた時と同じタブ区切りの文にする。"""
-    import csv
+def _sheet_id_gid(url):
     import urllib.parse
-    import urllib.request
 
     m = re.search(r"/spreadsheets/d/([A-Za-z0-9_\-]+)", url or "")
     if not m:
         raise ValueError("GoogleスプレッドシートのURLを入れてください。")
     q = urllib.parse.urlparse(url)
     gid = (urllib.parse.parse_qs(q.fragment).get("gid") or urllib.parse.parse_qs(q.query).get("gid") or ["0"])[0]
-    export = f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv&gid={gid}"
+    return m.group(1), gid
+
+
+def _fetch(export: str) -> bytes:
+    import urllib.request
+
     try:
-        with urllib.request.urlopen(export, timeout=20) as res:
-            data = res.read(5_000_000)
+        with urllib.request.urlopen(export, timeout=30) as res:
+            data = res.read(20_000_000)
     except Exception as e:  # noqa: BLE001
         raise ValueError("スプレッドシートを読み込めませんでした。共有を「リンクを知っている全員（閲覧者）」にしてください。") from e
-    if data[:200].lstrip().lower().startswith(b"<!doctype html") or b"<html" in data[:200].lower():
+    if b"<html" in data[:300].lower():
         raise ValueError("スプレッドシートを読み込めませんでした（ログインが必要な設定です）。共有を「リンクを知っている全員（閲覧者）」にしてください。")
+    return data
+
+
+def sheet_xlsx(url: str) -> bytes:
+    """スプレッドシート全体（全部のタブ）をExcelの形で読む。"""
+    sid, _ = _sheet_id_gid(url)
+    return _fetch(f"https://docs.google.com/spreadsheets/d/{sid}/export?format=xlsx")
+
+
+def _xlsx_summary_text(data: bytes) -> str:
+    """Excelの一番左のタブ（まとめの表）を、貼り付けた時と同じ文にする。"""
+    from apps.expenses.parsers import read_table_rows
+
+    return "\n".join("\t".join("" if c is None else str(c) for c in r) for r in read_table_rows(data, "xlsx"))
+
+
+def sheet_text(url: str) -> str:
+    """リンク共有されたGoogleスプレッドシート（そのタブ）を、貼り付けた時と同じタブ区切りの文にする。"""
+    import csv
+
+    sid, gid = _sheet_id_gid(url)
+    data = _fetch(f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}")
     rows = csv.reader(io.StringIO(data.decode("utf-8-sig", errors="replace")))
     return "\n".join("\t".join(c.strip() for c in r) for r in rows if any(c.strip() for c in r))
 
@@ -1769,9 +1818,18 @@ def counts_import(request):
                 _counts_ocr(ev.pk, payroll_month)
             return redirect(f"{back}&ev={ev.pk}")
         try:
+            products, pwarn = {}, []
             for x in files:
+                if kind == "confirmed" and x.name.lower().endswith(".xlsx"):
+                    data = x.read()
+                    x.seek(0)
+                    p_, w_ = ingest.parse_product_sheets(data)
+                    for who, c in p_.items():
+                        for k2, n2 in c.items():
+                            products.setdefault(who, {})[k2] = products.get(who, {}).get(k2, 0) + n2
+                    pwarn += w_
                 text = (text + "\n" if text else "") + ingest.text_from_upload(x, kind, _known_names()[2])
-            new_plan = build_counts_plan(kind, text, payroll_month)
+            new_plan = build_counts_plan(kind, text, payroll_month, products, pwarn)
         except Exception as e:  # noqa: BLE001
             messages.error(request, f"読み取れませんでした: {e}")
             return redirect(back)
@@ -1786,8 +1844,14 @@ def counts_import(request):
         key = f"counts_sheet_{kind}"
         url = (request.POST.get("url") or "").strip() or SiteSetting.get(key)
         try:
-            text = sheet_text(url)
-            new_plan = build_counts_plan(kind, text, payroll_month)
+            if kind == "confirmed":
+                data = sheet_xlsx(url)  # 全部のタブ（上の表＋LP・奪回など）を読む
+                products, pwarn = ingest.parse_product_sheets(data)
+                text = _xlsx_summary_text(data)
+                new_plan = build_counts_plan(kind, text, payroll_month, products, pwarn)
+            else:
+                text = sheet_text(url)
+                new_plan = build_counts_plan(kind, text, payroll_month)
         except ValueError as e:
             messages.error(request, str(e))
             return redirect(back)
@@ -1818,6 +1882,20 @@ def counts_import(request):
                     from apps.members.models import MemberAlias
 
                     MemberAlias.objects.get_or_create(member=m, alias=r["name"], defaults={"note": "営業件数の資料の表記"})
+                if kind == SalesCount.Kind.CONFIRMED and plan.get("has_products"):
+                    # LP・LP電気・奪回ガス・奪回電気は商品別の件数にして、上の表の合計からは引く（二重に払わない）
+                    prods = r.get("products") or {}
+                    for code in ingest.PRODUCT_LABELS:
+                        prod = Product.objects.filter(code=code).first()
+                        if not prod:
+                            continue
+                        n = prods.get(code, 0)
+                        if n:
+                            SalesCount.objects.update_or_create(member=m, month=target, kind=kind, product=prod,
+                                                                defaults={"count": n, "source": SalesCount.Source.IMPORT, "updated_by": request.user})
+                        else:
+                            SalesCount.objects.filter(member=m, month=target, kind=kind, product=prod, source=SalesCount.Source.IMPORT).delete()
+                    count = max(count - sum(prods.values()), 0)
                 # 商品別に計算する人（堀田さんなど）の入金確定件数は、入金確定シートの数＝訪問電気の件数として入れる
                 product = confirmed_product_for(m, target) if kind == SalesCount.Kind.CONFIRMED else None
                 row = SalesCount.objects.filter(member=m, month=target, kind=kind, product=product).first()

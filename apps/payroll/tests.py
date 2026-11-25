@@ -1198,8 +1198,8 @@ class ProductOrderTests(TableScreenshotTests):
     def test_propane_denki_comes_right_after_propane_nobath(self):
         from .models import PayrollItemDefinition
 
-        codes = list(PayrollItemDefinition.objects.filter(code__startswith="product_").order_by("display_order", "id")
-                     .values_list("code", flat=True))
+        codes = list(PayrollItemDefinition.objects.filter(code__startswith="product_", scope="member")
+                     .order_by("display_order", "id").values_list("code", flat=True))
         self.assertEqual(codes.index("product_propane_denki"), codes.index("product_propane_nobath") + 1)
 
 
@@ -1383,7 +1383,7 @@ class SheetImportTests(TableScreenshotTests):
         import io
         from unittest import mock
 
-        csv_bytes = "営業,9月,合計\n大石一郎,1,40\n吉野健太,0,30\n月合計,1,70\n".encode()
+        xlsx = _confirmed_workbook()
 
         class Res(io.BytesIO):
             def __enter__(self):
@@ -1393,13 +1393,14 @@ class SheetImportTests(TableScreenshotTests):
                 return False
 
         url = "https://docs.google.com/spreadsheets/d/AbC123_x/edit#gid=42"
-        with mock.patch("urllib.request.urlopen", return_value=Res(csv_bytes)) as op:
+        with mock.patch("urllib.request.urlopen", return_value=Res(xlsx)) as op:
             self.client.post("/payroll/counts/?month=2026-11", {"step": "sheet", "kind": "confirmed", "url": url, "month": "2026-11"})
-        self.assertIn("export?format=csv&gid=42", op.call_args[0][0])
+        self.assertIn("/d/AbC123_x/export?format=xlsx", op.call_args[0][0])  # 全部のタブを読む
         plan = self.client.session["counts_import"]
-        self.assertEqual({r["name"]: r["count"] for r in plan["rows"]}, {"大石一郎": 40, "吉野健太": 30})
+        self.assertEqual({r["name"]: r["count"] for r in plan["rows"]}, {"大石一郎": 40, "吉野健太": 12})
+        self.assertTrue(plan["has_products"])
         self.assertContains(self.client.get("/payroll/?month=2026-11&step=1"), "入金確定シートから読み込む")
-        with mock.patch("urllib.request.urlopen", return_value=Res(csv_bytes)):  # 2回目はリンクなしでボタンだけ
+        with mock.patch("urllib.request.urlopen", return_value=Res(xlsx)):  # 2回目はリンクなしでボタンだけ
             self.client.post("/payroll/counts/?month=2026-11", {"step": "sheet", "kind": "confirmed", "month": "2026-11"})
         self.assertTrue(self.client.session.get("counts_import"))
 
@@ -1418,3 +1419,72 @@ class SheetImportTests(TableScreenshotTests):
             r = self.client.post("/payroll/counts/?month=2026-11", {"step": "sheet", "kind": "confirmed", "month": "2026-11",
                                                                     "url": "https://docs.google.com/spreadsheets/d/X/edit"}, follow=True)
         self.assertContains(r, "リンクを知っている全員")
+
+
+def _confirmed_workbook():
+    """入金確定シートに似せたExcel（架空の名前）。一番左がまとめの表、ほかが商品別のタブ。"""
+    import io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "確認用"
+    for r in [["■ 営業別件数（全シート合算）"], ["営業", "9月", "合計"], ["大石一郎", 30, 40], ["吉野健太", 10, 12], ["月合計", 40, 52]]:
+        ws.append(r)
+    lp = wb.create_sheet("LP（10月）")
+    lp.append(["総契約件数：4件"])
+    lp.append([])
+    lp.append(["件数", "SW月", "memo", "新規", "支店", "営業所", "獲得者", "申込日", "", "", "", "", "", "ガス会社", "給湯器"])
+    lp.append([1, "", "", "", "", "", "大石一郎", "", "", "", "", "", "", "", "有"])
+    lp.append([1, "", "", "", "", "", "大石一郎", "", "", "", "", "", "", "", "無"])
+    lp.append([1, "", "", "", "", "", "吉野 健大", "", "", "", "", "", "", "", "有"])  # 表記ゆれ
+    lp.append([1, "", "", "", "", "", "吉野健太", "", "", "", "", "", "", "", "無"])
+    g = wb.create_sheet("奪回ガス（10月）")
+    g.append(["件数", "獲得者"])
+    for _ in range(3):
+        g.append([1, "大石一郎"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+class ProductSheetsImportTests(TableScreenshotTests):
+    def test_lp_and_dakkai_go_to_products_and_rest_to_base(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from .models import PayrollItemDefinition, Product
+
+        # 大石さん＝商品別に計算する人（堀田さんと同じ設定）
+        PayrollItemDefinition.objects.get(code="sales_commission").excluded_members.add(self.a)
+        for code in ("product_propane_bath", "product_propane_nobath", "product_toshigas", "product_houmon_denki"):
+            PayrollItemDefinition.objects.get(code=code).members.add(self.a)
+        x = SimpleUploadedFile("入金確定.xlsx", _confirmed_workbook(),
+                               content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.client.post("/payroll/counts/?month=2026-11", {"step": "parse", "kind": "confirmed", "file": x, "month": "2026-11"})
+        plan = self.client.session["counts_import"]
+        prods = {r["name"]: r.get("products") for r in plan["rows"]}
+        self.assertEqual(prods["大石一郎"], {"propane_bath": 1, "propane_nobath": 1, "toshigas": 3})
+        self.assertEqual(prods["吉野健太"], {"propane_bath": 1, "propane_nobath": 1})  # 「吉野 健大」も同じ人として数える
+        post = {"step": "apply", "month": "2026-11"}
+        for r in plan["rows"]:
+            post[f"member_{r['i']}"] = str(r["member_id"])
+            post[f"count_{r['i']}"] = str(r["count"])
+        self.client.post("/payroll/counts/?month=2026-11", post)
+
+        def cnt(m, code):
+            row = SalesCount.objects.filter(member=m, month=NOV, kind="confirmed", product__code=code).first() if code else \
+                SalesCount.objects.filter(member=m, month=NOV, kind="confirmed", product__isnull=True).first()
+            return row.count if row else None
+
+        self.assertEqual(cnt(self.a, "houmon_denki"), 40 - 5)  # 残りは訪問電気
+        self.assertEqual(cnt(self.a, "toshigas"), 3)
+        self.assertEqual(cnt(self.b, None), 12 - 2)  # ほかの人は残りが通常の入金確定件数
+        self.assertEqual(cnt(self.b, "propane_bath"), 1)
+        self.client.get("/payroll/?month=2026-11")
+        st_b = PayrollStatement.objects.get(member=self.b, month=NOV)
+        self.assertEqual(st_b.lines.get(code="product_propane_bath_std").amount, 30000)
+        self.assertEqual(st_b.lines.get(code="product_propane_nobath_std").amount, 20000)
+        st_a = PayrollStatement.objects.get(member=self.a, month=NOV)
+        self.assertFalse(st_a.lines.filter(code__endswith="_std").exists())  # 個人専用の単価の人は30,000/20,000を使わない
+        self.assertEqual(st_a.lines.get(code="product_propane_bath").unit_price, 35000)

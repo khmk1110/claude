@@ -193,6 +193,10 @@ def h_sales_commission(ctx: Ctx, item) -> list[LineSpec]:
 
 def h_product_commission(ctx: Ctx, item) -> list[LineSpec]:
     code = item.params.get("product")
+    if item.params.get("for_others") and PayrollItemDefinition.objects.filter(
+            is_active=True, scope=PayrollItemDefinition.Scope.MEMBER, method=item.method,
+            params__product=code, members=ctx.member).exists():
+        return []  # 個人専用の単価がある人（堀田さんなど）は、そちらで計算する
     count = product_count(ctx.member, ctx.month, code)
     if count is None:
         return []  # その月に件数の入力がない商材は行を作らない
