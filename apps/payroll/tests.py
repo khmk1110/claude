@@ -1507,3 +1507,27 @@ class ExpenseOnlyMonthTests(TableScreenshotTests):
         st = PayrollStatement.objects.get(member=self.c, month=NOV)
         self.assertEqual(st.lines.get(code="transport_contractor").amount, 52000 - 35000)
         self.assertEqual(st.net_amount, 52000 - 35000 - 4000)
+
+
+class LateExpenseAfterConfirmTests(TableScreenshotTests):
+    def test_expense_after_confirm_is_shown_and_reopen_recalcs(self):
+        from apps.expenses.models import ExpenseCategory
+
+        from .models import PayrollItemDefinition
+
+        PayrollItemDefinition.objects.filter(code="app_fee").update(is_active=False)
+        SalesCount.objects.create(member=self.c, month=NOV, kind="confirmed", count=0)
+        st = PayrollStatement.objects.create(member=self.c, month=NOV, employment_type="contractor")
+        calc.calculate(st)
+        PayrollStatement.objects.filter(pk=st.pk).update(checks={"leader": True, "gas": True, "deduct": True})
+        st.refresh_from_db()
+        calc.confirm(st)
+        cat = ExpenseCategory.objects.get(code="transport")
+        self.client.post("/expenses/line/", {"text": f"{self.c.name.replace(' ', '')} 50,000", "category": cat.pk,
+                                             "target_month": "2026-11"})
+        page = self.client.get("/payroll/?month=2026-11&step=3")
+        self.assertContains(page, "確定した後に経費")
+        self.client.post("/payroll/action/", {"month": "2026-11", "action": "reopen_late", "st": st.pk})
+        st.refresh_from_db()
+        self.assertFalse(st.is_confirmed)
+        self.assertEqual(st.lines.get(code="transport_contractor").amount, 15000)

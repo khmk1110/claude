@@ -449,8 +449,10 @@ def statement_check_items(st):
     return [{"key": k, "label": label, "hint": hints[k], "checked": bool(checks.get(k))} for k, label in STATEMENT_CHECKS]
 
 
-def _why_zero(st, open_count):
-    """支給額が0円以下の時、なぜそうなったかを短く出す（決まり通りか、承認待ちか）。"""
+def _why_zero(st, open_count, late=0):
+    """支給額が0円以下の時、なぜそうなったかを短く出す（決まり通りか、承認待ちか、確定した後に入れたか）。"""
+    if late:
+        return f"確定した後に経費 {late:,}円 が入りました（確定を取り消すと入ります）"
     if open_count:
         return f"確認待ちの経費 {open_count}件（② 経費で承認すると入ります）"
     if st.net_amount is None or st.net_amount > 0:
@@ -887,10 +889,12 @@ def month_home(request):
     sts = list(PayrollStatement.objects.filter(month=month).select_related("member").prefetch_related("lines", "inputs")
                .order_by("member__display_order", "member_id"))
     prev_net = dict(PayrollStatement.objects.filter(month=pm, status=S.CONFIRMED).values_list("member_id", "net_amount"))
-    open_by_member = {}
+    open_by_member, late_by_member = {}, {}
     for r in _month_expense_records(month):
         if r.status in OPEN_EXPENSE and r.effective_member:
             open_by_member[r.effective_member.pk] = open_by_member.get(r.effective_member.pk, 0) + 1
+        if r.status == "approved" and r.effective_member:  # 承認済みだが、まだどの確定明細にも入っていない
+            late_by_member[r.effective_member.pk] = late_by_member.get(r.effective_member.pk, 0) + (r.effective_amount or 0)
     rows = []
     for st in sts:
         lines = {l.code: l.amount for l in st.lines.all()}
@@ -917,7 +921,9 @@ def month_home(request):
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
                      "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns,
                      "chk_done": len([k for k, _ in STATEMENT_CHECKS if (st.checks or {}).get(k)]), "chk_total": len(STATEMENT_CHECKS),
-                     "why_zero": _why_zero(st, open_by_member.get(st.member_id, 0))})
+                     "late": late_by_member.get(st.member_id, 0) if st.is_confirmed else 0,
+                     "why_zero": _why_zero(st, open_by_member.get(st.member_id, 0),
+                                           late_by_member.get(st.member_id, 0) if st.is_confirmed else 0)})
     # 経費は給与の画面から扱う（給与のパスワードで守られている）
     exp = _expense_panels(month, members)
     open_recs = exp["open_total"]
@@ -966,6 +972,7 @@ def month_home(request):
     return render(request, "payroll/month_home.html", {
         **month_context(month), "prev": pm, "members": members, "acq": len(acq), "conf": len(conf), "rows": rows,
         "exp": exp, "open_recs": open_recs, "errors": errors, "nxt": nxt, "steps": steps, "cur": cur, "step": step, "need_acq": need_acq, "no_pay": no_pay,
+        "late_rows": [r for r in rows if r.get("late")],
         "sheet_confirmed": SiteSetting.get("counts_sheet_confirmed"), "cur_step": steps[step - 1], "next_step": steps[step] if step < 5 else None,
         "bulk": bulk, "rest": len(sts) - n_conf - len(bulk), "n_conf": n_conf, "pmonth": pmonth, "all_conf": all_conf,
         "pay_total": sum(st.net_amount or 0 for st in sts if (st.net_amount or 0) > 0),
@@ -1027,6 +1034,12 @@ def month_action(request):
         messages.success(request, f"{ok}人を確定しました。")
         if skipped:
             messages.warning(request, f"確認が必要なので確定していません：{'、'.join(skipped)}（1人ずつ確認から）")
+    elif action == "reopen_late":
+        # 確定した後に経費が入った人：確定を取り消して計算し直す（もう一度確定する）
+        st = get_object_or_404(PayrollStatement, pk=request.POST.get("st"), month=month)
+        calc.reopen(st, user=request.user, reason="確定した後に経費が入ったため取り消して計算し直し")
+        calc.calculate(st, user=request.user, log=False)
+        messages.success(request, f"{st.member.name}さんの確定を取り消して計算し直しました。内容を見てもう一度確定してください。")
     elif action in ("mark_review_sent", "mark_slips_sent"):
         from django.utils import timezone
 

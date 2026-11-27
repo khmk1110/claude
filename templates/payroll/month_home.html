@@ -43,6 +43,10 @@
   <h2 class="wiz-title">代表に確認してもらう</h2>
   <div class="wiz-total"><span>支払い合計</span><b>{{ pay_total|intcomma }}<small>円</small></b><span class="small muted">{{ rows|length }}人・自動で計算済み</span></div>
   {% if errors %}<div class="notice">⚠️ 入力が足りない人が {{ errors }}人 います。下の名前を押して直してください。</div>{% endif %}
+  {% for r in late_rows %}<div class="notice notice-fix"><span>⚠️ <b>{{ r.st.member.name }}</b>：確定した後に経費 {{ r.late|floatformat:0 }}円 が入りました。</span>
+    <form method="post" action="{% url 'payroll:month_action' %}">{% csrf_token %}<input type="hidden" name="month" value="{{ month_param }}">
+      <input type="hidden" name="action" value="reopen_late"><input type="hidden" name="st" value="{{ r.st.pk }}"><input type="hidden" name="next" value="/payroll/?month={{ month_param }}&step=3">
+      <button class="btn btn-sm btn-primary" type="submit">取り消して入れ直す</button></form></div>{% endfor %}
   <ul class="wiz-people">
     {% for r in rows %}<li><a href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">
       <span class="n">{{ r.st.member.name }}{% if r.why_zero %}<span class="why-zero">{{ r.why_zero }}</span>{% endif %}</span>
