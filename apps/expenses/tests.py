@@ -84,7 +84,9 @@ class ImporterTests(TestCase):
         # 同じファイルは二重に取り込まない
         with self.assertRaises(importer.DuplicateFile):
             importer.import_file(pdf, "invoice_copy.pdf", user=self.user)
-        # 給与計算に反映（個人事業主は −35,000円、インターンはそのまま）
+        # 給与計算に反映（個人事業主は −35,000円、インターンはそのまま）。−35,000円は契約の報酬がある月だけ
+        from apps.payroll.models import SalesCount
+        SalesCount.objects.create(member=self.c, month=date(2026, 10, 1), kind="confirmed", count=3)
         calc.prepare_month(date(2026, 10, 1))
         st = PayrollStatement.objects.get(member=self.c, month=date(2026, 10, 1))
         st = calc.calculate(st)

@@ -59,6 +59,11 @@ def is_product_member(member) -> bool:
     return bool(item and item.excluded_members.filter(pk=member.pk).exists())
 
 
+def has_sales(member, month) -> bool:
+    """その月に契約（入金確定）の報酬があるか。ない月は交通費・経費だけの明細になる。"""
+    return SalesCount.objects.filter(member=member, month=month, kind=SalesCount.Kind.CONFIRMED, count__gt=0).exists()
+
+
 def sales_total(member, month, kind) -> int | None:
     """件数の合計。未入力なら None。
 
@@ -241,6 +246,8 @@ def h_expense_sum(ctx: Ctx, item) -> list[LineSpec]:
     subtract = int(item.params.get("subtract") or 0)
     if ctx.member.pk in (item.params.get("no_subtract_members") or []):
         subtract = 0  # 設定で「交通費から引かない」にした人
+    if not has_sales(ctx.member, ctx.month):
+        subtract = 0  # 契約の報酬がない月（交通費・経費だけ払う月）は引かない
     if subtract:
         amount = max(total - subtract, 0)
         if total and total < subtract:
@@ -438,7 +445,11 @@ def refresh_month(month: date, *, user=None) -> int:
     確定済みの給与は変えない。
     """
     month = month_start(month)
+    from apps.expenses.models import ExpenseRecord
+
     started = (PayrollStatement.objects.filter(month=month).exists()
+               or ExpenseRecord.objects.filter(Q(target_month=month) | Q(target_month__isnull=True, auto_target_month=month),
+                                               status__in=["approved", "reflected"]).exists()
                or SalesCount.objects.filter(month=month, kind=SalesCount.Kind.CONFIRMED).exists()
                or SalesCount.objects.filter(month=prev_month(month), kind=SalesCount.Kind.ACQUIRED).exists())
     if not started:
@@ -495,9 +506,12 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
 
     specs: list[LineSpec] = []
     items = PayrollItemDefinition.objects.filter(is_active=True).prefetch_related("members", "excluded_members")
+    sales_month = has_sales(member, month)
     for item in items:
         if not item.applies_to(member, month):
             continue
+        if item.code == "app_fee" and not sales_month:
+            continue  # 契約の報酬がない月（交通費・経費だけ）はアプリ手数料を引かない
         for spec in HANDLERS[item.method](ctx, item):
             spec.always_show = bool(item.params.get("always_show"))
             spec.show_on_slip = item.show_on_slip

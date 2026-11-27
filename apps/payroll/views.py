@@ -367,7 +367,7 @@ def expenses_fix(request):
                     changed += 1
                 except (ValueError, KeyError, importer.RecordLocked) as e:
                     errors.append(f"追加: {e}")
-            if group == "other" and request.POST.get("then") != "approve":
+            if request.POST.get("then") != "approve":
                 # その他の経費は自分で入れたものなので、保存したらそのまま給与に入れる
                 importer.auto_approve_added([r for r in _group_records(month, group)], user=request.user)
             if request.POST.get("then") == "approve" and not errors:
@@ -859,7 +859,7 @@ def month_home(request):
     from apps.expenses import importer as _imp
 
     # 自分で追加したその他の経費（確認待ちのまま残っているもの）は承認し、承認・追加された経費は開いた時に自動で計算に入れる
-    _imp.auto_approve_added([r for r in _month_expense_records(month, exclude_codes={"gasoline", "transport"}) if r.status in OPEN_EXPENSE],
+    _imp.auto_approve_added([r for r in _month_expense_records(month) if r.status in OPEN_EXPENSE],
                             user=request.user)
     calc.refresh_month(month, user=request.user)  # 件数・経費・勤怠が変わった人は自動で計算し直す
     members = list(calc.paid_members(month))  # その月に給与が出る人だけ（入りたてなど何もない人は出さない）

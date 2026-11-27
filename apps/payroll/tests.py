@@ -228,6 +228,7 @@ class CalcTests(TestCase):
             ExpenseRecord.objects.create(source_file=sf, row_number=4, auto_member=self.c, auto_category=cat,
                                          auto_amount=99999, status="pending", dedupe_key="4"),  # 未承認は反映しない
         ]
+        count(self.c, NOV, CONF, 1)  # 契約の報酬がある月だけ35,000円を引く
         st = self.statement(self.c)
         calc.set_input_override(st, "prev_attendance_days", 20, reason="r")
         calc.set_input_override(st, "prev_acquired_count", 10, reason="r")
@@ -599,7 +600,8 @@ class MultiScreenshotAndExpensesInPayrollTests(TableScreenshotTests):
         rec = ExpenseRecord.objects.get()
         self.assertEqual(rec.effective_amount, 82049)
         page = self.client.get("/payroll/?month=2026-11&step=2")
-        self.assertContains(page, "まとめて承認（1件）")
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, "approved")  # 文で入れたガソリン代は自分で入れたものなので、そのまま承認
         self.assertContains(page, "82,049")
         self.client.post("/payroll/expenses/approve-all/", {"month": "2026-11", "group": "gasoline"})
         rec.refresh_from_db()
@@ -804,6 +806,7 @@ class IssuerAndSlipOrderTests(TableScreenshotTests):
         self.client.post("/settings/", {"action": "issuer", "issuer_company": "架空株式会社", "issuer_representative": "山田 太郎",
                                      "issuer_address": "東京都架空区1-2-3", "issuer_tel": "000-0000-0000"})
         self.assertEqual(SiteSetting.get("issuer_representative"), "山田 太郎")
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=5)
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
         st = PayrollStatement.objects.filter(month=NOV, member=self.a).first()
         self.assertIsNotNone(st)  # 「全員を計算し直す」で、まだない人の分も作られる
@@ -1148,6 +1151,7 @@ class TransportNoSubtractTests(TableScreenshotTests):
         cat = ExpenseCategory.objects.get(code="transport")
         importer.import_line_text(f"{self.a.name.replace(' ', '')} 50,000", category=cat, target_month=NOV)
         importer.approve(list(ExpenseRecord.objects.filter(auto_member=self.a)), confirm_soft_issues=True)
+        SalesCount.objects.create(member=self.a, month=NOV, kind="confirmed", count=5)
         self.client.post("/payroll/action/", {"month": "2026-11", "action": "calculate_all"})
         st = PayrollStatement.objects.get(member=self.a, month=NOV)
         self.assertEqual(st.lines.get(code="transport_contractor").amount, 15000)
@@ -1488,3 +1492,19 @@ class ProductSheetsImportTests(TableScreenshotTests):
         st_a = PayrollStatement.objects.get(member=self.a, month=NOV)
         self.assertFalse(st_a.lines.filter(code__endswith="_std").exists())  # 個人専用の単価の人は30,000/20,000を使わない
         self.assertEqual(st_a.lines.get(code="product_propane_bath").unit_price, 35000)
+
+
+class ExpenseOnlyMonthTests(TableScreenshotTests):
+    """契約の報酬がない月（交通費・経費だけ）は、交通費から35,000円を引かず、アプリ手数料も引かない。"""
+
+    def test_transport_only_member_gets_full_transport(self):
+        from apps.expenses.models import ExpenseCategory
+
+        cat = ExpenseCategory.objects.get(code="transport")
+        self.client.post("/expenses/line/", {"text": f"{self.c.name.replace(' ', '')} 12,000", "category": cat.pk,
+                                             "target_month": "2026-11"})
+        self.client.get("/payroll/?month=2026-11")
+        st = PayrollStatement.objects.get(member=self.c, month=NOV)
+        self.assertEqual(st.lines.get(code="transport_contractor").amount, 12000)
+        self.assertFalse(st.lines.filter(code="app_fee").exists())
+        self.assertEqual(st.net_amount, 12000)

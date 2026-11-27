@@ -779,9 +779,13 @@ def auto_approve_added(records, *, user=None) -> int:
     ガソリン代・交通費は資料から自動で読むため、確認してから承認する（ここでは承認しない）。
     誰の分か・金額が決まっていないものは承認せず「確認待ち」に残す。
     """
+    def typed_by_hand(r):  # 文で入力・手入力（資料の読み取りではない）
+        sf = r.source_file
+        return bool(sf and (sf.parser == "line_text" or sf.file_format == SourceFile.Format.MANUAL))
+
     targets = [r for r in records if r.status in (R.IMPORTED, R.UNCHECKED, R.PENDING, R.MODIFIED)
                and r.effective_member and r.effective_amount is not None
-               and not (r.effective_category and r.effective_category.code in AUTO_APPROVE_EXCLUDE)]
+               and (typed_by_hand(r) or not (r.effective_category and r.effective_category.code in AUTO_APPROVE_EXCLUDE))]
     if not targets:
         return 0
     with transaction.atomic():
