@@ -246,8 +246,6 @@ def h_expense_sum(ctx: Ctx, item) -> list[LineSpec]:
     subtract = int(item.params.get("subtract") or 0)
     if ctx.member.pk in (item.params.get("no_subtract_members") or []):
         subtract = 0  # 設定で「交通費から引かない」にした人
-    if not has_sales(ctx.member, ctx.month):
-        subtract = 0  # 契約の報酬がない月（交通費・経費だけ払う月）は引かない
     if subtract:
         amount = max(total - subtract, 0)
         if total and total < subtract:
@@ -506,12 +504,9 @@ def calculate(st: PayrollStatement, *, user=None, log: bool = True) -> PayrollSt
 
     specs: list[LineSpec] = []
     items = PayrollItemDefinition.objects.filter(is_active=True).prefetch_related("members", "excluded_members")
-    sales_month = has_sales(member, month)
     for item in items:
         if not item.applies_to(member, month):
             continue
-        if item.code == "app_fee" and not sales_month:
-            continue  # 契約の報酬がない月（交通費・経費だけ）はアプリ手数料を引かない
         for spec in HANDLERS[item.method](ctx, item):
             spec.always_show = bool(item.params.get("always_show"))
             spec.show_on_slip = item.show_on_slip

@@ -449,6 +449,21 @@ def statement_check_items(st):
     return [{"key": k, "label": label, "hint": hints[k], "checked": bool(checks.get(k))} for k, label in STATEMENT_CHECKS]
 
 
+def _why_zero(st, open_count):
+    """支給額が0円以下の時、なぜそうなったかを短く出す（決まり通りか、承認待ちか）。"""
+    if open_count:
+        return f"確認待ちの経費 {open_count}件（② 経費で承認すると入ります）"
+    if st.net_amount is None or st.net_amount > 0:
+        return ""
+    lines = {l.code: l for l in st.lines.all()}
+    tr = lines.get("transport_contractor")
+    if tr and not tr.amount and tr.detail:
+        return f"交通費 {tr.detail}＝0円（35,000円以下）"
+    if not any(l.amount for l in lines.values() if l.kind == "earning"):
+        return "支給する項目がありません（件数・経費が入っていません）"
+    return "差し引きが支給より多いため0円以下"
+
+
 def confirm_checks(st):
     """確定する前のチェック。(止める理由, 確認が必要な注意) を返す。"""
     from django.db.models import Q
@@ -872,6 +887,10 @@ def month_home(request):
     sts = list(PayrollStatement.objects.filter(month=month).select_related("member").prefetch_related("lines", "inputs")
                .order_by("member__display_order", "member_id"))
     prev_net = dict(PayrollStatement.objects.filter(month=pm, status=S.CONFIRMED).values_list("member_id", "net_amount"))
+    open_by_member = {}
+    for r in _month_expense_records(month):
+        if r.status in OPEN_EXPENSE and r.effective_member:
+            open_by_member[r.effective_member.pk] = open_by_member.get(r.effective_member.pk, 0) + 1
     rows = []
     for st in sts:
         lines = {l.code: l.amount for l in st.lines.all()}
@@ -897,7 +916,8 @@ def month_home(request):
         rows.append({"st": st, "slip": slip, "unit": inputs.get("unit_price"), "conf": inputs.get("confirmed_count"),
                      "commission": commission, "transport": lines.get("transport_contractor", lines.get("transport_intern", 0)),
                      "gas": lines.get("gasoline", 0), "errors": notes, "warns": warns,
-                     "chk_done": len([k for k, _ in STATEMENT_CHECKS if (st.checks or {}).get(k)]), "chk_total": len(STATEMENT_CHECKS)})
+                     "chk_done": len([k for k, _ in STATEMENT_CHECKS if (st.checks or {}).get(k)]), "chk_total": len(STATEMENT_CHECKS),
+                     "why_zero": _why_zero(st, open_by_member.get(st.member_id, 0))})
     # 経費は給与の画面から扱う（給与のパスワードで守られている）
     exp = _expense_panels(month, members)
     open_recs = exp["open_total"]

@@ -45,7 +45,7 @@
   {% if errors %}<div class="notice">⚠️ 入力が足りない人が {{ errors }}人 います。下の名前を押して直してください。</div>{% endif %}
   <ul class="wiz-people">
     {% for r in rows %}<li><a href="{% url 'payroll:review' %}?month={{ month_param }}&st={{ r.st.pk }}">
-      <span class="n">{{ r.st.member.name }}</span>
+      <span class="n">{{ r.st.member.name }}{% if r.why_zero %}<span class="why-zero">{{ r.why_zero }}</span>{% endif %}</span>
       {% if r.errors %}<span class="chip chip-warn">要入力</span>{% elif r.st.is_confirmed %}<span class="chip chip-ok">確定</span>{% endif %}
       <span class="a {% if r.st.net_amount is not None and r.st.net_amount <= 0 %}muted{% endif %}">{{ r.st.net_amount|default_if_none:"-"|intcomma }}円</span><span class="chev">›</span></a></li>
     {% empty %}<li class="muted">件数を入れると、ここに全員の金額が並びます。</li>{% endfor %}

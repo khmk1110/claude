@@ -1495,16 +1495,15 @@ class ProductSheetsImportTests(TableScreenshotTests):
 
 
 class ExpenseOnlyMonthTests(TableScreenshotTests):
-    """契約の報酬がない月（交通費・経費だけ）は、交通費から35,000円を引かず、アプリ手数料も引かない。"""
+    """契約の報酬がない月（交通費・経費だけ）も明細を作る。個人事業主は35,000円・アプリ手数料を引く決まり。"""
 
-    def test_transport_only_member_gets_full_transport(self):
+    def test_transport_only_member_gets_statement_with_rule(self):
         from apps.expenses.models import ExpenseCategory
 
         cat = ExpenseCategory.objects.get(code="transport")
-        self.client.post("/expenses/line/", {"text": f"{self.c.name.replace(' ', '')} 12,000", "category": cat.pk,
+        self.client.post("/expenses/line/", {"text": f"{self.c.name.replace(' ', '')} 52,000", "category": cat.pk,
                                              "target_month": "2026-11"})
         self.client.get("/payroll/?month=2026-11")
         st = PayrollStatement.objects.get(member=self.c, month=NOV)
-        self.assertEqual(st.lines.get(code="transport_contractor").amount, 12000)
-        self.assertFalse(st.lines.filter(code="app_fee").exists())
-        self.assertEqual(st.net_amount, 12000)
+        self.assertEqual(st.lines.get(code="transport_contractor").amount, 52000 - 35000)
+        self.assertEqual(st.net_amount, 52000 - 35000 - 4000)
